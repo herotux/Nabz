@@ -2,12 +2,21 @@ pub mod hardware;
 pub mod business;
 
 use chrono::{Datelike, Local};
-use eframe::egui::{self, Align, Color32, FontData, FontDefinitions, FontFamily, Frame, Layout, RichText, Stroke, Vec2};
+use eframe::egui::{self, Align, Color32, FontData, FontDefinitions, FontFamily, Frame, Layout, RichText as EguiRichText, Stroke, Vec2};
 use rusqlite::{params, Connection};
 use std::{path::PathBuf, time::Duration};
 
 const APP_NAME: &str = "نبض | حسابداری شخصی";
-const FONT: &[u8] = include_bytes!("../assets/NotoSansArabic-Regular.ttf");
+const FONT: &[u8] = include_bytes!("../assets/Vazirmatn.ttf");
+// egui does not shape Persian/Arabic text or consistently order RTL runs.
+// Keep application strings in logical Unicode order and reshape only for display.
+struct RichText;
+impl RichText {
+    fn new(text: impl ToString) -> EguiRichText {
+        EguiRichText::new(fa_shaper::reshape(&text.to_string()))
+    }
+}
+
 
 #[derive(Clone, Debug)]
 struct Transaction {
@@ -263,7 +272,7 @@ impl eframe::App for NabzApp {
                             .size(13.0)
                             .color(Color32::from_rgb(196, 210, 233)),
                         );
-                        if ui.button("چاپگر و بارکد").clicked() {
+                        if ui.button(RichText::new("چاپگر و بارکد")).clicked() {
                             self.hardware_printers = hardware::list_printers().unwrap_or_default();
                             if self.hardware_printer.is_empty() {
                                 self.hardware_printer = self.hardware_printers.iter()
@@ -272,7 +281,7 @@ impl eframe::App for NabzApp {
                             }
                             self.show_hardware = true;
                         }
-                        if ui.button("فروشگاه").clicked() {
+                        if ui.button(RichText::new("فروشگاه")).clicked() {
                             if let Err(e) = self.refresh_business_products() {
                                 self.business_status = format!("خواندن کالاها ناموفق بود: {e}");
                             }
@@ -321,7 +330,7 @@ impl eframe::App for NabzApp {
                                 .inner_margin(16.0)
                                 .show(ui, |ui| {
                                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
-                                        ui.label("نوع تراکنش");
+                                        ui.label(RichText::new("نوع تراکنش"));
                                         ui.horizontal(|ui| {
                                             if ui.selectable_label(self.kind == 1, "هزینه").clicked() {
                                                 self.kind = 1;
@@ -330,16 +339,16 @@ impl eframe::App for NabzApp {
                                                 self.kind = 0;
                                             }
                                         });
-                                        ui.label("مبلغ (تومان)");
+                                        ui.label(RichText::new("مبلغ (تومان)"));
                                         ui.add(
                                             egui::TextEdit::singleline(&mut self.amount)
                                                 .id(egui::Id::new("transaction_amount"))
-                                                .hint_text("مثلاً ۲۵۰۰۰۰")
+                                                .hint_text(RichText::new("مثلاً ۲۵۰۰۰۰"))
                                                 .desired_width(f32::INFINITY),
                                         );
-                                        ui.label("دسته‌بندی");
+                                        ui.label(RichText::new("دسته‌بندی"));
                                         egui::ComboBox::from_id_salt("category")
-                                            .selected_text(&self.category)
+                                            .selected_text(RichText::new(&self.category))
                                             .width(ui.available_width())
                                             .show_ui(ui, |ui| {
                                                 for c in [
@@ -354,14 +363,14 @@ impl eframe::App for NabzApp {
                                                     );
                                                 }
                                             });
-                                        ui.label("تاریخ شمسی");
+                                        ui.label(RichText::new("تاریخ شمسی"));
                                         ui.horizontal(|ui| {
                                             ui.add(
                                                 egui::TextEdit::singleline(&mut self.date)
-                                                    .hint_text("۱۴۰۵/۰۷/۰۲")
+                                                    .hint_text(RichText::new("۱۴۰۵/۰۷/۰۲"))
                                                     .desired_width(ui.available_width() - 42.0),
                                             );
-                                            if ui.button("📅").on_hover_text("باز کردن تاریخ‌گزین شمسی").clicked() {
+                                            if ui.button(RichText::new("📅")).on_hover_text(RichText::new("باز کردن تاریخ‌گزین شمسی")).clicked() {
                                                 let normalized: String = self.date.chars().map(normalize_digit).collect();
                                                 let parts: Vec<&str> = normalized.split('/').collect();
                                                 if parts.len() == 3 {
@@ -371,10 +380,10 @@ impl eframe::App for NabzApp {
                                                 self.show_date_picker = true;
                                             }
                                         });
-                                        ui.label("یادداشت (اختیاری)");
+                                        ui.label(RichText::new("یادداشت (اختیاری)"));
                                         ui.add(
                                             egui::TextEdit::multiline(&mut self.note)
-                                                .hint_text("توضیح کوتاه...")
+                                                .hint_text(RichText::new("توضیح کوتاه..."))
                                                 .desired_rows(2)
                                                 .desired_width(f32::INFINITY),
                                         );
@@ -404,7 +413,7 @@ impl eframe::App for NabzApp {
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.search)
                                         .id(egui::Id::new("transaction_search"))
-                                        .hint_text("جست‌وجوی شرح یا دسته‌بندی")
+                                        .hint_text(RichText::new("جست‌وجوی شرح یا دسته‌بندی"))
                                         .desired_width(ui.available_width() - 100.0),
                                 );
                                 panel_title(ui, "تراکنش‌ها");
@@ -434,14 +443,14 @@ impl eframe::App for NabzApp {
                                             if filtered.is_empty() {
                                                 ui.vertical_centered(|ui| {
                                                     ui.add_space(36.0);
-                                                    ui.label("هنوز تراکنشی ثبت نشده");
-                                                    ui.label("از فرم کنار صفحه اولین درآمد یا هزینه‌ات را ثبت کن.");
+                                                    ui.label(RichText::new("هنوز تراکنشی ثبت نشده"));
+                                                    ui.label(RichText::new("از فرم کنار صفحه اولین درآمد یا هزینه‌ات را ثبت کن."));
                                                     ui.add_space(36.0);
                                                 });
                                             } else {
                                                 for t in filtered {
                                                     ui.horizontal(|ui| {
-                                                        if ui.small_button("حذف").clicked() {
+                                                        if ui.small_button(RichText::new("حذف")).clicked() {
                                                             self.show_delete = Some(t.id);
                                                         }
                                                         ui.with_layout(
@@ -491,7 +500,7 @@ impl eframe::App for NabzApp {
                     });
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("میان‌برها: Ctrl+Enter ثبت • Ctrl+F جست‌وجو • Ctrl+N فرم جدید • F1 راهنما").size(11.0).color(Color32::from_rgb(100, 110, 125)));
-                        if ui.small_button("راهنمای کلیدها").clicked() { self.show_shortcuts = true; }
+                        if ui.small_button(RichText::new("راهنمای کلیدها")).clicked() { self.show_shortcuts = true; }
                     });
                     ui.label(
                         RichText::new("نبض • نسخهٔ آغازین ۰٫۱ • داده‌ها روی دستگاه شما می‌مانند")
@@ -502,38 +511,38 @@ impl eframe::App for NabzApp {
             });
 
         if self.show_shortcuts {
-            egui::Window::new("راهنمای میان‌برهای نبض")
+            egui::Window::new(RichText::new("راهنمای میان‌برهای نبض"))
                 .open(&mut self.show_shortcuts)
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
                     egui::Grid::new("shortcut_help_grid").striped(true).show(ui, |ui| {
                         ui.label(RichText::new("کلید").strong()); ui.label(RichText::new("عملکرد").strong()); ui.end_row();
-                        ui.label("Ctrl + Enter"); ui.label("ثبت درآمد یا هزینه"); ui.end_row();
-                        ui.label("Ctrl + N"); ui.label("شروع فرم ثبت جدید و رفتن به فیلد مبلغ"); ui.end_row();
-                        ui.label("Ctrl + F"); ui.label("رفتن به جست‌وجوی تراکنش‌ها"); ui.end_row();
-                        ui.label("F1 یا Ctrl + /"); ui.label("نمایش یا بستن همین راهنما"); ui.end_row();
-                        ui.label("دکمهٔ 📅"); ui.label("باز کردن تاریخ‌گزین شمسی"); ui.end_row();
+                        ui.label(RichText::new("Ctrl + Enter")); ui.label(RichText::new("ثبت درآمد یا هزینه")); ui.end_row();
+                        ui.label(RichText::new("Ctrl + N")); ui.label(RichText::new("شروع فرم ثبت جدید و رفتن به فیلد مبلغ")); ui.end_row();
+                        ui.label(RichText::new("Ctrl + F")); ui.label(RichText::new("رفتن به جست‌وجوی تراکنش‌ها")); ui.end_row();
+                        ui.label(RichText::new("F1 یا Ctrl + /")); ui.label(RichText::new("نمایش یا بستن همین راهنما")); ui.end_row();
+                        ui.label(RichText::new("دکمهٔ 📅")); ui.label(RichText::new("باز کردن تاریخ‌گزین شمسی")); ui.end_row();
                     });
                     ui.add_space(6.0);
-                    ui.label("هنگام تایپ داخل بعضی فیلدها، ممکن است سیستم‌عامل یا ابزار ورودی کلیدهای میان‌بر را زودتر دریافت کند.");
+                    ui.label(RichText::new("هنگام تایپ داخل بعضی فیلدها، ممکن است سیستم‌عامل یا ابزار ورودی کلیدهای میان‌بر را زودتر دریافت کند."));
                 });
         }
 
         if self.show_date_picker {
             let mut close_picker = false;
-            egui::Window::new("انتخاب تاریخ شمسی")
+            egui::Window::new(RichText::new("انتخاب تاریخ شمسی"))
                 .open(&mut self.show_date_picker)
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.button("ماه بعد ←").clicked() {
+                        if ui.button(RichText::new("ماه بعد ←")).clicked() {
                             self.picker_month += 1;
                             if self.picker_month > 12 { self.picker_month = 1; self.picker_year += 1; }
                         }
                         ui.label(RichText::new(format!("{} {}", persian_digits(&self.picker_year.to_string()), jalali_month_name(self.picker_month))).strong().size(16.0));
-                        if ui.button("→ ماه قبل").clicked() {
+                        if ui.button(RichText::new("→ ماه قبل")).clicked() {
                             self.picker_month -= 1;
                             if self.picker_month < 1 { self.picker_month = 12; self.picker_year -= 1; }
                         }
@@ -547,10 +556,10 @@ impl eframe::App for NabzApp {
                         let first_offset = jalali_weekday_offset(self.picker_year, self.picker_month);
                         for cell in 0..(first_offset + days + 6) / 7 * 7 {
                             if cell < first_offset || cell >= first_offset + days {
-                                ui.label(" ");
+                                ui.label(RichText::new(" "));
                             } else {
                                 let day = cell - first_offset + 1;
-                                if ui.button(persian_digits(&day.to_string())).clicked() {
+                                if ui.button(RichText::new(persian_digits(&day.to_string()))).clicked() {
                                     self.date = persian_digits(&format!("{:04}/{:02}/{:02}", self.picker_year, self.picker_month, day));
                                     close_picker = true;
                                 }
@@ -560,22 +569,22 @@ impl eframe::App for NabzApp {
                     });
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if ui.button("امروز").clicked() { self.date = today_jalali(); close_picker = true; }
-                        if ui.button("بستن").clicked() { close_picker = true; }
+                        if ui.button(RichText::new("امروز")).clicked() { self.date = today_jalali(); close_picker = true; }
+                        if ui.button(RichText::new("بستن")).clicked() { close_picker = true; }
                     });
                 });
             if close_picker { self.show_date_picker = false; }
         }
 
         if let Some(id) = self.show_delete {
-            egui::Window::new("حذف تراکنش؟")
+            egui::Window::new(RichText::new("حذف تراکنش؟"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
                 .show(ctx, |ui| {
-                    ui.label("این تراکنش برای همیشه از پایگاه داده محلی حذف می‌شود.");
+                    ui.label(RichText::new("این تراکنش برای همیشه از پایگاه داده محلی حذف می‌شود."));
                     ui.horizontal(|ui| {
-                        if ui.button("انصراف").clicked() {
+                        if ui.button(RichText::new("انصراف")).clicked() {
                             self.show_delete = None;
                         }
                         if ui.button(RichText::new("حذف کن").color(Color32::RED)).clicked() {
@@ -586,23 +595,23 @@ impl eframe::App for NabzApp {
         }
         if self.show_business {
             let mut show_business = self.show_business;
-            egui::Window::new("فروش و انبار کالا")
+            egui::Window::new(RichText::new("فروش و انبار کالا"))
                 .open(&mut show_business)
                 .default_width(680.0)
                 .default_height(620.0)
                 .vscroll(true)
                 .show(ctx, |ui| {
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
-                        ui.heading("ثبت کالای جدید");
+                        ui.heading(RichText::new("ثبت کالای جدید"));
                         egui::Grid::new("product_entry_grid").num_columns(2).spacing(Vec2::new(8.0, 5.0)).show(ui, |ui| {
-                            ui.label("نام کالا"); ui.text_edit_singleline(&mut self.product_name); ui.end_row();
-                            ui.label("شناسه داخلی (SKU)"); ui.text_edit_singleline(&mut self.product_sku); ui.end_row();
-                            ui.label("بارکد"); ui.text_edit_singleline(&mut self.product_barcode); ui.end_row();
-                            ui.label("قیمت خرید (تومان)"); ui.text_edit_singleline(&mut self.product_purchase_price); ui.end_row();
-                            ui.label("قیمت فروش (تومان)"); ui.text_edit_singleline(&mut self.product_sale_price); ui.end_row();
-                            ui.label("موجودی اولیه"); ui.text_edit_singleline(&mut self.product_stock); ui.end_row();
+                            ui.label(RichText::new("نام کالا")); ui.text_edit_singleline(&mut self.product_name); ui.end_row();
+                            ui.label(RichText::new("شناسه داخلی (SKU)")); ui.text_edit_singleline(&mut self.product_sku); ui.end_row();
+                            ui.label(RichText::new("بارکد")); ui.text_edit_singleline(&mut self.product_barcode); ui.end_row();
+                            ui.label(RichText::new("قیمت خرید (تومان)")); ui.text_edit_singleline(&mut self.product_purchase_price); ui.end_row();
+                            ui.label(RichText::new("قیمت فروش (تومان)")); ui.text_edit_singleline(&mut self.product_sale_price); ui.end_row();
+                            ui.label(RichText::new("موجودی اولیه")); ui.text_edit_singleline(&mut self.product_stock); ui.end_row();
                         });
-                        if ui.button("ذخیره کالا").clicked() {
+                        if ui.button(RichText::new("ذخیره کالا")).clicked() {
                             let purchase = parse_business_number(&self.product_purchase_price);
                             let sale = parse_business_number(&self.product_sale_price);
                             let stock = parse_business_number(&self.product_stock);
@@ -623,9 +632,9 @@ impl eframe::App for NabzApp {
                             }
                         }
                         ui.separator();
-                        ui.heading("فروش با بارکدخوان USB/HID");
-                        ui.label("فیلد زیر را انتخاب کن و بارکد را اسکن کن؛ Enter در پایان هر اسکن کالا را به سبد اضافه می‌کند.");
-                        let scan_response = ui.add(egui::TextEdit::singleline(&mut self.business_scan).hint_text("اسکن بارکد کالا").desired_width(f32::INFINITY));
+                        ui.heading(RichText::new("فروش با بارکدخوان USB/HID"));
+                        ui.label(RichText::new("فیلد زیر را انتخاب کن و بارکد را اسکن کن؛ Enter در پایان هر اسکن کالا را به سبد اضافه می‌کند."));
+                        let scan_response = ui.add(egui::TextEdit::singleline(&mut self.business_scan).hint_text(RichText::new("اسکن بارکد کالا")).desired_width(f32::INFINITY));
                         if scan_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             match business::scan_into_basket(&self.db, &mut self.business_basket, &self.business_scan) {
                                 Ok(()) => self.business_status = "کالا به سبد فروش اضافه شد.".into(),
@@ -635,15 +644,15 @@ impl eframe::App for NabzApp {
                             scan_response.request_focus();
                         }
                         ui.separator();
-                        ui.heading(format!("سبد فروش • {} قلم", self.business_basket.len()));
+                        ui.heading(RichText::new(format!("سبد فروش • {} قلم", self.business_basket.len())));
                         egui::ScrollArea::vertical().max_height(170.0).show(ui, |ui| {
                             egui::Grid::new("business_basket_grid").striped(true).show(ui, |ui| {
-                                ui.label("کالا"); ui.label("تعداد"); ui.label("قیمت"); ui.label("جمع"); ui.end_row();
+                                ui.label(RichText::new("کالا")); ui.label(RichText::new("تعداد")); ui.label(RichText::new("قیمت")); ui.label(RichText::new("جمع")); ui.end_row();
                                 for item in &self.business_basket {
-                                    ui.label(&item.name);
-                                    ui.label(item.quantity.to_string());
-                                    ui.label(money(item.unit_price));
-                                    ui.label(money(item.line_total()));
+                                    ui.label(RichText::new(&item.name));
+                                    ui.label(RichText::new(item.quantity.to_string()));
+                                    ui.label(RichText::new(money(item.unit_price)));
+                                    ui.label(RichText::new(money(item.line_total())));
                                     ui.end_row();
                                 }
                             });
@@ -651,7 +660,7 @@ impl eframe::App for NabzApp {
                         let total = self.business_basket.iter().fold(0_i64, |sum, item| sum.saturating_add(item.line_total()));
                         ui.label(RichText::new(format!("جمع کل: {} تومان", money(total))).strong().size(16.0));
                         ui.horizontal(|ui| {
-                            if ui.button("ثبت فروش و کسر موجودی").clicked() {
+                            if ui.button(RichText::new("ثبت فروش و کسر موجودی")).clicked() {
                                 match business::record_sale(&mut self.db, &self.business_basket, &today_jalali()) {
                                     Ok(sale_id) => {
                                         self.business_basket.clear();
@@ -661,44 +670,44 @@ impl eframe::App for NabzApp {
                                     Err(e) => self.business_status = e,
                                 }
                             }
-                            if ui.button("خالی کردن سبد").clicked() { self.business_basket.clear(); }
-                            if ui.button("به‌روزرسانی کالاها").clicked() {
+                            if ui.button(RichText::new("خالی کردن سبد")).clicked() { self.business_basket.clear(); }
+                            if ui.button(RichText::new("به‌روزرسانی کالاها")).clicked() {
                                 if let Err(e) = self.refresh_business_products() { self.business_status = format!("خطا: {e}"); }
                             }
                         });
                         ui.separator();
-                        ui.heading(format!("فهرست کالاها • {} کالا", self.business_products.len()));
+                        ui.heading(RichText::new(format!("فهرست کالاها • {} کالا", self.business_products.len())));
                         egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
                             egui::Grid::new("business_products_grid").striped(true).show(ui, |ui| {
-                                ui.label("نام"); ui.label("بارکد"); ui.label("قیمت فروش"); ui.label("موجودی"); ui.end_row();
+                                ui.label(RichText::new("نام")); ui.label(RichText::new("بارکد")); ui.label(RichText::new("قیمت فروش")); ui.label(RichText::new("موجودی")); ui.end_row();
                                 for product in &self.business_products {
-                                    ui.label(&product.name);
-                                    ui.label(&product.barcode);
-                                    ui.label(money(product.sale_price));
-                                    ui.label(product.stock.to_string());
+                                    ui.label(RichText::new(&product.name));
+                                    ui.label(RichText::new(&product.barcode));
+                                    ui.label(RichText::new(money(product.sale_price)));
+                                    ui.label(RichText::new(product.stock.to_string()));
                                     ui.end_row();
                                 }
                             });
                         });
 
                         ui.separator();
-                        ui.heading("خرید و ورود موجودی");
+                        ui.heading(RichText::new("خرید و ورود موجودی"));
                         egui::Grid::new("purchase_entry_grid").num_columns(2).show(ui, |ui| {
-                            ui.label("کالا");
+                            ui.label(RichText::new("کالا"));
                             egui::ComboBox::from_id_salt("purchase_product")
-                                .selected_text(self.business_products.iter().find(|p| p.id == self.purchase_product_id).map(|p| p.name.clone()).unwrap_or_else(|| "انتخاب کالا".into()))
+                                .selected_text(RichText::new(self.business_products.iter().find(|p| p.id == self.purchase_product_id).map(|p| p.name.clone()).unwrap_or_else(|| "انتخاب کالا".into())))
                                 .show_ui(ui, |ui| {
                                     for p in &self.business_products {
-                                        ui.selectable_value(&mut self.purchase_product_id, p.id, format!("{} • موجودی {}", p.name, p.stock));
+                                        ui.selectable_value(&mut self.purchase_product_id, p.id, RichText::new(format!("{} • موجودی {}", p.name, p.stock)));
                                     }
                                 });
                             ui.end_row();
-                            ui.label("تعداد"); ui.text_edit_singleline(&mut self.purchase_quantity); ui.end_row();
-                            ui.label("قیمت خرید واحد"); ui.text_edit_singleline(&mut self.purchase_unit_cost); ui.end_row();
-                            ui.label("پرداخت‌شده"); ui.text_edit_singleline(&mut self.purchase_paid); ui.end_row();
-                            ui.label("تأمین‌کننده"); ui.text_edit_singleline(&mut self.purchase_supplier); ui.end_row();
+                            ui.label(RichText::new("تعداد")); ui.text_edit_singleline(&mut self.purchase_quantity); ui.end_row();
+                            ui.label(RichText::new("قیمت خرید واحد")); ui.text_edit_singleline(&mut self.purchase_unit_cost); ui.end_row();
+                            ui.label(RichText::new("پرداخت‌شده")); ui.text_edit_singleline(&mut self.purchase_paid); ui.end_row();
+                            ui.label(RichText::new("تأمین‌کننده")); ui.text_edit_singleline(&mut self.purchase_supplier); ui.end_row();
                         });
-                        if ui.button("ثبت خرید و افزایش موجودی").clicked() {
+                        if ui.button(RichText::new("ثبت خرید و افزایش موجودی")).clicked() {
                             let qty = parse_business_number(&self.purchase_quantity);
                             let cost = parse_business_number(&self.purchase_unit_cost);
                             let paid = parse_business_number(&self.purchase_paid);
@@ -717,19 +726,19 @@ impl eframe::App for NabzApp {
                             }
                         }
                         ui.separator();
-                        ui.heading("مشتری و تأمین‌کننده");
+                        ui.heading(RichText::new("مشتری و تأمین‌کننده"));
                         egui::Grid::new("party_entry_grid").num_columns(2).show(ui, |ui| {
-                            ui.label("نام"); ui.text_edit_singleline(&mut self.party_name); ui.end_row();
-                            ui.label("تلفن"); ui.text_edit_singleline(&mut self.party_phone); ui.end_row();
-                            ui.label("نوع");
-                            egui::ComboBox::from_id_salt("party_kind").selected_text(match self.party_kind { 0 => "مشتری", 1 => "تأمین‌کننده", _ => "هر دو" }).show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.party_kind, 0, "مشتری");
-                                ui.selectable_value(&mut self.party_kind, 1, "تأمین‌کننده");
-                                ui.selectable_value(&mut self.party_kind, 2, "هر دو");
+                            ui.label(RichText::new("نام")); ui.text_edit_singleline(&mut self.party_name); ui.end_row();
+                            ui.label(RichText::new("تلفن")); ui.text_edit_singleline(&mut self.party_phone); ui.end_row();
+                            ui.label(RichText::new("نوع"));
+                            egui::ComboBox::from_id_salt("party_kind").selected_text(RichText::new(match self.party_kind { 0 => "مشتری", 1 => "تأمین‌کننده", _ => "هر دو" })).show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.party_kind, 0, RichText::new("مشتری"));
+                                ui.selectable_value(&mut self.party_kind, 1, RichText::new("تأمین‌کننده"));
+                                ui.selectable_value(&mut self.party_kind, 2, RichText::new("هر دو"));
                             });
                             ui.end_row();
                         });
-                        if ui.button("ثبت طرف حساب").clicked() {
+                        if ui.button(RichText::new("ثبت طرف حساب")).clicked() {
                             let kind = match self.party_kind { 0 => "customer", 1 => "supplier", _ => "both" };
                             match business::add_party(&self.db, &self.party_name, kind, &self.party_phone) {
                                 Ok(_) => { self.business_status = "طرف حساب ثبت شد.".into(); self.party_name.clear(); self.party_phone.clear(); }
@@ -738,25 +747,25 @@ impl eframe::App for NabzApp {
                         }
                         match business::list_parties(&self.db) {
                             Ok(parties) => {
-                                ui.label(format!("فهرست طرف حساب‌ها: {}", parties.len()));
+                                ui.label(RichText::new(format!("فهرست طرف حساب‌ها: {}", parties.len())));
                                 egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
                                     for party in parties {
-                                        ui.label(format!("{} • {} • مانده: {} تومان", party.name,
+                                        ui.label(RichText::new(format!("{} • {} • مانده: {} تومان", party.name,
                                             match party.kind.as_str() { "customer" => "مشتری", "supplier" => "تأمین‌کننده", _ => "هر دو" },
-                                            money(party.balance)));
+                                            money(party.balance))));
                                     }
                                 });
                             }
                             Err(e) => self.business_status = format!("خواندن طرف حساب‌ها ناموفق بود: {e}"),
                         }
                         ui.separator();
-                        ui.heading("هزینه‌های فروشگاه");
+                        ui.heading(RichText::new("هزینه‌های فروشگاه"));
                         egui::Grid::new("expense_entry_grid").num_columns(2).show(ui, |ui| {
-                            ui.label("دسته هزینه"); ui.text_edit_singleline(&mut self.expense_category); ui.end_row();
-                            ui.label("مبلغ"); ui.text_edit_singleline(&mut self.expense_amount); ui.end_row();
-                            ui.label("توضیح"); ui.text_edit_singleline(&mut self.expense_note); ui.end_row();
+                            ui.label(RichText::new("دسته هزینه")); ui.text_edit_singleline(&mut self.expense_category); ui.end_row();
+                            ui.label(RichText::new("مبلغ")); ui.text_edit_singleline(&mut self.expense_amount); ui.end_row();
+                            ui.label(RichText::new("توضیح")); ui.text_edit_singleline(&mut self.expense_note); ui.end_row();
                         });
-                        if ui.button("ثبت هزینه فروشگاه").clicked() {
+                        if ui.button(RichText::new("ثبت هزینه فروشگاه")).clicked() {
                             match parse_business_number(&self.expense_amount) {
                                 Some(amount) => match business::record_expense(&self.db, &today_jalali(), &self.expense_category, amount, "cash", &self.expense_note) {
                                     Ok(id) => { self.business_status = format!("هزینهٔ شمارهٔ {id} ثبت شد."); self.expense_amount.clear(); self.expense_note.clear(); }
@@ -766,18 +775,18 @@ impl eframe::App for NabzApp {
                             }
                         }
                         ui.separator();
-                        ui.heading("گزارش فروشگاه");
+                        ui.heading(RichText::new("گزارش فروشگاه"));
                         match business::business_totals(&self.db) {
                             Ok((sales, purchases, expenses, low_stock, gross_profit)) => {
-                                ui.label(format!("فروش: {} تومان", money(sales)));
-                                ui.label(format!("خرید: {} تومان", money(purchases)));
-                                ui.label(format!("سود ناخالص فروش‌های ثبت‌شده: {} تومان", money(gross_profit)));
-                                ui.label(format!("هزینه‌های فروشگاه: {} تومان", money(expenses)));
-                                ui.label(format!("کالاهای کم‌موجودی (۳ یا کمتر): {}", low_stock));
+                                ui.label(RichText::new(format!("فروش: {} تومان", money(sales))));
+                                ui.label(RichText::new(format!("خرید: {} تومان", money(purchases))));
+                                ui.label(RichText::new(format!("سود ناخالص فروش‌های ثبت‌شده: {} تومان", money(gross_profit))));
+                                ui.label(RichText::new(format!("هزینه‌های فروشگاه: {} تومان", money(expenses))));
+                                ui.label(RichText::new(format!("کالاهای کم‌موجودی (۳ یا کمتر): {}", low_stock)));
                             }
                             Err(e) => self.business_status = format!("گزارش ناموفق بود: {e}"),
                         }
-                        if ui.button("خروجی CSV فروش‌ها").clicked() {
+                        if ui.button(RichText::new("خروجی CSV فروش‌ها")).clicked() {
                             match business::sales_csv(&self.db) {
                                 Ok(csv) => match data_path() {
                                     Ok(path) => {
@@ -795,7 +804,7 @@ impl eframe::App for NabzApp {
                                 Err(e) => self.business_status = format!("ساخت CSV ناموفق بود: {e}"),
                             }
                         }
-                        if ui.button("پشتیبان‌گیری از پایگاه داده").clicked() {
+                        if ui.button(RichText::new("پشتیبان‌گیری از پایگاه داده")).clicked() {
                             let result = (|| -> Result<PathBuf, String> {
                                 self.db.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(|e| e.to_string())?;
                                 let source = data_path()?;
@@ -815,16 +824,16 @@ impl eframe::App for NabzApp {
         }
 
         if self.show_hardware {
-            egui::Window::new("چاپگر و بارکدخوان")
+            egui::Window::new(RichText::new("چاپگر و بارکدخوان"))
                 .open(&mut self.show_hardware)
                 .collapsible(false)
                 .default_width(460.0)
                 .show(ctx, |ui| {
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
-                        ui.heading("چاپ آزمایشی");
-                        ui.label("چاپگرهای لینوکس از مسیر CUPS شناسایی می‌شوند.");
+                        ui.heading(RichText::new("چاپ آزمایشی"));
+                        ui.label(RichText::new("چاپگرهای لینوکس از مسیر CUPS شناسایی می‌شوند."));
                         ui.horizontal(|ui| {
-                            if ui.button("بازخوانی چاپگرها").clicked() {
+                            if ui.button(RichText::new("بازخوانی چاپگرها")).clicked() {
                                 match hardware::list_printers() {
                                     Ok(printers) => {
                                         self.hardware_printers = printers;
@@ -834,28 +843,28 @@ impl eframe::App for NabzApp {
                                 }
                             }
                             egui::ComboBox::from_id_salt("hardware_printer")
-                                .selected_text(if self.hardware_printer.is_empty() { "چاپگر پیش‌فرض" } else { &self.hardware_printer })
+                                .selected_text(RichText::new(if self.hardware_printer.is_empty() { "چاپگر پیش‌فرض" } else { &self.hardware_printer }))
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut self.hardware_printer, String::new(), "چاپگر پیش‌فرض");
+                                    ui.selectable_value(&mut self.hardware_printer, String::new(), RichText::new("چاپگر پیش‌فرض"));
                                     for printer in &self.hardware_printers {
-                                        ui.selectable_value(&mut self.hardware_printer, printer.name.clone(), &printer.name);
+                                        ui.selectable_value(&mut self.hardware_printer, printer.name.clone(), RichText::new(&printer.name));
                                     }
                                 });
                         });
                         ui.horizontal(|ui| {
-                            if ui.button("تست چاپ A4").clicked() {
+                            if ui.button(RichText::new("تست چاپ A4")).clicked() {
                                 run_printer_test(&self.hardware_printer, hardware::PrinterMode::A4, &mut self.hardware_status);
                             }
-                            if ui.button("تست فیش‌زن ESC/POS").clicked() {
+                            if ui.button(RichText::new("تست فیش‌زن ESC/POS")).clicked() {
                                 run_printer_test(&self.hardware_printer, hardware::PrinterMode::ThermalEscPos, &mut self.hardware_status);
                             }
                         });
                         ui.separator();
-                        ui.heading("آزمون بارکدخوان USB/HID");
-                        ui.label("فیلد را انتخاب کن و یک بارکد اسکن کن؛ بارکدخوان معمولاً در پایان Enter می‌فرستد.");
+                        ui.heading(RichText::new("آزمون بارکدخوان USB/HID"));
+                        ui.label(RichText::new("فیلد را انتخاب کن و یک بارکد اسکن کن؛ بارکدخوان معمولاً در پایان Enter می‌فرستد."));
                         let response = ui.add(
                             egui::TextEdit::singleline(&mut self.hardware_scan)
-                                .hint_text("اسکن بارکد در این فیلد")
+                                .hint_text(RichText::new("اسکن بارکد در این فیلد"))
                                 .desired_width(f32::INFINITY)
                         );
                         if response.clicked() { response.request_focus(); }
@@ -869,14 +878,14 @@ impl eframe::App for NabzApp {
                             }
                         }
                         ui.separator();
-                        ui.heading("تولید بارکد");
-                        ui.label("Code 128 برای کد داخلی کالا؛ EAN-13 فقط با رقم کنترلی معتبر.");
+                        ui.heading(RichText::new("تولید بارکد"));
+                        ui.label(RichText::new("Code 128 برای کد داخلی کالا؛ EAN-13 فقط با رقم کنترلی معتبر."));
                         ui.text_edit_singleline(&mut self.hardware_barcode);
                         ui.horizontal(|ui| {
-                            if ui.button("ساخت SVG از Code 128").clicked() {
+                            if ui.button(RichText::new("ساخت SVG از Code 128")).clicked() {
                                 save_barcode_svg(&self.hardware_barcode, false, &mut self.hardware_status);
                             }
-                            if ui.button("ساخت SVG از EAN-13").clicked() {
+                            if ui.button(RichText::new("ساخت SVG از EAN-13")).clicked() {
                                 save_barcode_svg(&self.hardware_barcode, true, &mut self.hardware_status);
                             }
                         });
