@@ -86,10 +86,11 @@ pub fn list_products(conn: &Connection) -> rusqlite::Result<Vec<Product>> {
     let mut stmt = conn.prepare(
         "SELECT id,name,sku,barcode,purchase_price,sale_price,stock FROM products ORDER BY name COLLATE NOCASE, id"
     )?;
-    stmt.query_map([], |r| Ok(Product {
+    let rows = stmt.query_map([], |r| Ok(Product {
         id: r.get(0)?, name: r.get(1)?, sku: r.get(2)?, barcode: r.get(3)?,
         purchase_price: r.get(4)?, sale_price: r.get(5)?, stock: r.get(6)?,
-    }))?.collect()
+    }))?;
+    rows.collect()
 }
 
 pub fn find_by_barcode(conn: &Connection, barcode: &str) -> rusqlite::Result<Option<Product>> {
