@@ -1,0 +1,7 @@
+SIL OPEN FONT LICENSE Version 1.1
+
+Noto Sans Arabic is distributed under the SIL Open Font License, Version 1.1.
+The license text is available at:
+https://openfontlicense.org/open-font-license-official-text/
+
+Copyright 2016 The Noto Project Authors.
