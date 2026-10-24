@@ -1,0 +1,75 @@
+name: Build Linux installers
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libfuse2
+      - name: Fetch bundled Persian font
+        run: bash scripts/fetch-font.sh
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release
+        run: cargo build --release
+      - name: Create portable archive
+        run: |
+          mkdir -p dist/nabz
+          install -m 0755 target/release/nabz dist/nabz/nabz
+          cp README.md LICENSE dist/nabz/
+          cp assets/NotoSansArabic-Regular.ttf assets/OFL.txt dist/nabz/
+          tar -C dist -czf Nabz-linux-x86_64.tar.gz nabz
+      - name: Prepare AppDir
+        run: |
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          install -m 0755 target/release/nabz AppDir/usr/bin/nabz
+          cp packaging/nabz.desktop AppDir/usr/share/applications/nabz.desktop
+          cp assets/NotoSansArabic-Regular.ttf AppDir/usr/share/fonts-nabz.ttf
+          cp assets/OFL.txt AppDir/usr/share/OFL-NotoSansArabic.txt
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/nabz" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          cat > AppDir/nabz.svg <<'EOF'
+          <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+            <rect x="8" y="8" width="240" height="240" rx="48" fill="#182744"/>
+            <path d="M48 132h32l18-42 28 82 24-58 14 18h44" fill="none" stroke="#54D6A2" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          EOF
+      - name: Download AppImage tooling
+        run: |
+          curl -fL --retry 3 -o appimagetool.AppImage https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool.AppImage
+      - name: Build AppImage
+        env:
+          ARCH: x86_64
+        run: ./appimagetool.AppImage --appimage-extract-and-run AppDir Nabz-x86_64.AppImage
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nabz-linux-x86_64
+          path: |
+            Nabz-x86_64.AppImage
+            Nabz-linux-x86_64.tar.gz
+      - name: Publish release assets for version tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Nabz-x86_64.AppImage
+            Nabz-linux-x86_64.tar.gz
+          generate_release_notes: true
