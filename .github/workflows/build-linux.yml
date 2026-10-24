@@ -37,8 +37,8 @@ jobs:
           install -m 0755 target/release/nabz AppDir/usr/bin/nabz
           cp packaging/nabz.desktop AppDir/nabz.desktop
           cp packaging/nabz.desktop AppDir/usr/share/applications/nabz.desktop
-          cp assets/Vazirmatn.ttf AppDir/usr/share/nabz-NotoSansArabic.ttf
-          cp assets/OFL.txt AppDir/usr/share/OFL-NotoSansArabic.txt
+          cp assets/Vazirmatn.ttf AppDir/usr/share/nabz-Vazirmatn.ttf
+          cp assets/OFL.txt AppDir/usr/share/OFL-Vazirmatn.txt
           cp assets/nabz.svg AppDir/nabz.svg
           rsvg-convert -w 256 -h 256 assets/nabz.svg -o AppDir/nabz.png
           cp assets/nabz.svg AppDir/usr/share/icons/hicolor/scalable/apps/nabz.svg
