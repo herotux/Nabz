@@ -1,4 +1,5 @@
 pub mod hardware;
+pub mod business;
 
 use chrono::{Datelike, Local};
 use eframe::egui::{self, Align, Color32, FontData, FontDefinitions, FontFamily, Frame, Layout, RichText, Stroke, Vec2};
@@ -39,6 +40,17 @@ struct NabzApp {
     hardware_barcode: String,
     hardware_printer: String,
     hardware_printers: Vec<hardware::Printer>,
+    show_business: bool,
+    business_status: String,
+    product_name: String,
+    product_sku: String,
+    product_barcode: String,
+    product_purchase_price: String,
+    product_sale_price: String,
+    product_stock: String,
+    business_scan: String,
+    business_products: Vec<business::Product>,
+    business_basket: Vec<business::BasketItem>,
     picker_year: i32,
     picker_month: i32,
 }
@@ -84,11 +96,28 @@ impl NabzApp {
             hardware_barcode: "SKU-0001".into(),
             hardware_printer: String::new(),
             hardware_printers: vec![],
+            show_business: false,
+            business_status: "کالاها و فروش در پایگاه دادهٔ محلی ذخیره می‌شوند.".into(),
+            product_name: String::new(),
+            product_sku: String::new(),
+            product_barcode: String::new(),
+            product_purchase_price: "0".into(),
+            product_sale_price: "0".into(),
+            product_stock: "0".into(),
+            business_scan: String::new(),
+            business_products: vec![],
+            business_basket: vec![],
             picker_year: today_jalali().split('/').next().and_then(|v| v.parse().ok()).unwrap_or(1405),
             picker_month: today_jalali().split('/').nth(1).and_then(|v| v.parse().ok()).unwrap_or(1),
         };
         app.reload().map_err(|e| e.to_string())?;
+        app.refresh_business_products().map_err(|e| e.to_string())?;
         Ok(app)
+    }
+
+    fn refresh_business_products(&mut self) -> rusqlite::Result<()> {
+        self.business_products = business::list_products(&self.db)?;
+        Ok(())
     }
 
     fn reload(&mut self) -> rusqlite::Result<()> {
@@ -218,6 +247,12 @@ impl eframe::App for NabzApp {
                                     .map(|p| p.name.clone()).unwrap_or_default();
                             }
                             self.show_hardware = true;
+                        }
+                        if ui.button("فروشگاه").clicked() {
+                            if let Err(e) = self.refresh_business_products() {
+                                self.business_status = format!("خواندن کالاها ناموفق بود: {e}");
+                            }
+                            self.show_business = true;
                         }
                     });
                 });
@@ -525,6 +560,105 @@ impl eframe::App for NabzApp {
                     });
                 });
         }
+        if self.show_business {
+            egui::Window::new("فروش و انبار کالا")
+                .open(&mut self.show_business)
+                .default_width(680.0)
+                .default_height(620.0)
+                .show(ctx, |ui| {
+                    ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                        ui.heading("ثبت کالای جدید");
+                        egui::Grid::new("product_entry_grid").num_columns(2).spacing(Vec2::new(8.0, 5.0)).show(ui, |ui| {
+                            ui.label("نام کالا"); ui.text_edit_singleline(&mut self.product_name); ui.end_row();
+                            ui.label("شناسه داخلی (SKU)"); ui.text_edit_singleline(&mut self.product_sku); ui.end_row();
+                            ui.label("بارکد"); ui.text_edit_singleline(&mut self.product_barcode); ui.end_row();
+                            ui.label("قیمت خرید (تومان)"); ui.text_edit_singleline(&mut self.product_purchase_price); ui.end_row();
+                            ui.label("قیمت فروش (تومان)"); ui.text_edit_singleline(&mut self.product_sale_price); ui.end_row();
+                            ui.label("موجودی اولیه"); ui.text_edit_singleline(&mut self.product_stock); ui.end_row();
+                        });
+                        if ui.button("ذخیره کالا").clicked() {
+                            let purchase = parse_business_number(&self.product_purchase_price);
+                            let sale = parse_business_number(&self.product_sale_price);
+                            let stock = parse_business_number(&self.product_stock);
+                            match (purchase, sale, stock) {
+                                (Some(purchase), Some(sale), Some(stock)) => {
+                                    match business::add_product(&self.db, &self.product_name, &self.product_sku, &self.product_barcode, purchase, sale, stock) {
+                                        Ok(_) => {
+                                            self.business_status = "کالا ذخیره شد.".into();
+                                            self.product_name.clear();
+                                            self.product_sku.clear();
+                                            self.product_barcode.clear();
+                                            if let Err(e) = self.refresh_business_products() { self.business_status = format!("کالا ثبت شد؛ بارگذاری مجدد ناموفق بود: {e}"); }
+                                        }
+                                        Err(e) => self.business_status = e,
+                                    }
+                                }
+                                _ => self.business_status = "قیمت‌ها و موجودی باید عدد صحیح نامنفی باشند.".into(),
+                            }
+                        }
+                        ui.separator();
+                        ui.heading("فروش با بارکدخوان USB/HID");
+                        ui.label("فیلد زیر را انتخاب کن و بارکد را اسکن کن؛ Enter در پایان هر اسکن کالا را به سبد اضافه می‌کند.");
+                        let scan_response = ui.add(egui::TextEdit::singleline(&mut self.business_scan).hint_text("اسکن بارکد کالا").desired_width(f32::INFINITY));
+                        if scan_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            match business::scan_into_basket(&self.db, &mut self.business_basket, &self.business_scan) {
+                                Ok(()) => self.business_status = "کالا به سبد فروش اضافه شد.".into(),
+                                Err(e) => self.business_status = e,
+                            }
+                            self.business_scan.clear();
+                            scan_response.request_focus();
+                        }
+                        ui.separator();
+                        ui.heading(format!("سبد فروش • {} قلم", self.business_basket.len()));
+                        egui::ScrollArea::vertical().max_height(170.0).show(ui, |ui| {
+                            egui::Grid::new("business_basket_grid").striped(true).show(ui, |ui| {
+                                ui.label("کالا"); ui.label("تعداد"); ui.label("قیمت"); ui.label("جمع"); ui.end_row();
+                                for item in &self.business_basket {
+                                    ui.label(&item.name);
+                                    ui.label(item.quantity.to_string());
+                                    ui.label(money(item.unit_price));
+                                    ui.label(money(item.line_total()));
+                                    ui.end_row();
+                                }
+                            });
+                        });
+                        let total = self.business_basket.iter().fold(0_i64, |sum, item| sum.saturating_add(item.line_total()));
+                        ui.label(RichText::new(format!("جمع کل: {} تومان", money(total))).strong().size(16.0));
+                        ui.horizontal(|ui| {
+                            if ui.button("ثبت فروش و کسر موجودی").clicked() {
+                                match business::record_sale(&mut self.db, &self.business_basket, &today_jalali()) {
+                                    Ok(sale_id) => {
+                                        self.business_basket.clear();
+                                        self.business_status = format!("فروش شمارهٔ {sale_id} ثبت شد و موجودی به‌روز شد.");
+                                        if let Err(e) = self.refresh_business_products() { self.business_status = format!("فروش ثبت شد؛ به‌روزرسانی فهرست کالا ناموفق بود: {e}"); }
+                                    }
+                                    Err(e) => self.business_status = e,
+                                }
+                            }
+                            if ui.button("خالی کردن سبد").clicked() { self.business_basket.clear(); }
+                            if ui.button("به‌روزرسانی کالاها").clicked() {
+                                if let Err(e) = self.refresh_business_products() { self.business_status = format!("خطا: {e}"); }
+                            }
+                        });
+                        ui.separator();
+                        ui.heading(format!("فهرست کالاها • {} کالا", self.business_products.len()));
+                        egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                            egui::Grid::new("business_products_grid").striped(true).show(ui, |ui| {
+                                ui.label("نام"); ui.label("بارکد"); ui.label("قیمت فروش"); ui.label("موجودی"); ui.end_row();
+                                for product in &self.business_products {
+                                    ui.label(&product.name);
+                                    ui.label(&product.barcode);
+                                    ui.label(money(product.sale_price));
+                                    ui.label(product.stock.to_string());
+                                    ui.end_row();
+                                }
+                            });
+                        });
+                        ui.label(RichText::new(&self.business_status).size(12.0));
+                    });
+                });
+        }
+
         if self.show_hardware {
             egui::Window::new("چاپگر و بارکدخوان")
                 .open(&mut self.show_hardware)
@@ -631,6 +765,11 @@ fn main() -> eframe::Result<()> {
     )
 }
 
+
+fn parse_business_number(value: &str) -> Option<i64> {
+    let normalized: String = value.chars().map(normalize_digit).collect();
+    normalized.trim().replace(',', "").replace('٬', "").parse::<i64>().ok().filter(|v| *v >= 0)
+}
 
 fn run_printer_test(printer: &str, mode: hardware::PrinterMode, status: &mut String) {
     match hardware::create_test_receipt() {
