@@ -678,6 +678,120 @@ impl eframe::App for NabzApp {
                                 }
                             });
                         });
+
+                        ui.separator();
+                        ui.heading("خرید و ورود موجودی");
+                        egui::Grid::new("purchase_entry_grid").num_columns(2).show(ui, |ui| {
+                            ui.label("کالا");
+                            egui::ComboBox::from_id_salt("purchase_product")
+                                .selected_text(self.business_products.iter().find(|p| p.id == self.purchase_product_id).map(|p| p.name.clone()).unwrap_or_else(|| "انتخاب کالا".into()))
+                                .show_ui(ui, |ui| {
+                                    for p in &self.business_products {
+                                        ui.selectable_value(&mut self.purchase_product_id, p.id, format!("{} • موجودی {}", p.name, p.stock));
+                                    }
+                                });
+                            ui.end_row();
+                            ui.label("تعداد"); ui.text_edit_singleline(&mut self.purchase_quantity); ui.end_row();
+                            ui.label("قیمت خرید واحد"); ui.text_edit_singleline(&mut self.purchase_unit_cost); ui.end_row();
+                            ui.label("پرداخت‌شده"); ui.text_edit_singleline(&mut self.purchase_paid); ui.end_row();
+                            ui.label("تأمین‌کننده"); ui.text_edit_singleline(&mut self.purchase_supplier); ui.end_row();
+                        });
+                        if ui.button("ثبت خرید و افزایش موجودی").clicked() {
+                            let qty = parse_business_number(&self.purchase_quantity);
+                            let cost = parse_business_number(&self.purchase_unit_cost);
+                            let paid = parse_business_number(&self.purchase_paid);
+                            match (qty, cost, paid) {
+                                (Some(qty), Some(cost), Some(paid)) if self.purchase_product_id > 0 => {
+                                    match business::record_purchase(&mut self.db, self.purchase_product_id, qty, cost, &self.purchase_supplier, &today_jalali(), paid, "") {
+                                        Ok(id) => {
+                                            self.business_status = format!("فاکتور خرید شمارهٔ {id} ثبت شد؛ موجودی افزایش یافت.");
+                                            self.purchase_quantity = "1".into();
+                                            let _ = self.refresh_business_products();
+                                        }
+                                        Err(e) => self.business_status = e,
+                                    }
+                                }
+                                _ => self.business_status = "کالا را انتخاب کن و مقادیر معتبر وارد کن.".into(),
+                            }
+                        }
+                        ui.separator();
+                        ui.heading("مشتری و تأمین‌کننده");
+                        egui::Grid::new("party_entry_grid").num_columns(2).show(ui, |ui| {
+                            ui.label("نام"); ui.text_edit_singleline(&mut self.party_name); ui.end_row();
+                            ui.label("تلفن"); ui.text_edit_singleline(&mut self.party_phone); ui.end_row();
+                            ui.label("نوع");
+                            egui::ComboBox::from_id_salt("party_kind").selected_text(match self.party_kind { 0 => "مشتری", 1 => "تأمین‌کننده", _ => "هر دو" }).show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.party_kind, 0, "مشتری");
+                                ui.selectable_value(&mut self.party_kind, 1, "تأمین‌کننده");
+                                ui.selectable_value(&mut self.party_kind, 2, "هر دو");
+                            });
+                            ui.end_row();
+                        });
+                        if ui.button("ثبت طرف حساب").clicked() {
+                            let kind = match self.party_kind { 0 => "customer", 1 => "supplier", _ => "both" };
+                            match business::add_party(&self.db, &self.party_name, kind, &self.party_phone) {
+                                Ok(_) => { self.business_status = "طرف حساب ثبت شد.".into(); self.party_name.clear(); self.party_phone.clear(); }
+                                Err(e) => self.business_status = e,
+                            }
+                        }
+                        ui.separator();
+                        ui.heading("هزینه‌های فروشگاه");
+                        egui::Grid::new("expense_entry_grid").num_columns(2).show(ui, |ui| {
+                            ui.label("دسته هزینه"); ui.text_edit_singleline(&mut self.expense_category); ui.end_row();
+                            ui.label("مبلغ"); ui.text_edit_singleline(&mut self.expense_amount); ui.end_row();
+                            ui.label("توضیح"); ui.text_edit_singleline(&mut self.expense_note); ui.end_row();
+                        });
+                        if ui.button("ثبت هزینه فروشگاه").clicked() {
+                            match parse_business_number(&self.expense_amount) {
+                                Some(amount) => match business::record_expense(&self.db, &today_jalali(), &self.expense_category, amount, "cash", &self.expense_note) {
+                                    Ok(id) => { self.business_status = format!("هزینهٔ شمارهٔ {id} ثبت شد."); self.expense_amount.clear(); self.expense_note.clear(); }
+                                    Err(e) => self.business_status = e,
+                                },
+                                None => self.business_status = "مبلغ هزینه باید عدد معتبر باشد.".into(),
+                            }
+                        }
+                        ui.separator();
+                        ui.heading("گزارش فروشگاه");
+                        match business::business_totals(&self.db) {
+                            Ok((sales, purchases, expenses, low_stock)) => {
+                                ui.label(format!("فروش: {} تومان", money(sales)));
+                                ui.label(format!("خرید: {} تومان", money(purchases)));
+                                ui.label(format!("هزینه‌ها: {} تومان", money(expenses)));
+                                ui.label(format!("کالاهای کم‌موجودی (۳ یا کمتر): {}", low_stock));
+                            }
+                            Err(e) => self.business_status = format!("گزارش ناموفق بود: {e}"),
+                        }
+                        if ui.button("خروجی CSV فروش‌ها").clicked() {
+                            match business::sales_csv(&self.db) {
+                                Ok(csv) => match data_path() {
+                                    Ok(path) => {
+                                        let result = (|| -> Result<PathBuf, String> {
+                                            let dir = path.parent().ok_or("مسیر داده معتبر نیست")?.join("exports");
+                                            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                                            let file = dir.join(format!("nabz-sales-{}.csv", today_jalali().replace('/', "-")));
+                                            std::fs::write(&file, csv).map_err(|e| e.to_string())?;
+                                            Ok(file)
+                                        })();
+                                        self.business_status = match result { Ok(file) => format!("CSV ذخیره شد: {}", file.display()), Err(e) => e };
+                                    }
+                                    Err(e) => self.business_status = e,
+                                },
+                                Err(e) => self.business_status = format!("ساخت CSV ناموفق بود: {e}"),
+                            }
+                        }
+                        if ui.button("پشتیبان‌گیری از پایگاه داده").clicked() {
+                            let result = (|| -> Result<PathBuf, String> {
+                                self.db.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(|e| e.to_string())?;
+                                let source = data_path()?;
+                                let parent = source.parent().ok_or("مسیر داده معتبر نیست")?;
+                                let dir = parent.join("backups");
+                                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                                let target = dir.join(format!("nabz-backup-{}.sqlite3", Local::now().format("%Y%m%d-%H%M%S")));
+                                std::fs::copy(&source, &target).map_err(|e| e.to_string())?;
+                                Ok(target)
+                            })();
+                            self.business_status = match result { Ok(path) => format!("پشتیبان ذخیره شد: {}", path.display()), Err(e) => format!("پشتیبان‌گیری ناموفق بود: {e}") };
+                        }
                         ui.label(RichText::new(&self.business_status).size(12.0));
                     });
                 });
