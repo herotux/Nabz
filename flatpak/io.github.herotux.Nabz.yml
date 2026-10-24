@@ -21,5 +21,5 @@ modules:
       - install -Dm644 assets/nabz.svg /app/share/icons/hicolor/scalable/apps/io.github.herotux.Nabz.svg
     sources:
       - type: dir
-        path: ..
+        path: ../flatpak-source
       - cargo-sources.json
