@@ -141,7 +141,7 @@ pub fn valid_ean13(value: &str) -> bool {
 
 pub fn ean13_svg(value: &str, height: u32) -> Result<String, String> {
     if !valid_ean13(value) { return Err("EAN-13 باید ۱۳ رقم و رقم کنترلی معتبر داشته باشد.".into()); }
-    let barcode = EAN13::new(value).map_err(|e| format!("EAN-13 نامعتبر است: {e}"))?;
+    let barcode = EAN13::new(&value[..12]).map_err(|e| format!("EAN-13 نامعتبر است: {e}"))?;
     SVG::new(height).generate(&barcode.encode()).map_err(|e| format!("تولید SVG ناموفق بود: {e}"))
 }
 
