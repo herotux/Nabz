@@ -508,7 +508,7 @@ impl eframe::App for NabzApp {
                             self.picker_month += 1;
                             if self.picker_month > 12 { self.picker_month = 1; self.picker_year += 1; }
                         }
-                        ui.label(RichText::new(format!("{} {}", persian_digits(&self.picker_year.to_string()), jalali_month_name(self.picker_month)).strong()).size(16.0));
+                        ui.label(RichText::new(format!("{} {}", persian_digits(&self.picker_year.to_string()), jalali_month_name(self.picker_month))).strong().size(16.0));
                         if ui.button("→ ماه قبل").clicked() {
                             self.picker_month -= 1;
                             if self.picker_month < 1 { self.picker_month = 12; self.picker_year -= 1; }
