@@ -230,7 +230,8 @@ pub fn add_party(conn: &Connection, name: &str, kind: &str, phone: &str) -> Resu
 
 pub fn list_parties(conn: &Connection) -> rusqlite::Result<Vec<Party>> {
     let mut stmt = conn.prepare("SELECT id,name,kind,phone,balance FROM parties ORDER BY name COLLATE NOCASE")?;
-    stmt.query_map([], |r| Ok(Party { id:r.get(0)?, name:r.get(1)?, kind:r.get(2)?, phone:r.get(3)?, balance:r.get(4)? }))?.collect()
+    let rows = stmt.query_map([], |r| Ok(Party { id:r.get(0)?, name:r.get(1)?, kind:r.get(2)?, phone:r.get(3)?, balance:r.get(4)? }))?;
+    rows.collect()
 }
 
 /// Purchase, inventory increase, cost update and supplier balance post atomically.
@@ -254,12 +255,17 @@ pub fn record_purchase(conn: &mut Connection, product_id: i64, quantity: i64, un
     tx.execute("INSERT INTO stock_movements(product_id,date,movement_type,quantity,reference,note) VALUES (?1,?2,'purchase',?3,?4,?5)",
         params![product_id, date.trim(), quantity, format!("خرید #{purchase_id}"), note.trim()]).map_err(|e| e.to_string())?;
     if !supplier.trim().is_empty() && total > paid {
-        tx.execute("INSERT INTO parties(name,kind,balance) VALUES (?1,'supplier',?2)
-            ON CONFLICT(name) DO UPDATE SET balance=balance+excluded.balance",
-            params![supplier.trim(), total-paid]).or_else(|_| {
-                tx.execute("UPDATE parties SET balance=balance+?1 WHERE name=?2 AND kind IN ('supplier','both')",
-                    params![total-paid, supplier.trim()])
-            }).map_err(|e| format!("به‌روزرسانی حساب تأمین‌کننده ناموفق بود: {e}"))?;
+        let existing: Option<i64> = tx.query_row(
+            "SELECT id FROM parties WHERE name=?1 AND kind IN ('supplier','both') ORDER BY id LIMIT 1",
+            [supplier.trim()], |r| r.get(0)).optional().map_err(|e| e.to_string())?;
+        if let Some(party_id) = existing {
+            tx.execute("UPDATE parties SET balance=balance+?1 WHERE id=?2", params![total-paid, party_id])
+                .map_err(|e| format!("به‌روزرسانی حساب تأمین‌کننده ناموفق بود: {e}"))?;
+        } else {
+            tx.execute("INSERT INTO parties(name,kind,balance) VALUES (?1,'supplier',?2)",
+                params![supplier.trim(), total-paid])
+                .map_err(|e| format!("ثبت حساب تأمین‌کننده ناموفق بود: {e}"))?;
+        }
     }
     tx.commit().map_err(|e| format!("نهایی‌سازی خرید ناموفق بود: {e}"))?;
     Ok(purchase_id)
