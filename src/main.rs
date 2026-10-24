@@ -51,6 +51,17 @@ struct NabzApp {
     business_scan: String,
     business_products: Vec<business::Product>,
     business_basket: Vec<business::BasketItem>,
+    purchase_product_id: i64,
+    purchase_quantity: String,
+    purchase_unit_cost: String,
+    purchase_paid: String,
+    purchase_supplier: String,
+    party_name: String,
+    party_phone: String,
+    party_kind: usize,
+    expense_category: String,
+    expense_amount: String,
+    expense_note: String,
     picker_year: i32,
     picker_month: i32,
 }
@@ -62,6 +73,7 @@ impl NabzApp {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let db = Connection::open(path).map_err(|e| e.to_string())?;
+        business::init_business_extensions(&db).map_err(|e| format!("آماده‌سازی بخش فروشگاهی ناموفق بود: {e}"))?;
         db.execute_batch(
             "PRAGMA journal_mode=WAL;
              CREATE TABLE IF NOT EXISTS transactions (
@@ -107,6 +119,17 @@ impl NabzApp {
             business_scan: String::new(),
             business_products: vec![],
             business_basket: vec![],
+            purchase_product_id: 0,
+            purchase_quantity: "1".into(),
+            purchase_unit_cost: "0".into(),
+            purchase_paid: "0".into(),
+            purchase_supplier: String::new(),
+            party_name: String::new(),
+            party_phone: String::new(),
+            party_kind: 0,
+            expense_category: "اجاره و قبوض".into(),
+            expense_amount: String::new(),
+            expense_note: String::new(),
             picker_year: today_jalali().split('/').next().and_then(|v| v.parse().ok()).unwrap_or(1405),
             picker_month: today_jalali().split('/').nth(1).and_then(|v| v.parse().ok()).unwrap_or(1),
         };
