@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Nabz
+Name[fa]=نبض
+Comment=Persian personal accounting
+Comment[fa]=حسابداری شخصی فارسی
+Exec=Nabz
+Terminal=false
+Categories=Office;Finance;
+StartupNotify=true
