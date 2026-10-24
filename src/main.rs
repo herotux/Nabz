@@ -73,6 +73,7 @@ impl NabzApp {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let db = Connection::open(path).map_err(|e| e.to_string())?;
+        business::init_schema(&db).map_err(|e| format!("آماده‌سازی کالاها و فروش ناموفق بود: {e}"))?;
         business::init_business_extensions(&db).map_err(|e| format!("آماده‌سازی بخش فروشگاهی ناموفق بود: {e}"))?;
         db.execute_batch(
             "PRAGMA journal_mode=WAL;
