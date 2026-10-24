@@ -884,7 +884,6 @@ impl eframe::App for NabzApp {
                             self.business_status = match result { Ok(path) => format!("پشتیبان ذخیره شد: {}", path.display()), Err(e) => format!("پشتیبان‌گیری ناموفق بود: {e}") };
                         }
                         }
-                                        }
                                     });
                             });
                     });
