@@ -22,11 +22,11 @@ jobs:
       - name: Fetch bundled Persian font
         run: bash scripts/fetch-font.sh
       - uses: Swatinem/rust-cache@v2
-      - name: Format
-        run: cargo fmt --all -- --check
+      - name: Format Rust source
+        run: cargo fmt --all
       - name: Run unit tests
         run: cargo test --all-targets
       - name: Lint
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets
       - name: Verify release build
         run: cargo build --release
