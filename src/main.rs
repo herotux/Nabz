@@ -370,7 +370,7 @@ impl eframe::App for NabzApp {
                                             egui::TextEdit::singleline(&mut self.amount)
                                                 .id(egui::Id::new("transaction_amount"))
                                                 .hint_text(RichText::new("مثلاً ۲۵۰۰۰۰"))
-                                                .desired_width(f32::INFINITY),
+                                                .desired_width(ui.available_width()),
                                         );
                                         ui.label(RichText::new("دسته‌بندی"));
                                         egui::ComboBox::from_id_salt("category")
@@ -411,7 +411,7 @@ impl eframe::App for NabzApp {
                                             egui::TextEdit::multiline(&mut self.note)
                                                 .hint_text(RichText::new("توضیح کوتاه..."))
                                                 .desired_rows(2)
-                                                .desired_width(f32::INFINITY),
+                                                .desired_width(ui.available_width()),
                                         );
                                         ui.add_space(8.0);
                                         if ui
@@ -697,7 +697,7 @@ impl eframe::App for NabzApp {
                         if self.business_tab == 0 {
                         ui.heading(RichText::new("فروش با بارکدخوان USB/HID"));
                         ui.label(RichText::new("فیلد زیر را انتخاب کن و بارکد را اسکن کن؛ Enter در پایان هر اسکن کالا را به سبد اضافه می‌کند."));
-                        let scan_response = ui.add(egui::TextEdit::singleline(&mut self.business_scan).hint_text(RichText::new("اسکن بارکد کالا")).desired_width(f32::INFINITY));
+                        let scan_response = ui.add(egui::TextEdit::singleline(&mut self.business_scan).hint_text(RichText::new("اسکن بارکد کالا")).desired_width(ui.available_width()));
                         if scan_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             match business::scan_into_basket(&self.db, &mut self.business_basket, &self.business_scan) {
                                 Ok(()) => self.business_status = "کالا به سبد فروش اضافه شد.".into(),
@@ -935,7 +935,7 @@ impl eframe::App for NabzApp {
                         let response = ui.add(
                             egui::TextEdit::singleline(&mut self.hardware_scan)
                                 .hint_text(RichText::new("اسکن بارکد در این فیلد"))
-                                .desired_width(f32::INFINITY)
+                                .desired_width(ui.available_width())
                         );
                         if response.clicked() { response.request_focus(); }
                         if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
