@@ -233,6 +233,10 @@ impl NabzApp {
 
 impl eframe::App for NabzApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Do not create the store window in the same frame as the button click.
+        // egui 0.31.1 can panic in hit_test when a newly opened, scrollable Window
+        // overlaps the pointer widget from that same frame.
+        let show_business_at_frame_start = self.show_business;
         let save_shortcut = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Enter));
         let help_shortcut = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Slash));
         let help_f1 = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F1));
@@ -593,7 +597,7 @@ impl eframe::App for NabzApp {
                     });
                 });
         }
-        if self.show_business {
+        if show_business_at_frame_start {
             let mut show_business = self.show_business;
             egui::Window::new(RichText::new("فروش و انبار کالا"))
                 .open(&mut show_business)
