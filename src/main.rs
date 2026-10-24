@@ -768,10 +768,11 @@ impl eframe::App for NabzApp {
                         ui.separator();
                         ui.heading("گزارش فروشگاه");
                         match business::business_totals(&self.db) {
-                            Ok((sales, purchases, expenses, low_stock)) => {
+                            Ok((sales, purchases, expenses, low_stock, gross_profit)) => {
                                 ui.label(format!("فروش: {} تومان", money(sales)));
                                 ui.label(format!("خرید: {} تومان", money(purchases)));
-                                ui.label(format!("هزینه‌ها: {} تومان", money(expenses)));
+                                ui.label(format!("سود ناخالص فروش‌های ثبت‌شده: {} تومان", money(gross_profit)));
+                                ui.label(format!("هزینه‌های فروشگاه: {} تومان", money(expenses)));
                                 ui.label(format!("کالاهای کم‌موجودی (۳ یا کمتر): {}", low_stock));
                             }
                             Err(e) => self.business_status = format!("گزارش ناموفق بود: {e}"),
