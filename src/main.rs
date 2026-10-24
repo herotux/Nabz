@@ -29,6 +29,10 @@ struct NabzApp {
     total_income: i64,
     total_expense: i64,
     show_delete: Option<i64>,
+    show_shortcuts: bool,
+    show_date_picker: bool,
+    picker_year: i32,
+    picker_month: i32,
 }
 
 impl NabzApp {
@@ -64,6 +68,10 @@ impl NabzApp {
             total_income: 0,
             total_expense: 0,
             show_delete: None,
+            show_shortcuts: false,
+            show_date_picker: false,
+            picker_year: today_jalali().split('/').next().and_then(|v| v.parse().ok()).unwrap_or(1405),
+            picker_month: today_jalali().split('/').nth(1).and_then(|v| v.parse().ok()).unwrap_or(1),
         };
         app.reload().map_err(|e| e.to_string())?;
         Ok(app)
@@ -149,6 +157,15 @@ impl NabzApp {
 
 impl eframe::App for NabzApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let save_shortcut = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Enter));
+        let help_shortcut = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Slash));
+        let help_f1 = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F1));
+        let search_shortcut = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::F));
+        let new_shortcut = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::N));
+        if save_shortcut { self.add(); }
+        if help_shortcut || help_f1 { self.show_shortcuts = !self.show_shortcuts; }
+        if search_shortcut { ctx.memory_mut(|m| m.request_focus(egui::Id::new("transaction_search"))); }
+        if new_shortcut { self.amount.clear(); self.note.clear(); ctx.memory_mut(|m| m.request_focus(egui::Id::new("transaction_amount"))); }
         ctx.set_visuals(egui::Visuals::light());
         let screen = ctx.available_rect();
         let mut style = (*ctx.style()).clone();
@@ -234,6 +251,7 @@ impl eframe::App for NabzApp {
                                         ui.label("مبلغ (تومان)");
                                         ui.add(
                                             egui::TextEdit::singleline(&mut self.amount)
+                                                .id(egui::Id::new("transaction_amount"))
                                                 .hint_text("مثلاً ۲۵۰۰۰۰")
                                                 .desired_width(f32::INFINITY),
                                         );
@@ -254,12 +272,23 @@ impl eframe::App for NabzApp {
                                                     );
                                                 }
                                             });
-                                        ui.label("تاریخ شمسی (سال/ماه/روز)");
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut self.date)
-                                                .hint_text("۱۴۰۵/۰۷/۰۲")
-                                                .desired_width(f32::INFINITY),
-                                        );
+                                        ui.label("تاریخ شمسی");
+                                        ui.horizontal(|ui| {
+                                            ui.add(
+                                                egui::TextEdit::singleline(&mut self.date)
+                                                    .hint_text("۱۴۰۵/۰۷/۰۲")
+                                                    .desired_width(ui.available_width() - 42.0),
+                                            );
+                                            if ui.button("📅").on_hover_text("باز کردن تاریخ‌گزین شمسی").clicked() {
+                                                let normalized: String = self.date.chars().map(normalize_digit).collect();
+                                                let parts: Vec<&str> = normalized.split('/').collect();
+                                                if parts.len() == 3 {
+                                                    if let Ok(y) = parts[0].parse() { self.picker_year = y; }
+                                                    if let Ok(m) = parts[1].parse() { self.picker_month = m.clamp(1, 12); }
+                                                }
+                                                self.show_date_picker = true;
+                                            }
+                                        });
                                         ui.label("یادداشت (اختیاری)");
                                         ui.add(
                                             egui::TextEdit::multiline(&mut self.note)
@@ -292,6 +321,7 @@ impl eframe::App for NabzApp {
                             ui.horizontal(|ui| {
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.search)
+                                        .id(egui::Id::new("transaction_search"))
                                         .hint_text("جست‌وجوی شرح یا دسته‌بندی")
                                         .desired_width(ui.available_width() - 100.0),
                                 );
@@ -377,6 +407,10 @@ impl eframe::App for NabzApp {
                                 });
                         });
                     });
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("میان‌برها: Ctrl+Enter ثبت • Ctrl+F جست‌وجو • Ctrl+N فرم جدید • F1 راهنما").size(11.0).color(Color32::from_rgb(100, 110, 125)));
+                        if ui.small_button("راهنمای کلیدها").clicked() { self.show_shortcuts = true; }
+                    });
                     ui.label(
                         RichText::new("نبض • نسخهٔ آغازین ۰٫۱ • داده‌ها روی دستگاه شما می‌مانند")
                             .size(11.0)
@@ -384,6 +418,72 @@ impl eframe::App for NabzApp {
                     );
                 });
             });
+
+        if self.show_shortcuts {
+            egui::Window::new("راهنمای میان‌برهای نبض")
+                .open(&mut self.show_shortcuts)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    egui::Grid::new("shortcut_help_grid").striped(true).show(ui, |ui| {
+                        ui.label(RichText::new("کلید").strong()); ui.label(RichText::new("عملکرد").strong()); ui.end_row();
+                        ui.label("Ctrl + Enter"); ui.label("ثبت درآمد یا هزینه"); ui.end_row();
+                        ui.label("Ctrl + N"); ui.label("شروع فرم ثبت جدید و رفتن به فیلد مبلغ"); ui.end_row();
+                        ui.label("Ctrl + F"); ui.label("رفتن به جست‌وجوی تراکنش‌ها"); ui.end_row();
+                        ui.label("F1 یا Ctrl + /"); ui.label("نمایش یا بستن همین راهنما"); ui.end_row();
+                        ui.label("دکمهٔ 📅"); ui.label("باز کردن تاریخ‌گزین شمسی"); ui.end_row();
+                    });
+                    ui.add_space(6.0);
+                    ui.label("هنگام تایپ داخل بعضی فیلدها، ممکن است سیستم‌عامل یا ابزار ورودی کلیدهای میان‌بر را زودتر دریافت کند.");
+                });
+        }
+
+        if self.show_date_picker {
+            let mut close_picker = false;
+            egui::Window::new("انتخاب تاریخ شمسی")
+                .open(&mut self.show_date_picker)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button("ماه بعد ←").clicked() {
+                            self.picker_month += 1;
+                            if self.picker_month > 12 { self.picker_month = 1; self.picker_year += 1; }
+                        }
+                        ui.label(RichText::new(format!("{} {}", persian_digits(&self.picker_year.to_string()), jalali_month_name(self.picker_month)).strong()).size(16.0));
+                        if ui.button("→ ماه قبل").clicked() {
+                            self.picker_month -= 1;
+                            if self.picker_month < 1 { self.picker_month = 12; self.picker_year -= 1; }
+                        }
+                    });
+                    ui.separator();
+                    let days = if self.picker_month <= 6 { 31 } else if self.picker_month <= 11 { 30 } else { 29 };
+                    let weekdays = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
+                    egui::Grid::new("jalali_date_grid").spacing(Vec2::new(8.0, 8.0)).show(ui, |ui| {
+                        for w in weekdays { ui.label(RichText::new(w).strong()); }
+                        ui.end_row();
+                        let first_offset = jalali_weekday_offset(self.picker_year, self.picker_month);
+                        for cell in 0..(first_offset + days + 6) / 7 * 7 {
+                            if cell < first_offset || cell >= first_offset + days {
+                                ui.label(" ");
+                            } else {
+                                let day = cell - first_offset + 1;
+                                if ui.button(persian_digits(&day.to_string())).clicked() {
+                                    self.date = persian_digits(&format!("{:04}/{:02}/{:02}", self.picker_year, self.picker_month, day));
+                                    close_picker = true;
+                                }
+                            }
+                            if cell % 7 == 6 { ui.end_row(); }
+                        }
+                    });
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("امروز").clicked() { self.date = today_jalali(); close_picker = true; }
+                        if ui.button("بستن").clicked() { close_picker = true; }
+                    });
+                });
+            if close_picker { self.show_date_picker = false; }
+        }
 
         if let Some(id) = self.show_delete {
             egui::Window::new("حذف تراکنش؟")
@@ -531,6 +631,30 @@ fn gregorian_to_jalali(gy: i32, gm: i32, gd: i32) -> (i32, i32, i32) {
         jm += 1;
     }
     (jy, jm + 1, j_day_no + 1)
+}
+
+fn jalali_month_name(month: i32) -> &'static str {
+    match month {
+        1 => "فروردین", 2 => "اردیبهشت", 3 => "خرداد", 4 => "تیر",
+        5 => "مرداد", 6 => "شهریور", 7 => "مهر", 8 => "آبان",
+        9 => "آذر", 10 => "دی", 11 => "بهمن", _ => "اسفند",
+    }
+}
+
+fn jalali_weekday_offset(year: i32, month: i32) -> usize {
+    let mut offset = 0usize;
+    if year >= 1400 {
+        for y in 1400..year { offset = (offset + jalali_year_days(y)) % 7; }
+    } else {
+        for y in year..1400 { offset = (offset + jalali_year_days(y)) % 7; }
+        offset = (7 - offset) % 7;
+    }
+    for m in 1..month { offset = (offset + if m <= 6 { 31 } else { 30 }) % 7; }
+    offset
+}
+
+fn jalali_year_days(year: i32) -> usize {
+    if [1399, 1403, 1408, 1412, 1416, 1420].contains(&year) { 366 } else { 365 }
 }
 
 fn is_gregorian_leap(y: i32) -> bool {
