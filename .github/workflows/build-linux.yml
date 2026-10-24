@@ -61,6 +61,9 @@ jobs:
           cargo generate-lockfile
           git clone --depth 1 https://github.com/flatpak/flatpak-builder-tools.git /tmp/flatpak-builder-tools
           python3 /tmp/flatpak-builder-tools/cargo/flatpak-cargo-generator.py Cargo.lock -o flatpak/cargo-sources.json
+          mkdir -p flatpak-source
+          cp Cargo.toml Cargo.lock flatpak-source/
+          cp -r src assets packaging flatpak-source/
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
       - name: Build Flatpak bundle
