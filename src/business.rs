@@ -153,6 +153,15 @@ pub fn record_sale(conn: &mut Connection, basket: &[BasketItem], date: &str) -> 
             "INSERT INTO sale_items(sale_id,product_id,product_name,unit_price,quantity,line_total) VALUES (?1,?2,?3,?4,?5,?6)",
             params![sale_id, item.product_id, item.name, item.unit_price, item.quantity, item.line_total()],
         ).map_err(|e| format!("ثبت ردیف فاکتور ناموفق بود: {e}"))?;
+        let sale_item_id = tx.last_insert_rowid();
+        let unit_cost: i64 = tx.query_row("SELECT purchase_price FROM products WHERE id=?1", [item.product_id], |r| r.get(0))
+            .map_err(|e| format!("خواندن بهای تمام‌شده ناموفق بود: {e}"))?;
+        let total_cost = unit_cost.checked_mul(item.quantity).ok_or("بهای تمام‌شده بیش از حد مجاز است.")?;
+        tx.execute("INSERT INTO sale_item_costs(sale_item_id,unit_cost,total_cost) VALUES (?1,?2,?3)",
+            params![sale_item_id, unit_cost, total_cost]).map_err(|e| format!("ثبت بهای تمام‌شده ناموفق بود: {e}"))?;
+        tx.execute("INSERT INTO stock_movements(product_id,date,movement_type,quantity,reference) VALUES (?1,?2,'sale',?3,?4)",
+            params![item.product_id, date.trim(), -item.quantity, format!("فروش #{sale_id}")])
+            .map_err(|e| format!("ثبت گردش انبار ناموفق بود: {e}"))?;
     }
     tx.commit().map_err(|e| format!("نهایی‌سازی فروش ناموفق بود: {e}"))?;
     Ok(sale_id)
@@ -215,6 +224,11 @@ pub fn init_business_extensions(conn: &Connection) -> rusqlite::Result<()> {
             reference TEXT NOT NULL DEFAULT '',
             note TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+         );
+         CREATE TABLE IF NOT EXISTS sale_item_costs (
+            sale_item_id INTEGER PRIMARY KEY REFERENCES sale_items(id) ON DELETE CASCADE,
+            unit_cost INTEGER NOT NULL CHECK(unit_cost >= 0),
+            total_cost INTEGER NOT NULL CHECK(total_cost >= 0)
          );"
     )
 }
@@ -281,12 +295,13 @@ pub fn record_expense(conn: &Connection, date: &str, category: &str, amount: i64
     Ok(conn.last_insert_rowid())
 }
 
-pub fn business_totals(conn: &Connection) -> rusqlite::Result<(i64, i64, i64, i64)> {
+pub fn business_totals(conn: &Connection) -> rusqlite::Result<(i64, i64, i64, i64, i64)> {
     let sales: i64 = conn.query_row("SELECT COALESCE(SUM(total),0) FROM sales", [], |r| r.get(0))?;
     let purchases: i64 = conn.query_row("SELECT COALESCE(SUM(total),0) FROM purchases", [], |r| r.get(0))?;
     let expenses: i64 = conn.query_row("SELECT COALESCE(SUM(amount),0) FROM business_expenses", [], |r| r.get(0))?;
     let low_stock: i64 = conn.query_row("SELECT COUNT(*) FROM products WHERE stock <= 3", [], |r| r.get(0))?;
-    Ok((sales, purchases, expenses, low_stock))
+    let gross_profit: i64 = conn.query_row("SELECT COALESCE(SUM(si.line_total - COALESCE(sc.total_cost,0)),0) FROM sale_items si LEFT JOIN sale_item_costs sc ON sc.sale_item_id=si.id", [], |r| r.get(0))?;
+    Ok((sales, purchases, expenses, low_stock, gross_profit))
 }
 
 pub fn sales_csv(conn: &Connection) -> rusqlite::Result<String> {
