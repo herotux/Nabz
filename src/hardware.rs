@@ -25,6 +25,7 @@ pub struct Printer {
 pub struct ScanBuffer {
     value: String,
     max_len: usize,
+    overflowed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,10 +41,14 @@ impl Default for ScanBuffer {
 }
 
 impl ScanBuffer {
-    pub fn new(max_len: usize) -> Self { Self { value: String::new(), max_len } }
+    pub fn new(max_len: usize) -> Self { Self { value: String::new(), max_len, overflowed: false } }
 
     /// Feed characters from a USB HID keyboard-wedge scanner; Enter completes a scan.
     pub fn feed(&mut self, ch: char) -> ScanEvent {
+        if self.overflowed {
+            if matches!(ch, '\r' | '\n') { self.overflowed = false; }
+            return ScanEvent::TooLong;
+        }
         match ch {
             '\r' | '\n' => {
                 if self.value.is_empty() { return ScanEvent::Empty; }
@@ -54,12 +59,12 @@ impl ScanBuffer {
                 self.value.push(c); ScanEvent::Pending
             }
             c if c.is_ascii_whitespace() => ScanEvent::Pending,
-            _ if self.value.len() >= self.max_len => { self.value.clear(); ScanEvent::TooLong }
+            _ if self.value.len() >= self.max_len => { self.value.clear(); self.overflowed = true; ScanEvent::TooLong }
             _ => ScanEvent::Pending,
         }
     }
 
-    pub fn clear(&mut self) { self.value.clear(); }
+    pub fn clear(&mut self) { self.value.clear(); self.overflowed = false; }
 }
 
 /// Query CUPS for configured printers. Requires cups-client/lpstat on Linux.
@@ -164,13 +169,17 @@ mod tests {
         scanner.feed('\u{8}');
         assert_eq!(scanner.feed('E'), ScanEvent::Pending);
         assert_eq!(scanner.feed('\n'), ScanEvent::Complete("ABCE".into()));
-        for ch in "ABCDE".chars() { scanner.feed(ch); }
+        for ch in "ABCD".chars() { assert_eq!(scanner.feed(ch), ScanEvent::Pending); }
+        assert_eq!(scanner.feed('E'), ScanEvent::TooLong);
         assert_eq!(scanner.feed('F'), ScanEvent::TooLong);
+        assert_eq!(scanner.feed('\n'), ScanEvent::TooLong);
+        for ch in "OK".chars() { scanner.feed(ch); }
+        assert_eq!(scanner.feed('\n'), ScanEvent::Complete("OK".into()));
     }
 
     #[test]
     fn code128_generates_svg_for_product_sku() {
-        let svg = code128_svg("SKU-12345", 80).unwrap();
+        let svg = code128_svg("SKU12345", 80).unwrap();
         assert!(svg.contains("<svg"));
         assert!(svg.contains("</svg>"));
     }
