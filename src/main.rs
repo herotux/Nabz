@@ -307,7 +307,7 @@ impl eframe::App for NabzApp {
                                                 let parts: Vec<&str> = normalized.split('/').collect();
                                                 if parts.len() == 3 {
                                                     if let Ok(y) = parts[0].parse() { self.picker_year = y; }
-                                                    if let Ok(m) = parts[1].parse() { self.picker_month = m.clamp(1, 12); }
+                                                    if let Ok(m) = parts[1].parse::<i32>() { self.picker_month = m.clamp(1, 12); }
                                                 }
                                                 self.show_date_picker = true;
                                             }
