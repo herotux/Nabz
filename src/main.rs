@@ -561,8 +561,9 @@ impl eframe::App for NabzApp {
                 });
         }
         if self.show_business {
+            let mut show_business = self.show_business;
             egui::Window::new("فروش و انبار کالا")
-                .open(&mut self.show_business)
+                .open(&mut show_business)
                 .default_width(680.0)
                 .default_height(620.0)
                 .show(ctx, |ui| {
@@ -657,6 +658,7 @@ impl eframe::App for NabzApp {
                         ui.label(RichText::new(&self.business_status).size(12.0));
                     });
                 });
+            self.show_business = show_business;
         }
 
         if self.show_hardware {
