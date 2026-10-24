@@ -6,7 +6,7 @@ use eframe::egui::{self, Align, Color32, FontData, FontDefinitions, FontFamily, 
 use rusqlite::{params, Connection};
 use std::{path::PathBuf, time::Duration};
 
-const APP_NAME: &str = "نبض | حسابداری شخصی";
+const APP_NAME: &str = "نبض | فروشگاه";
 const FONT: &[u8] = include_bytes!("../assets/Vazirmatn.ttf");
 // egui does not shape Persian/Arabic text or consistently order RTL runs.
 // Keep application strings in logical Unicode order and reshape only for display.
@@ -135,7 +135,7 @@ impl NabzApp {
             hardware_barcode: "SKU-0001".into(),
             hardware_printer: String::new(),
             hardware_printers: vec![],
-            show_business: false,
+            show_business: true,
             business_tab: 0,
             business_status: "کالاها و فروش در پایگاه دادهٔ محلی ذخیره می‌شوند.".into(),
             product_name: String::new(),
@@ -287,19 +287,13 @@ impl eframe::App for NabzApp {
                                 .color(Color32::WHITE),
                         );
                         ui.label(
-                            RichText::new(format!("مدیریت مالی روزانه  •  {}", persian_digits(&today_jalali())))
+                            RichText::new(format!("مدیریت فروش، کالا و انبار  •  {}", persian_digits(&today_jalali())))
                                 .size(12.0)
                                 .color(Color32::from_rgb(196, 210, 233)),
                         );
                     });
                     ui.add_space(18.0);
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        if ui.button(RichText::new("فروشگاه").strong()).clicked() {
-                            if let Err(e) = self.refresh_business_products() {
-                                self.business_status = format!("خواندن کالاها ناموفق بود: {e}");
-                            }
-                            self.show_business = true;
-                        }
                         if ui.button(RichText::new("چاپگر و بارکد")).clicked() {
                             self.hardware_printers = hardware::list_printers().unwrap_or_default();
                             if self.hardware_printer.is_empty() {
@@ -313,6 +307,7 @@ impl eframe::App for NabzApp {
                 });
             });
 
+        if !show_business_at_frame_start {
         egui::CentralPanel::default()
             .frame(
                 Frame::new()
@@ -536,6 +531,7 @@ impl eframe::App for NabzApp {
                 });
                     });
             });
+        }
 
         if self.show_shortcuts {
             egui::Window::new(RichText::new("راهنمای میان‌برهای نبض"))
@@ -621,15 +617,12 @@ impl eframe::App for NabzApp {
                 });
         }
         if show_business_at_frame_start {
-            let mut show_business = self.show_business;
-            egui::Window::new(RichText::new("فروشگاه و مدیریت کسب‌وکار"))
-                .open(&mut show_business)
-                .collapsible(false)
-                .resizable(true)
-                .default_size(Vec2::new(980.0, 740.0))
-                .min_width(620.0)
-                .min_height(480.0)
-                .vscroll(false)
+            egui::CentralPanel::default()
+                .frame(
+                    Frame::new()
+                        .fill(Color32::from_rgb(245, 247, 251))
+                        .inner_margin(egui::Margin::symmetric(18, 18)),
+                )
                 .show(ctx, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
@@ -890,7 +883,6 @@ impl eframe::App for NabzApp {
                     ui.separator();
                     ui.label(RichText::new(&self.business_status).size(12.0).color(Color32::from_rgb(80, 95, 115)));
                 });
-            self.show_business = show_business;
         }
 
         if self.show_hardware {
