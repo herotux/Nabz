@@ -18,7 +18,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libfuse2 flatpak flatpak-builder python3-yaml
+          sudo apt-get install -y build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libfuse2 flatpak flatpak-builder python3-yaml python3-toml python3-requests librsvg2-bin
       - name: Fetch bundled Persian font
         run: bash scripts/fetch-font.sh
       - uses: Swatinem/rust-cache@v2
@@ -40,6 +40,7 @@ jobs:
           cp assets/NotoSansArabic-Regular.ttf AppDir/usr/share/nabz-NotoSansArabic.ttf
           cp assets/OFL.txt AppDir/usr/share/OFL-NotoSansArabic.txt
           cp assets/nabz.svg AppDir/nabz.svg
+          rsvg-convert -w 256 -h 256 assets/nabz.svg -o AppDir/nabz.png
           cp assets/nabz.svg AppDir/usr/share/icons/hicolor/scalable/apps/nabz.svg
           cat > AppDir/AppRun <<'EOF'
           #!/bin/sh
