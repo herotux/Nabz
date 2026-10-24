@@ -657,6 +657,12 @@ impl eframe::App for NabzApp {
                             .id_salt("business_tab_content")
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
+                                Frame::new()
+                                    .fill(Color32::WHITE)
+                                    .stroke(Stroke::new(1.0, Color32::from_rgb(225, 230, 238)))
+                                    .corner_radius(egui::CornerRadius::same(12))
+                                    .inner_margin(egui::Margin::same(16))
+                                    .show(ui, |ui| {
                         if self.business_tab == 1 {
                         ui.heading(RichText::new("ثبت کالای جدید"));
                         egui::Grid::new("product_entry_grid").num_columns(2).spacing(Vec2::new(8.0, 5.0)).show(ui, |ui| {
@@ -688,7 +694,6 @@ impl eframe::App for NabzApp {
                             }
                         }
                         }
-                        ui.separator();
                         if self.business_tab == 0 {
                         ui.heading(RichText::new("فروش با بارکدخوان USB/HID"));
                         ui.label(RichText::new("فیلد زیر را انتخاب کن و بارکد را اسکن کن؛ Enter در پایان هر اسکن کالا را به سبد اضافه می‌کند."));
@@ -749,7 +754,6 @@ impl eframe::App for NabzApp {
                         });
 
                         }
-                        ui.separator();
                         if self.business_tab == 2 {
                         ui.heading(RichText::new("خرید و ورود موجودی"));
                         egui::Grid::new("purchase_entry_grid").num_columns(2).show(ui, |ui| {
@@ -786,7 +790,6 @@ impl eframe::App for NabzApp {
                             }
                         }
                         }
-                        ui.separator();
                         if self.business_tab == 3 {
                         ui.heading(RichText::new("مشتری و تأمین‌کننده"));
                         egui::Grid::new("party_entry_grid").num_columns(2).show(ui, |ui| {
@@ -821,7 +824,6 @@ impl eframe::App for NabzApp {
                             Err(e) => self.business_status = format!("خواندن طرف حساب‌ها ناموفق بود: {e}"),
                         }
                         }
-                        ui.separator();
                         if self.business_tab == 4 {
                         ui.heading(RichText::new("هزینه‌های فروشگاه"));
                         egui::Grid::new("expense_entry_grid").num_columns(2).show(ui, |ui| {
@@ -882,7 +884,8 @@ impl eframe::App for NabzApp {
                             self.business_status = match result { Ok(path) => format!("پشتیبان ذخیره شد: {}", path.display()), Err(e) => format!("پشتیبان‌گیری ناموفق بود: {e}") };
                         }
                         }
-                    });
+                                    });
+                            });
                     ui.separator();
                     ui.label(RichText::new(&self.business_status).size(12.0).color(Color32::from_rgb(80, 95, 115)));
                 });
