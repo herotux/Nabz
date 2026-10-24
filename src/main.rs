@@ -13,7 +13,23 @@ const FONT: &[u8] = include_bytes!("../assets/Vazirmatn.ttf");
 struct RichText;
 impl RichText {
     fn new(text: impl ToString) -> EguiRichText {
-        EguiRichText::new(fa_shaper::reshape(&text.to_string()))
+        // egui 0.31 renders text in left-to-right visual order. fa-shaper reshapes
+        // Persian glyphs and reverses RTL runs; mirror paired punctuation after
+        // that visual reordering so parentheses remain readable.
+        let shaped = fa_shaper::reshape(&text.to_string());
+        let display = shaped
+            .chars()
+            .map(|ch| match ch {
+                '(' => ')',
+                ')' => '(',
+                '[' => ']',
+                ']' => '[',
+                '{' => '}',
+                '}' => '{',
+                other => other,
+            })
+            .collect::<String>();
+        EguiRichText::new(display)
     }
 }
 
@@ -336,14 +352,14 @@ impl eframe::App for NabzApp {
                                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
                                         ui.label(RichText::new("نوع تراکنش"));
                                         ui.horizontal(|ui| {
-                                            if ui.selectable_label(self.kind == 1, "هزینه").clicked() {
+                                            if ui.selectable_label(self.kind == 1, RichText::new("هزینه")).clicked() {
                                                 self.kind = 1;
                                             }
-                                            if ui.selectable_label(self.kind == 0, "درآمد").clicked() {
+                                            if ui.selectable_label(self.kind == 0, RichText::new("درآمد")).clicked() {
                                                 self.kind = 0;
                                             }
                                         });
-                                        ui.label(RichText::new("مبلغ (تومان)"));
+                                        ui.label(RichText::new("مبلغ به تومان"));
                                         ui.add(
                                             egui::TextEdit::singleline(&mut self.amount)
                                                 .id(egui::Id::new("transaction_amount"))
@@ -611,8 +627,8 @@ impl eframe::App for NabzApp {
                             ui.label(RichText::new("نام کالا")); ui.text_edit_singleline(&mut self.product_name); ui.end_row();
                             ui.label(RichText::new("شناسه داخلی (SKU)")); ui.text_edit_singleline(&mut self.product_sku); ui.end_row();
                             ui.label(RichText::new("بارکد")); ui.text_edit_singleline(&mut self.product_barcode); ui.end_row();
-                            ui.label(RichText::new("قیمت خرید (تومان)")); ui.text_edit_singleline(&mut self.product_purchase_price); ui.end_row();
-                            ui.label(RichText::new("قیمت فروش (تومان)")); ui.text_edit_singleline(&mut self.product_sale_price); ui.end_row();
+                            ui.label(RichText::new("قیمت خرید به تومان")); ui.text_edit_singleline(&mut self.product_purchase_price); ui.end_row();
+                            ui.label(RichText::new("قیمت فروش به تومان")); ui.text_edit_singleline(&mut self.product_sale_price); ui.end_row();
                             ui.label(RichText::new("موجودی اولیه")); ui.text_edit_singleline(&mut self.product_stock); ui.end_row();
                         });
                         if ui.button(RichText::new("ذخیره کالا")).clicked() {
