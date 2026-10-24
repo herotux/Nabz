@@ -590,6 +590,7 @@ impl eframe::App for NabzApp {
                 .open(&mut show_business)
                 .default_width(680.0)
                 .default_height(620.0)
+                .vscroll(true)
                 .show(ctx, |ui| {
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
                         ui.heading("ثبت کالای جدید");
@@ -734,6 +735,19 @@ impl eframe::App for NabzApp {
                                 Ok(_) => { self.business_status = "طرف حساب ثبت شد.".into(); self.party_name.clear(); self.party_phone.clear(); }
                                 Err(e) => self.business_status = e,
                             }
+                        }
+                        match business::list_parties(&self.db) {
+                            Ok(parties) => {
+                                ui.label(format!("فهرست طرف حساب‌ها: {}", parties.len()));
+                                egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
+                                    for party in parties {
+                                        ui.label(format!("{} • {} • مانده: {} تومان", party.name,
+                                            match party.kind.as_str() { "customer" => "مشتری", "supplier" => "تأمین‌کننده", _ => "هر دو" },
+                                            money(party.balance)));
+                                    }
+                                });
+                            }
+                            Err(e) => self.business_status = format!("خواندن طرف حساب‌ها ناموفق بود: {e}"),
                         }
                         ui.separator();
                         ui.heading("هزینه‌های فروشگاه");
