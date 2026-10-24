@@ -66,6 +66,7 @@ struct NabzApp {
     hardware_printer: String,
     hardware_printers: Vec<hardware::Printer>,
     show_business: bool,
+    business_tab: usize,
     business_status: String,
     product_name: String,
     product_sku: String,
@@ -135,6 +136,7 @@ impl NabzApp {
             hardware_printer: String::new(),
             hardware_printers: vec![],
             show_business: false,
+            business_tab: 0,
             business_status: "کالاها و فروش در پایگاه دادهٔ محلی ذخیره می‌شوند.".into(),
             product_name: String::new(),
             product_sku: String::new(),
@@ -280,18 +282,24 @@ impl eframe::App for NabzApp {
                     ui.vertical(|ui| {
                         ui.label(
                             RichText::new(APP_NAME)
-                                .size(25.0)
+                                .size(24.0)
                                 .strong()
                                 .color(Color32::WHITE),
                         );
                         ui.label(
-                            RichText::new(format!(
-                                "مدیریت ساده دخل‌وخرج • امروز {}",
-                                persian_digits(&today_jalali())
-                            ))
-                            .size(13.0)
-                            .color(Color32::from_rgb(196, 210, 233)),
+                            RichText::new(format!("مدیریت مالی روزانه  •  {}", persian_digits(&today_jalali())))
+                                .size(12.0)
+                                .color(Color32::from_rgb(196, 210, 233)),
                         );
+                    });
+                    ui.add_space(18.0);
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        if ui.button(RichText::new("فروشگاه").strong()).clicked() {
+                            if let Err(e) = self.refresh_business_products() {
+                                self.business_status = format!("خواندن کالاها ناموفق بود: {e}");
+                            }
+                            self.show_business = true;
+                        }
                         if ui.button(RichText::new("چاپگر و بارکد")).clicked() {
                             self.hardware_printers = hardware::list_printers().unwrap_or_default();
                             if self.hardware_printer.is_empty() {
@@ -300,12 +308,6 @@ impl eframe::App for NabzApp {
                                     .map(|p| p.name.clone()).unwrap_or_default();
                             }
                             self.show_hardware = true;
-                        }
-                        if ui.button(RichText::new("فروشگاه")).clicked() {
-                            if let Err(e) = self.refresh_business_products() {
-                                self.business_status = format!("خواندن کالاها ناموفق بود: {e}");
-                            }
-                            self.show_business = true;
                         }
                     });
                 });
@@ -318,6 +320,10 @@ impl eframe::App for NabzApp {
                     .inner_margin(egui::Margin::symmetric(18, 18)),
             )
             .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("dashboard_content")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
                 ui.with_layout(Layout::top_down(Align::Max), |ui| {
                     ui.horizontal(|ui| {
                         summary_card(
@@ -528,6 +534,7 @@ impl eframe::App for NabzApp {
                             .color(Color32::from_rgb(130, 140, 155)),
                     );
                 });
+                    });
             });
 
         if self.show_shortcuts {
@@ -615,13 +622,42 @@ impl eframe::App for NabzApp {
         }
         if show_business_at_frame_start {
             let mut show_business = self.show_business;
-            egui::Window::new(RichText::new("فروش و انبار کالا"))
+            egui::Window::new(RichText::new("فروشگاه و مدیریت کسب‌وکار"))
                 .open(&mut show_business)
-                .default_width(680.0)
-                .default_height(620.0)
-                .vscroll(true)
+                .collapsible(false)
+                .resizable(true)
+                .default_size(Vec2::new(980.0, 740.0))
+                .min_width(620.0)
+                .min_height(480.0)
+                .vscroll(false)
                 .show(ctx, |ui| {
+                    ui.set_min_width(ui.available_width());
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for (index, label) in [
+                                "فروش سریع",
+                                "کالاها و انبار",
+                                "خرید",
+                                "مشتری و تأمین‌کننده",
+                                "هزینه‌ها و گزارش",
+                            ].iter().enumerate() {
+                                let selected = self.business_tab == index;
+                                let button = egui::Button::new(
+                                    RichText::new(*label).strong().color(if selected { Color32::WHITE } else { Color32::from_rgb(42, 55, 75) })
+                                )
+                                .fill(if selected { Color32::from_rgb(31, 91, 163) } else { Color32::from_rgb(238, 242, 248) })
+                                .corner_radius(egui::CornerRadius::same(8));
+                                if ui.add(button).clicked() {
+                                    self.business_tab = index;
+                                }
+                            }
+                        });
+                        ui.separator();
+                        egui::ScrollArea::vertical()
+                            .id_salt("business_tab_content")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                        if self.business_tab == 1 {
                         ui.heading(RichText::new("ثبت کالای جدید"));
                         egui::Grid::new("product_entry_grid").num_columns(2).spacing(Vec2::new(8.0, 5.0)).show(ui, |ui| {
                             ui.label(RichText::new("نام کالا")); ui.text_edit_singleline(&mut self.product_name); ui.end_row();
@@ -651,7 +687,9 @@ impl eframe::App for NabzApp {
                                 _ => self.business_status = "قیمت‌ها و موجودی باید عدد صحیح نامنفی باشند.".into(),
                             }
                         }
+                        }
                         ui.separator();
+                        if self.business_tab == 0 {
                         ui.heading(RichText::new("فروش با بارکدخوان USB/HID"));
                         ui.label(RichText::new("فیلد زیر را انتخاب کن و بارکد را اسکن کن؛ Enter در پایان هر اسکن کالا را به سبد اضافه می‌کند."));
                         let scan_response = ui.add(egui::TextEdit::singleline(&mut self.business_scan).hint_text(RichText::new("اسکن بارکد کالا")).desired_width(f32::INFINITY));
@@ -710,7 +748,9 @@ impl eframe::App for NabzApp {
                             });
                         });
 
+                        }
                         ui.separator();
+                        if self.business_tab == 2 {
                         ui.heading(RichText::new("خرید و ورود موجودی"));
                         egui::Grid::new("purchase_entry_grid").num_columns(2).show(ui, |ui| {
                             ui.label(RichText::new("کالا"));
@@ -745,7 +785,9 @@ impl eframe::App for NabzApp {
                                 _ => self.business_status = "کالا را انتخاب کن و مقادیر معتبر وارد کن.".into(),
                             }
                         }
+                        }
                         ui.separator();
+                        if self.business_tab == 3 {
                         ui.heading(RichText::new("مشتری و تأمین‌کننده"));
                         egui::Grid::new("party_entry_grid").num_columns(2).show(ui, |ui| {
                             ui.label(RichText::new("نام")); ui.text_edit_singleline(&mut self.party_name); ui.end_row();
@@ -778,7 +820,9 @@ impl eframe::App for NabzApp {
                             }
                             Err(e) => self.business_status = format!("خواندن طرف حساب‌ها ناموفق بود: {e}"),
                         }
+                        }
                         ui.separator();
+                        if self.business_tab == 4 {
                         ui.heading(RichText::new("هزینه‌های فروشگاه"));
                         egui::Grid::new("expense_entry_grid").num_columns(2).show(ui, |ui| {
                             ui.label(RichText::new("دسته هزینه")); ui.text_edit_singleline(&mut self.expense_category); ui.end_row();
@@ -837,8 +881,10 @@ impl eframe::App for NabzApp {
                             })();
                             self.business_status = match result { Ok(path) => format!("پشتیبان ذخیره شد: {}", path.display()), Err(e) => format!("پشتیبان‌گیری ناموفق بود: {e}") };
                         }
-                        ui.label(RichText::new(&self.business_status).size(12.0));
+                        }
                     });
+                    ui.separator();
+                    ui.label(RichText::new(&self.business_status).size(12.0).color(Color32::from_rgb(80, 95, 115)));
                 });
             self.show_business = show_business;
         }
