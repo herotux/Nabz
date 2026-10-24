@@ -33,6 +33,12 @@ struct NabzApp {
     show_delete: Option<i64>,
     show_shortcuts: bool,
     show_date_picker: bool,
+    show_hardware: bool,
+    hardware_status: String,
+    hardware_scan: String,
+    hardware_barcode: String,
+    hardware_printer: String,
+    hardware_printers: Vec<hardware::Printer>,
     picker_year: i32,
     picker_month: i32,
 }
@@ -72,6 +78,12 @@ impl NabzApp {
             show_delete: None,
             show_shortcuts: false,
             show_date_picker: false,
+            show_hardware: false,
+            hardware_status: "برای چاپگرها به CUPS و برای بارکدخوان USB/HID به حالت صفحه‌کلید نیاز است.".into(),
+            hardware_scan: String::new(),
+            hardware_barcode: "SKU-0001".into(),
+            hardware_printer: String::new(),
+            hardware_printers: vec![],
             picker_year: today_jalali().split('/').next().and_then(|v| v.parse().ok()).unwrap_or(1405),
             picker_month: today_jalali().split('/').nth(1).and_then(|v| v.parse().ok()).unwrap_or(1),
         };
@@ -198,6 +210,15 @@ impl eframe::App for NabzApp {
                             .size(13.0)
                             .color(Color32::from_rgb(196, 210, 233)),
                         );
+                        if ui.button("چاپگر و بارکد").clicked() {
+                            self.hardware_printers = hardware::list_printers().unwrap_or_default();
+                            if self.hardware_printer.is_empty() {
+                                self.hardware_printer = self.hardware_printers.iter()
+                                    .find(|p| p.is_default).or(self.hardware_printers.first())
+                                    .map(|p| p.name.clone()).unwrap_or_default();
+                            }
+                            self.show_hardware = true;
+                        }
                     });
                 });
             });
@@ -504,6 +525,77 @@ impl eframe::App for NabzApp {
                     });
                 });
         }
+        if self.show_hardware {
+            egui::Window::new("چاپگر و بارکدخوان")
+                .open(&mut self.show_hardware)
+                .collapsible(false)
+                .default_width(460.0)
+                .show(ctx, |ui| {
+                    ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                        ui.heading("چاپ آزمایشی");
+                        ui.label("چاپگرهای لینوکس از مسیر CUPS شناسایی می‌شوند.");
+                        ui.horizontal(|ui| {
+                            if ui.button("بازخوانی چاپگرها").clicked() {
+                                match hardware::list_printers() {
+                                    Ok(printers) => {
+                                        self.hardware_printers = printers;
+                                        self.hardware_status = format!("{} چاپگر پیدا شد.", self.hardware_printers.len());
+                                    }
+                                    Err(e) => self.hardware_status = e,
+                                }
+                            }
+                            egui::ComboBox::from_id_salt("hardware_printer")
+                                .selected_text(if self.hardware_printer.is_empty() { "چاپگر پیش‌فرض" } else { &self.hardware_printer })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.hardware_printer, String::new(), "چاپگر پیش‌فرض");
+                                    for printer in &self.hardware_printers {
+                                        ui.selectable_value(&mut self.hardware_printer, printer.name.clone(), &printer.name);
+                                    }
+                                });
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.button("تست چاپ A4").clicked() {
+                                run_printer_test(&self.hardware_printer, hardware::PrinterMode::A4, &mut self.hardware_status);
+                            }
+                            if ui.button("تست فیش‌زن ESC/POS").clicked() {
+                                run_printer_test(&self.hardware_printer, hardware::PrinterMode::ThermalEscPos, &mut self.hardware_status);
+                            }
+                        });
+                        ui.separator();
+                        ui.heading("آزمون بارکدخوان USB/HID");
+                        ui.label("فیلد را انتخاب کن و یک بارکد اسکن کن؛ بارکدخوان معمولاً در پایان Enter می‌فرستد.");
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut self.hardware_scan)
+                                .hint_text("اسکن بارکد در این فیلد")
+                                .desired_width(f32::INFINITY)
+                        );
+                        if response.clicked() { response.request_focus(); }
+                        if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            if self.hardware_scan.is_empty() {
+                                self.hardware_status = "هیچ بارکدی دریافت نشد.".into();
+                            } else {
+                                self.hardware_status = format!("بارکد دریافت شد: {}", self.hardware_scan);
+                                self.hardware_scan.clear();
+                                response.request_focus();
+                            }
+                        }
+                        ui.separator();
+                        ui.heading("تولید بارکد");
+                        ui.label("Code 128 برای کد داخلی کالا؛ EAN-13 فقط با رقم کنترلی معتبر.");
+                        ui.text_edit_singleline(&mut self.hardware_barcode);
+                        ui.horizontal(|ui| {
+                            if ui.button("ساخت SVG از Code 128").clicked() {
+                                save_barcode_svg(&self.hardware_barcode, false, &mut self.hardware_status);
+                            }
+                            if ui.button("ساخت SVG از EAN-13").clicked() {
+                                save_barcode_svg(&self.hardware_barcode, true, &mut self.hardware_status);
+                            }
+                        });
+                        ui.label(RichText::new(&self.hardware_status).size(12.0));
+                    });
+                });
+        }
+
         ctx.request_repaint_after(Duration::from_millis(150));
     }
 }
@@ -537,6 +629,48 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(app))
         }),
     )
+}
+
+
+fn run_printer_test(printer: &str, mode: hardware::PrinterMode, status: &mut String) {
+    match hardware::create_test_receipt() {
+        Ok(path) => {
+            let selected = if printer.trim().is_empty() { None } else { Some(printer) };
+            *status = match hardware::print_file(&path, selected, mode, 1) {
+                Ok(message) => format!("درخواست چاپ به صف فرستاده شد: {message}"),
+                Err(error) => format!("چاپ ناموفق بود: {error}"),
+            };
+            let _ = std::fs::remove_file(path);
+        }
+        Err(error) => *status = error,
+    }
+}
+
+fn save_barcode_svg(value: &str, ean13: bool, status: &mut String) {
+    let generated = if ean13 {
+        hardware::ean13_svg(value.trim(), 80)
+    } else {
+        hardware::code128_svg(value.trim(), 80)
+    };
+    match generated {
+        Ok(svg) => match data_path() {
+            Ok(db_path) => {
+                let result = (|| -> Result<PathBuf, String> {
+                    let dir = db_path.parent().ok_or("مسیر دادهٔ نبض معتبر نیست")?.join("barcodes");
+                    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                    let path = dir.join(if ean13 { "ean13.svg" } else { "code128.svg" });
+                    std::fs::write(&path, svg).map_err(|e| e.to_string())?;
+                    Ok(path)
+                })();
+                *status = match result {
+                    Ok(path) => format!("بارکد SVG ذخیره شد: {}", path.display()),
+                    Err(error) => format!("ذخیرهٔ بارکد ناموفق بود: {error}"),
+                };
+            }
+            Err(error) => *status = error,
+        },
+        Err(error) => *status = error,
+    }
 }
 
 fn summary_card(ui: &mut egui::Ui, title: &str, value: i64, color: Color32) {
