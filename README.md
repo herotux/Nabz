@@ -14,14 +14,22 @@
 هر بار که GitHub Actions ساخت را با موفقیت تمام کند، فایل‌های خروجی در بخش **Artifacts** همان اجرای workflow قرار می‌گیرند:
 [اجرای ساخت لینوکس](https://github.com/herotux/Nabz/actions/workflows/build-linux.yml)
 
-برای ساخت Release رسمی، یک تگ نسخه مانند `v0.1.0` ایجاد کنید؛ workflow فایل AppImage و آرشیو قابل‌حمل را به Release اضافه می‌کند.
+سه خروجی ساخته می‌شوند: **AppImage**، بستهٔ **Flatpak** و آرشیو قابل‌حمل. برای نصب Flatpak روی مانجارو، ابتدا مطمئن شو Flatpak نصب است و Flathub اضافه شده:
 
-AppImage را اجراپذیر کنید و اجرا کنید:
+```bash
+sudo pacman -S --needed flatpak
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user ./Nabz-x86_64.flatpak
+```
+
+برای AppImage:
 
 ```bash
 chmod +x Nabz-x86_64.AppImage
 ./Nabz-x86_64.AppImage
 ```
+
+برای ساخت Release رسمی، یک تگ نسخه مانند `v0.1.0` ایجاد کنید؛ workflow فایل‌های نصب را به Release اضافه می‌کند.
 
 ## ساخت از سورس
 نیازمندی‌ها: Rust stable و وابستگی‌های توسعهٔ لینوکس برای `eframe`.
@@ -39,4 +47,4 @@ cargo run --release
 اطلاعات حسابداری به‌صورت محلی ذخیره می‌شوند و برنامه آن‌ها را به سرور ارسال نمی‌کند.
 
 ## مجوز
-MIT. فونت Noto Sans Arabic تحت SIL Open Font License است؛ فایل مجوز در `assets/OFL.txt` قرار می‌گیرد.
+برنامه تحت MIT است. فونت Noto Sans Arabic تحت SIL Open Font License است؛ فایل مجوز در `assets/OFL.txt` قرار می‌گیرد.
