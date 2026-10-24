@@ -10,21 +10,26 @@
 - ذخیره‌سازی محلی در `~/.local/share/nabz/nabz.sqlite3`
 - بدون نیاز به حساب کاربری یا اینترنت هنگام اجرا
 
-## اجرا از سورس
+## دریافت فایل نصب لینوکس
+هر بار که GitHub Actions ساخت را با موفقیت تمام کند، فایل‌های خروجی در بخش **Artifacts** همان اجرای workflow قرار می‌گیرند:
+[اجرای ساخت لینوکس](https://github.com/herotux/Nabz/actions/workflows/build-linux.yml)
+
+برای ساخت Release رسمی، یک تگ نسخه مانند `v0.1.0` ایجاد کنید؛ workflow فایل AppImage و آرشیو قابل‌حمل را به Release اضافه می‌کند.
+
+AppImage را اجراپذیر کنید و اجرا کنید:
+
+```bash
+chmod +x Nabz-x86_64.AppImage
+./Nabz-x86_64.AppImage
+```
+
+## ساخت از سورس
 نیازمندی‌ها: Rust stable و وابستگی‌های توسعهٔ لینوکس برای `eframe`.
 
 ```bash
 ./scripts/fetch-font.sh
 cargo test
 cargo run --release
-```
-
-## نصب لینوکس
-در GitHub Actions، بستهٔ AppImage و آرشیو قابل‌حمل ساخته می‌شوند. برای دریافت فایل آماده به بخش **Releases** بروید. AppImage را اجراپذیر کنید و اجرا کنید:
-
-```bash
-chmod +x Nabz-*.AppImage
-./Nabz-*.AppImage
 ```
 
 ## تست‌ها
