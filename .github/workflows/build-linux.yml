@@ -33,10 +33,11 @@ jobs:
           tar -C dist -czf Nabz-linux-x86_64.tar.gz nabz
       - name: Prepare AppDir
         run: |
-          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/scalable/apps AppDir/usr/share
           install -m 0755 target/release/nabz AppDir/usr/bin/nabz
+          cp packaging/nabz.desktop AppDir/nabz.desktop
           cp packaging/nabz.desktop AppDir/usr/share/applications/nabz.desktop
-          cp assets/NotoSansArabic-Regular.ttf AppDir/usr/share/fonts-nabz.ttf
+          cp assets/NotoSansArabic-Regular.ttf AppDir/usr/share/nabz-NotoSansArabic.ttf
           cp assets/OFL.txt AppDir/usr/share/OFL-NotoSansArabic.txt
           cat > AppDir/AppRun <<'EOF'
           #!/bin/sh
@@ -50,6 +51,7 @@ jobs:
             <path d="M48 132h32l18-42 28 82 24-58 14 18h44" fill="none" stroke="#54D6A2" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           EOF
+          cp AppDir/nabz.svg AppDir/usr/share/icons/hicolor/scalable/apps/nabz.svg
       - name: Download AppImage tooling
         run: |
           curl -fL --retry 3 -o appimagetool.AppImage https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
