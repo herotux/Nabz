@@ -1,3 +1,5 @@
+pub mod hardware;
+
 use chrono::{Datelike, Local};
 use eframe::egui::{self, Align, Color32, FontData, FontDefinitions, FontFamily, Frame, Layout, RichText, Stroke, Vec2};
 use rusqlite::{params, Connection};
