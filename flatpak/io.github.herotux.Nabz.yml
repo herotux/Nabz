@@ -18,6 +18,7 @@ modules:
       - cargo --offline build --release
       - install -Dm755 target/release/nabz /app/bin/nabz
       - install -Dm644 packaging/nabz.desktop /app/share/applications/io.github.herotux.Nabz.desktop
+      - install -Dm644 assets/nabz.svg /app/share/icons/hicolor/scalable/apps/io.github.herotux.Nabz.svg
     sources:
       - type: dir
         path: ..
