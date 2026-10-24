@@ -886,6 +886,7 @@ impl eframe::App for NabzApp {
                         }
                                     });
                             });
+                    });
                     ui.separator();
                     ui.label(RichText::new(&self.business_status).size(12.0).color(Color32::from_rgb(80, 95, 115)));
                 });
