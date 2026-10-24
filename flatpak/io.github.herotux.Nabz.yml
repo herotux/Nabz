@@ -1,0 +1,24 @@
+app-id: io.github.herotux.Nabz
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: nabz
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+modules:
+  - name: nabz
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/nabz/cargo
+    build-commands:
+      - cargo --offline build --release
+      - install -Dm755 target/release/nabz /app/bin/nabz
+      - install -Dm644 packaging/nabz.desktop /app/share/applications/io.github.herotux.Nabz.desktop
+    sources:
+      - type: dir
+        path: ..
+      - cargo-sources.json
