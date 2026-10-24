@@ -325,6 +325,7 @@ mod tests {
     fn setup() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
+        init_business_extensions(&conn).unwrap();
         conn
     }
 
