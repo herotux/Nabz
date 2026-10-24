@@ -29,7 +29,7 @@ jobs:
           mkdir -p dist/nabz
           install -m 0755 target/release/nabz dist/nabz/nabz
           cp README.md LICENSE dist/nabz/
-          cp assets/NotoSansArabic-Regular.ttf assets/OFL.txt dist/nabz/
+          cp assets/Vazirmatn.ttf assets/OFL.txt dist/nabz/
           tar -C dist -czf Nabz-linux-x86_64.tar.gz nabz
       - name: Prepare AppDir
         run: |
@@ -37,7 +37,7 @@ jobs:
           install -m 0755 target/release/nabz AppDir/usr/bin/nabz
           cp packaging/nabz.desktop AppDir/nabz.desktop
           cp packaging/nabz.desktop AppDir/usr/share/applications/nabz.desktop
-          cp assets/NotoSansArabic-Regular.ttf AppDir/usr/share/nabz-NotoSansArabic.ttf
+          cp assets/Vazirmatn.ttf AppDir/usr/share/nabz-NotoSansArabic.ttf
           cp assets/OFL.txt AppDir/usr/share/OFL-NotoSansArabic.txt
           cp assets/nabz.svg AppDir/nabz.svg
           rsvg-convert -w 256 -h 256 assets/nabz.svg -o AppDir/nabz.png
