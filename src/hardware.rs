@@ -128,7 +128,8 @@ pub fn code128_svg(value: &str, height: u32) -> Result<String, String> {
     if value.is_empty() || value.len() > 128 || !value.is_ascii() || value.chars().any(char::is_control) {
         return Err("بارکد Code 128 باید ۱ تا ۱۲۸ نویسهٔ ASCII قابل‌چاپ داشته باشد.".into());
     }
-    let barcode = Code128::new(value).map_err(|e| format!("کد بارکد نامعتبر است: {e}"))?;
+    let encoded_value = format!("\\u{0181}{value}");
+    let barcode = Code128::new(&encoded_value).map_err(|e| format!("کد بارکد نامعتبر است: {e}"))?;
     SVG::new(height).generate(&barcode.encode()).map_err(|e| format!("تولید SVG ناموفق بود: {e}"))
 }
 
