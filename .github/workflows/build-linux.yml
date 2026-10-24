@@ -66,7 +66,7 @@ jobs:
           cp Cargo.toml Cargo.lock flatpak-source/
           cp -r src assets packaging flatpak-source/
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
+          sudo flatpak install --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
       - name: Build Flatpak bundle
         run: |
           flatpak-builder --force-clean --repo=flatpak-repo flatpak-build flatpak/io.github.herotux.Nabz.yml
