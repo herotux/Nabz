@@ -946,7 +946,7 @@ impl eframe::App for NabzApp {
                                     }
                                 }
                             });
-                        }
+                        });
                         if !self.business_status.is_empty() {
                             ui.add_space(8.0);
                             ui.label(RichText::new(format!("{}  {}", ph::INFO, self.business_status)).color(Color32::from_rgb(15, 118, 110)));
