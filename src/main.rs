@@ -327,7 +327,7 @@ impl eframe::App for NabzApp {
                     .fill(Color32::from_rgb(245, 247, 251))
                     .inner_margin(egui::Margin::symmetric(18, 18)),
             )
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("dashboard_content")
                     .auto_shrink([false, false])
@@ -635,7 +635,7 @@ impl eframe::App for NabzApp {
                     .fill(Color32::from_rgb(26, 41, 61))
                     .inner_margin(egui::Margin::same(12)),
             )
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.with_layout(Layout::top_down(Align::Max), |ui| {
                     ui.label(RichText::new("منوی اصلی").size(11.0).color(Color32::from_rgb(148, 168, 189)));
                     ui.add_space(12.0);
@@ -707,7 +707,7 @@ impl eframe::App for NabzApp {
                         .fill(Color32::from_rgb(245, 247, 251))
                         .inner_margin(egui::Margin::symmetric(18, 18)),
                 )
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
                         if self.business_tab == 5 {
