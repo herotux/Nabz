@@ -4,6 +4,7 @@ pub mod business;
 use chrono::{Datelike, Local};
 use eframe::egui::{self, Align, Color32, FontData, FontDefinitions, FontFamily, Frame, Layout, RichText as EguiRichText, Stroke, Vec2};
 use rusqlite::{params, Connection};
+use egui_phosphor::regular as ph;
 use std::{path::PathBuf, time::Duration};
 
 const APP_NAME: &str = "نبض | فروشگاه";
@@ -633,7 +634,6 @@ impl eframe::App for NabzApp {
                     ui.add_space(14.0);
                     ui.label(RichText::new("منوی اصلی").size(11.0).color(Color32::from_rgb(148, 168, 189)));
                     ui.add_space(12.0);
-                    use egui_phosphor::regular as ph;
                     for (index, label, glyph) in [
                         (5, "نمای کلی", ph::HOUSE),
                         (0, "فروش و فاکتورها", ph::RECEIPT),
