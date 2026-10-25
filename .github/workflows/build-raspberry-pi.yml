@@ -1,0 +1,61 @@
+name: Build Raspberry Pi packages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build for Raspberry Pi (${{ matrix.label }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            label: 64-bit Raspberry Pi OS
+          - arch: armv7
+            target: armv7-unknown-linux-gnueabihf
+            label: 32-bit Raspberry Pi OS
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build natively under ARM emulation
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: ${{ matrix.arch }}
+          distro: ubuntu22.04
+          githubToken: ${{ github.token }}
+          install: |
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              ca-certificates curl build-essential pkg-config \
+              libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev \
+              libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+          run: |
+            set -euxo pipefail
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            . "$HOME/.cargo/env"
+            rustc -V
+            cargo -V
+            bash scripts/fetch-font.sh
+            cargo build --release
+            mkdir -p dist/nabz
+            install -m 0755 target/release/nabz dist/nabz/nabz
+            cp README.md LICENSE dist/nabz/
+            cp assets/Vazirmatn.ttf assets/OFL.txt dist/nabz/
+            tar -C dist -czf Nabz-linux-${{ matrix.target }}.tar.gz nabz
+
+      - name: Upload Raspberry Pi package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-linux-${{ matrix.target }}
+          path: Nabz-linux-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 30
