@@ -198,7 +198,6 @@ impl NabzApp {
         self.total_expense = sums.1;
         Ok(())
     }
-
     fn add(&mut self) {
         let normalized: String = self.amount.chars().map(normalize_digit).collect();
         let amount = normalized.trim().replace(',', "").replace('٬', "").parse::<i64>();
@@ -274,8 +273,9 @@ impl eframe::App for NabzApp {
         egui::TopBottomPanel::top("header")
             .frame(
                 Frame::new()
-                    .fill(Color32::from_rgb(24, 39, 68))
-                    .inner_margin(egui::Margin::symmetric(20, 16)),
+                    .fill(Color32::WHITE)
+                    .stroke(Stroke::new(1.0, Color32::from_rgb(224, 230, 238)))
+                    .inner_margin(egui::Margin::symmetric(20, 12)),
             )
             .show(ctx, |ui| {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -284,12 +284,12 @@ impl eframe::App for NabzApp {
                             RichText::new(APP_NAME)
                                 .size(24.0)
                                 .strong()
-                                .color(Color32::WHITE),
+                                .color(Color32::from_rgb(20, 122, 92)),
                         );
                         ui.label(
                             RichText::new(format!("مدیریت فروش، کالا و انبار  •  {}", persian_digits(&today_jalali())))
                                 .size(12.0)
-                                .color(Color32::from_rgb(196, 210, 233)),
+                                .color(Color32::from_rgb(107, 122, 143)),
                         );
                     });
                     ui.add_space(18.0);
@@ -397,8 +397,7 @@ impl eframe::App for NabzApp {
                                                 if parts.len() == 3 {
                                                     if let Ok(y) = parts[0].parse() { self.picker_year = y; }
                                                     if let Ok(m) = parts[1].parse::<i32>() { self.picker_month = m.clamp(1, 12); }
-                                                }
-                                                self.show_date_picker = true;
+                                                }                                                self.show_date_picker = true;
                                             }
                                         });
                                         ui.label(RichText::new("یادداشت (اختیاری)"));
@@ -598,7 +597,6 @@ impl eframe::App for NabzApp {
                 });
             if close_picker { self.show_date_picker = false; }
         }
-
         if let Some(id) = self.show_delete {
             egui::Window::new(RichText::new("حذف تراکنش؟"))
                 .collapsible(false)
@@ -616,6 +614,59 @@ impl eframe::App for NabzApp {
                     });
                 });
         }
+        egui::SidePanel::right("navigation")
+            .resizable(false)
+            .exact_width(210.0)
+            .frame(
+                Frame::new()
+                    .fill(Color32::from_rgb(26, 41, 61))
+                    .inner_margin(egui::Margin::same(12)),
+            )
+            .show(ctx, |ui| {
+                ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                    ui.label(RichText::new("منوی اصلی").size(11.0).color(Color32::from_rgb(148, 168, 189)));
+                    ui.add_space(12.0);
+                    for (index, label, glyph) in [
+                        (0, "فروش و فاکتورها", "＋"),
+                        (1, "کالاها و انبار", "▤"),
+                        (2, "خریدها", "⇄"),
+                        (3, "مشتریان و تأمین‌کنندگان", "♙"),
+                        (4, "هزینه‌ها و گزارش", "▧"),
+                    ] {
+                        let active = self.business_tab == index;
+                        let button = egui::Button::new(
+                            RichText::new(format!("{glyph}   {label}"))
+                                .size(12.0)
+                                .strong()
+                                .color(if active { Color32::from_rgb(143, 222, 191) } else { Color32::from_rgb(214, 224, 235) }),
+                        )
+                        .fill(if active { Color32::from_rgb(36, 56, 79) } else { Color32::TRANSPARENT })
+                        .corner_radius(egui::CornerRadius::same(8))
+                        .min_size(Vec2::new(ui.available_width(), 40.0));
+                        if ui.add(button).clicked() {
+                            self.business_tab = index;
+                            self.show_business = true;
+                        }
+                        ui.add_space(5.0);
+                    }
+                    ui.add_space(14.0);
+                    ui.separator();
+                    ui.label(RichText::new("ابزارها").size(11.0).color(Color32::from_rgb(148, 168, 189)));
+                    if ui.button(RichText::new("⚙  چاپگر و بارکد")).clicked() {
+                        self.hardware_printers = hardware::list_printers().unwrap_or_default();
+                        if self.hardware_printer.is_empty() {
+                            self.hardware_printer = self.hardware_printers.iter()
+                                .find(|p| p.is_default).or(self.hardware_printers.first())
+                                .map(|p| p.name.clone()).unwrap_or_default();
+                        }
+                        self.show_hardware = true;
+                    }
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("نبض حسابداری").strong().color(Color32::WHITE));
+                    ui.label(RichText::new("نسخه دسکتاپ • ذخیره‌سازی محلی").size(10.0).color(Color32::from_rgb(173, 191, 209)));
+                });
+            });
+
         if show_business_at_frame_start {
             egui::CentralPanel::default()
                 .frame(
@@ -626,25 +677,53 @@ impl eframe::App for NabzApp {
                 .show(ctx, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            for (index, label) in [
-                                "فروش سریع",
-                                "کالاها و انبار",
-                                "خرید",
-                                "مشتری و تأمین‌کننده",
-                                "هزینه‌ها و گزارش",
-                            ].iter().enumerate() {
-                                let selected = self.business_tab == index;
-                                let button = egui::Button::new(
-                                    RichText::new(*label).strong().color(if selected { Color32::WHITE } else { Color32::from_rgb(42, 55, 75) })
-                                )
-                                .fill(if selected { Color32::from_rgb(31, 91, 163) } else { Color32::from_rgb(238, 242, 248) })
-                                .corner_radius(egui::CornerRadius::same(8));
-                                if ui.add(button).clicked() {
-                                    self.business_tab = index;
-                                }
+                        if self.business_tab == 0 {
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.label(RichText::new("نمای کلی فروشگاه").size(22.0).strong().color(Color32::from_rgb(28, 41, 59)));
+                                    ui.label(RichText::new("خلاصه وضعیت کسب‌وکار و دسترسی سریع به عملیات روزانه").size(12.0).color(Color32::from_rgb(107, 122, 143)));
+                                });
+                            });
+                            ui.add_space(12.0);
+                            if let Ok((sales, purchases, expenses, low_stock, _gross_profit)) = business::business_totals(&self.db) {
+                                ui.columns(4, |cols| {
+                                    for (i, title, value, color) in [
+                                        (0, "فروش کل", sales, Color32::from_rgb(20, 122, 92)),
+                                        (1, "خرید کل", purchases, Color32::from_rgb(44, 103, 173)),
+                                        (2, "هزینه فروشگاه", expenses, Color32::from_rgb(190, 73, 73)),
+                                        (3, "کالای کم‌موجودی", low_stock as i64, Color32::from_rgb(190, 126, 39)),
+                                    ] {
+                                        Frame::new()
+                                            .fill(Color32::WHITE)
+                                            .stroke(Stroke::new(1.0, Color32::from_rgb(224, 230, 238)))
+                                            .corner_radius(egui::CornerRadius::same(10))
+                                            .inner_margin(12.0)
+                                            .show(&mut cols[i], |ui| {
+                                                ui.set_min_height(90.0);
+                                                ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                                                    ui.label(RichText::new(title).size(11.0).color(Color32::from_rgb(107, 122, 143)));
+                                                    ui.add_space(7.0);
+                                                    ui.label(RichText::new(if i == 3 { persian_digits(&value.to_string()) } else { money(value) }).size(18.0).strong().color(color));
+                                                    if i != 3 {
+                                                        ui.label(RichText::new("تومان").size(10.0).color(Color32::GRAY));
+                                                    } else {
+                                                        ui.label(RichText::new("نیازمند بررسی").size(10.0).color(Color32::GRAY));
+                                                    }
+                                                });
+                                            });
+                                    }
+                                });
                             }
-                        });
+                            ui.add_space(12.0);
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.button(RichText::new("＋ فروش سریع").strong()).clicked() { self.business_tab = 0; }
+                                if ui.button(RichText::new("＋ افزودن کالا")).clicked() { self.business_tab = 1; }
+                                if ui.button(RichText::new("＋ ثبت خرید")).clicked() { self.business_tab = 2; }
+                                if ui.button(RichText::new("＋ ثبت مشتری")).clicked() { self.business_tab = 3; }
+                                if ui.button(RichText::new("＋ ثبت هزینه")).clicked() { self.business_tab = 4; }
+                            });
+                            ui.add_space(8.0);
+                        }
                         ui.separator();
                         egui::ScrollArea::vertical()
                             .id_salt("business_tab_content")
@@ -797,8 +876,7 @@ impl eframe::App for NabzApp {
                             ui.end_row();
                         });
                         if ui.button(RichText::new("ثبت طرف حساب")).clicked() {
-                            let kind = match self.party_kind { 0 => "customer", 1 => "supplier", _ => "both" };
-                            match business::add_party(&self.db, &self.party_name, kind, &self.party_phone) {
+                            let kind = match self.party_kind { 0 => "customer", 1 => "supplier", _ => "both" };                            match business::add_party(&self.db, &self.party_name, kind, &self.party_phone) {
                                 Ok(_) => { self.business_status = "طرف حساب ثبت شد.".into(); self.party_name.clear(); self.party_phone.clear(); }
                                 Err(e) => self.business_status = e,
                             }
@@ -997,8 +1075,7 @@ fn parse_business_number(value: &str) -> Option<i64> {
     normalized.trim().replace(',', "").replace('٬', "").parse::<i64>().ok().filter(|v| *v >= 0)
 }
 
-fn run_printer_test(printer: &str, mode: hardware::PrinterMode, status: &mut String) {
-    match hardware::create_test_receipt() {
+fn run_printer_test(printer: &str, mode: hardware::PrinterMode, status: &mut String) {    match hardware::create_test_receipt() {
         Ok(path) => {
             let selected = if printer.trim().is_empty() { None } else { Some(printer) };
             *status = match hardware::print_file(&path, selected, mode, 1) {
@@ -1198,7 +1275,6 @@ mod tests {
         assert!(valid_jalali("1405/01/31"));
         assert!(valid_jalali("۱۴۰۵/۱۲/۲۹"));
     }
-
     #[test]
     fn rejects_invalid_jalali_dates() {
         assert!(!valid_jalali("1405/13/01"));
