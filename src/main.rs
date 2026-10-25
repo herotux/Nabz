@@ -616,7 +616,7 @@ impl eframe::App for NabzApp {
         }
         egui::SidePanel::right("navigation")
             .resizable(false)
-            .exact_width(210.0)
+            .exact_width(240.0)
             .frame(
                 Frame::new()
                     .fill(Color32::from_rgb(26, 41, 61))
@@ -682,46 +682,27 @@ impl eframe::App for NabzApp {
                             ui.horizontal(|ui| {
                                 ui.vertical(|ui| {
                                     ui.label(RichText::new("نمای کلی فروشگاه").size(22.0).strong().color(Color32::from_rgb(28, 41, 59)));
-                                    ui.label(RichText::new("خلاصه وضعیت کسب‌وکار و دسترسی سریع به عملیات روزانه").size(12.0).color(Color32::from_rgb(107, 122, 143)));
+                                    ui.label(RichText::new(format!("خلاصه وضعیت کسب‌وکار • {}", persian_digits(&today_jalali()))).size(12.0).color(Color32::from_rgb(107, 122, 143)));
                                 });
                             });
-                            ui.add_space(12.0);
-                            if let Ok((sales, purchases, expenses, low_stock, _gross_profit)) = business::business_totals(&self.db) {
-                                ui.columns(4, |cols| {
-                                    for (i, title, value, color) in [
-                                        (0, "فروش کل", sales, Color32::from_rgb(20, 122, 92)),
-                                        (1, "خرید کل", purchases, Color32::from_rgb(44, 103, 173)),
-                                        (2, "هزینه فروشگاه", expenses, Color32::from_rgb(190, 73, 73)),
-                                        (3, "کالای کم‌موجودی", low_stock as i64, Color32::from_rgb(190, 126, 39)),
-                                    ] {
-                                        Frame::new()
-                                            .fill(Color32::WHITE)
-                                            .stroke(Stroke::new(1.0, Color32::from_rgb(224, 230, 238)))
-                                            .corner_radius(egui::CornerRadius::same(10))
-                                            .inner_margin(12.0)
-                                            .show(&mut cols[i], |ui| {
-                                                ui.set_min_height(90.0);
-                                                ui.with_layout(Layout::top_down(Align::Max), |ui| {
-                                                    ui.label(RichText::new(title).size(11.0).color(Color32::from_rgb(107, 122, 143)));
-                                                    ui.add_space(7.0);
-                                                    ui.label(RichText::new(if i == 3 { persian_digits(&value.to_string()) } else { money(value) }).size(18.0).strong().color(color));
-                                                    if i != 3 {
-                                                        ui.label(RichText::new("تومان").size(10.0).color(Color32::GRAY));
-                                                    } else {
-                                                        ui.label(RichText::new("نیازمند بررسی").size(10.0).color(Color32::GRAY));
-                                                    }
-                                                });
-                                            });
-                                    }
-                                });
-                            }
-                            ui.add_space(12.0);
+                            ui.add_space(10.0);
                             ui.horizontal_wrapped(|ui| {
-                                if ui.button(RichText::new("＋ فروش سریع").strong()).clicked() { self.business_tab = 0; }
-                                if ui.button(RichText::new("＋ افزودن کالا")).clicked() { self.business_tab = 1; }
-                                if ui.button(RichText::new("＋ ثبت خرید")).clicked() { self.business_tab = 2; }
-                                if ui.button(RichText::new("＋ ثبت مشتری")).clicked() { self.business_tab = 3; }
-                                if ui.button(RichText::new("＋ ثبت هزینه")).clicked() { self.business_tab = 4; }
+                                for (label, tab) in [("＋ فاکتور فروش جدید",0usize),("＋ ثبت هزینه",4),("＋ افزودن کالا",1)] {
+                                    if ui.button(RichText::new(label).strong()).clicked() { self.business_tab = tab; }
+                                }
+                                if ui.button(RichText::new("پشتیبان‌گیری")).clicked() {
+                                    let result = (|| -> Result<PathBuf, String> {
+                                        self.db.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(|e| e.to_string())?;
+                                        let source = data_path()?;
+                                        let parent = source.parent().ok_or("مسیر داده معتبر نیست")?;
+                                        let dir = parent.join("backups");
+                                        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                                        let target = dir.join(format!("nabz-backup-{}.sqlite3", Local::now().format("%Y%m%d-%H%M%S")));
+                                        std::fs::copy(&source, &target).map_err(|e| e.to_string())?;
+                                        Ok(target)
+                                    })();
+                                    self.business_status = match result { Ok(path) => format!("پشتیبان ذخیره شد: {}", path.display()), Err(e) => format!("پشتیبان‌گیری ناموفق بود: {e}") };
+                                }
                             });
                             ui.add_space(8.0);
                         }
