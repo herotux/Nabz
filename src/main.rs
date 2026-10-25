@@ -319,7 +319,7 @@ impl eframe::App for NabzApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                 ui.with_layout(Layout::top_down(Align::Max), |ui| {
-                    ui.horizontal(|ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         summary_card(
                             ui,
                             "موجودی خالص",
@@ -351,7 +351,7 @@ impl eframe::App for NabzApp {
                                 .show(ui, |ui| {
                                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
                                         ui.label(RichText::new("نوع تراکنش"));
-                                        ui.horizontal(|ui| {
+                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                             if ui.selectable_label(self.kind == 1, RichText::new("هزینه")).clicked() {
                                                 self.kind = 1;
                                             }
@@ -384,7 +384,7 @@ impl eframe::App for NabzApp {
                                                 }
                                             });
                                         ui.label(RichText::new("تاریخ شمسی"));
-                                        ui.horizontal(|ui| {
+                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                             ui.add(
                                                 egui::TextEdit::singleline(&mut self.date)
                                                     .hint_text(RichText::new("۱۴۰۵/۰۷/۰۲"))
@@ -428,7 +428,7 @@ impl eframe::App for NabzApp {
                         });
 
                         cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
-                            ui.horizontal(|ui| {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.search)
                                         .id(egui::Id::new("transaction_search"))
@@ -468,7 +468,7 @@ impl eframe::App for NabzApp {
                                                 });
                                             } else {
                                                 for t in filtered {
-                                                    ui.horizontal(|ui| {
+                                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                                         if ui.small_button(RichText::new("حذف")).clicked() {
                                                             self.show_delete = Some(t.id);
                                                         }
@@ -517,7 +517,7 @@ impl eframe::App for NabzApp {
                                 });
                         });
                     });
-                    ui.horizontal(|ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.label(RichText::new("میان‌برها: Ctrl+Enter ثبت • Ctrl+F جست‌وجو • Ctrl+N فرم جدید • F1 راهنما").size(11.0).color(Color32::from_rgb(100, 110, 125)));
                         if ui.small_button(RichText::new("راهنمای کلیدها")).clicked() { self.show_shortcuts = true; }
                     });
@@ -589,7 +589,7 @@ impl eframe::App for NabzApp {
                         }
                     });
                     ui.separator();
-                    ui.horizontal(|ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui.button(RichText::new("امروز")).clicked() { self.date = today_jalali(); close_picker = true; }
                         if ui.button(RichText::new("بستن")).clicked() { close_picker = true; }
                     });
@@ -603,7 +603,7 @@ impl eframe::App for NabzApp {
                 .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
                 .show(&ctx, |ui| {
                     ui.label(RichText::new("این تراکنش برای همیشه از پایگاه داده محلی حذف می‌شود."));
-                    ui.horizontal(|ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui.button(RichText::new("انصراف")).clicked() {
                             self.show_delete = None;
                         }
@@ -623,7 +623,7 @@ impl eframe::App for NabzApp {
             )
             .show(ui, |ui| {
                 ui.with_layout(Layout::top_down(Align::Max), |ui| {
-                    ui.horizontal(|ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         draw_nabz_mark(ui, 38.0);
                         ui.vertical(|ui| {
                             ui.label(RichText::new("نبض").size(20.0).strong().color(Color32::WHITE));
@@ -705,7 +705,7 @@ impl eframe::App for NabzApp {
                     ui.set_min_width(ui.available_width());
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
                         if self.business_tab == 5 {
-                            ui.horizontal(|ui| {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 ui.vertical(|ui| {
                                     ui.label(RichText::new("نمای کلی فروشگاه").size(22.0).strong().color(Color32::from_rgb(28, 41, 59)));
                                     ui.label(RichText::new(format!("خلاصه وضعیت کسب‌وکار • {}", persian_digits(&today_jalali()))).size(12.0).color(Color32::from_rgb(107, 122, 143)));
@@ -765,7 +765,7 @@ impl eframe::App for NabzApp {
                                 "SELECT COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END),0) FROM parties WHERE kind IN ('supplier','both')",
                                 [], |r| r.get(0)
                             ).unwrap_or(0);
-                            ui.horizontal(|ui| {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 ui.vertical(|ui| {
                                     ui.label(RichText::new("وضعیت امروز").size(16.0).strong().color(Color32::from_rgb(28, 41, 59)));
                                     ui.label(RichText::new(format!("{} فاکتور فروش ثبت شده", persian_digits(&today_sales_count.to_string()))).size(11.0).color(Color32::from_rgb(107, 122, 143)));
@@ -948,7 +948,7 @@ impl eframe::App for NabzApp {
                         });
                         let total = self.business_basket.iter().fold(0_i64, |sum, item| sum.saturating_add(item.line_total()));
                         ui.label(RichText::new(format!("جمع کل: {} تومان", money(total))).strong().size(16.0));
-                        ui.horizontal(|ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if ui.button(RichText::new("ثبت فروش و کسر موجودی")).clicked() {
                                 match business::record_sale(&mut self.db, &self.business_basket, &today_jalali()) {
                                     Ok(sale_id) => {
@@ -1126,7 +1126,7 @@ impl eframe::App for NabzApp {
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
                         ui.heading(RichText::new("چاپ آزمایشی"));
                         ui.label(RichText::new("چاپگرهای لینوکس از مسیر CUPS شناسایی می‌شوند."));
-                        ui.horizontal(|ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if ui.button(RichText::new("بازخوانی چاپگرها")).clicked() {
                                 match hardware::list_printers() {
                                     Ok(printers) => {
@@ -1145,7 +1145,7 @@ impl eframe::App for NabzApp {
                                     }
                                 });
                         });
-                        ui.horizontal(|ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if ui.button(RichText::new("تست چاپ A4")).clicked() {
                                 run_printer_test(&self.hardware_printer, hardware::PrinterMode::A4, &mut self.hardware_status);
                             }
@@ -1175,7 +1175,7 @@ impl eframe::App for NabzApp {
                         ui.heading(RichText::new("تولید بارکد"));
                         ui.label(RichText::new("Code 128 برای کد داخلی کالا؛ EAN-13 فقط با رقم کنترلی معتبر."));
                         ui.text_edit_singleline(&mut self.hardware_barcode);
-                        ui.horizontal(|ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if ui.button(RichText::new("ساخت SVG از Code 128")).clicked() {
                                 save_barcode_svg(&self.hardware_barcode, false, &mut self.hardware_status);
                             }
