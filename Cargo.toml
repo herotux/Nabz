@@ -12,6 +12,7 @@ egui = { version = "0.36.2", default-features = false }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 barcoders = { version = "2.0", features = ["svg"] }
+egui-phosphor = "0.14"
 
 [profile.release]
 opt-level = 2
