@@ -13,6 +13,8 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 barcoders = { version = "2.0", features = ["svg"] }
 egui-phosphor = "0.8"
+arabic_reshaper = "0.4"
+unicode-bidi = "0.3"
 
 [profile.release]
 opt-level = 2

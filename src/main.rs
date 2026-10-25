@@ -10,10 +10,43 @@ use std::{path::PathBuf, time::Duration};
 const APP_NAME: &str = "نبض | حسابداری فروشگاه";
 const FONT: &[u8] = include_bytes!("../assets/Vazirmatn.ttf");
 
+pub fn shape_text(text: &str) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    let reshaper = arabic_reshaper::ArabicReshaper::default();
+    let reshaped = reshaper.reshape(text);
+    let bidi_info = unicode_bidi::BidiInfo::new(&reshaped, Some(unicode_bidi::Level::rtl()));
+    let mut display_text = String::new();
+
+    for para in &bidi_info.paragraphs {
+        let line = para.range.clone();
+        let (levels, runs) = bidi_info.visual_runs(para, line);
+        for run in runs {
+            let s = &reshaped[run.clone()];
+            let level = levels[run.start];
+            if level.is_rtl() {
+                let rev: String = s.chars().rev().map(|c| match c {
+                    '(' => ')', ')' => '(',
+                    '[' => ']', ']' => '[',
+                    '{' => '}', '}' => '{',
+                    '«' => '»', '»' => '«',
+                    '<' => '>', '>' => '<',
+                    other => other,
+                }).collect();
+                display_text.push_str(&rev);
+            } else {
+                display_text.push_str(s);
+            }
+        }
+    }
+    display_text
+}
+
 struct RichText;
 impl RichText {
     fn new(text: impl ToString) -> EguiRichText {
-        EguiRichText::new(text.to_string())
+        EguiRichText::new(shape_text(&text.to_string()))
     }
 }
 
@@ -44,8 +77,6 @@ struct NabzApp {
     show_date_picker: bool,
     show_hardware: bool,
     hardware_status: String,
-    hardware_scan: String,
-    hardware_barcode: String,
     hardware_printer: String,
     hardware_printers: Vec<hardware::Printer>,
     show_business: bool,
@@ -115,12 +146,10 @@ impl NabzApp {
             show_date_picker: false,
             show_hardware: false,
             hardware_status: "برای چاپگرها به CUPS و برای بارکدخوان USB/HID به حالت صفحه‌کلید نیاز است.".into(),
-            hardware_scan: String::new(),
-            hardware_barcode: "SKU-0001".into(),
             hardware_printer: String::new(),
             hardware_printers: vec![],
             show_business: true,
-            business_tab: 5, // 5 = نمای کلی (Dashboard)
+            business_tab: 5,
             business_status: "سیستم آماده کار است.".into(),
             product_name: String::new(),
             product_sku: String::new(),
@@ -237,7 +266,6 @@ impl eframe::App for NabzApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let screen_height = ctx.screen_rect().height();
 
-        // Handle global keyboard shortcuts
         let save_shortcut = ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Enter));
         let help_shortcut = ctx.input(|i| (i.modifiers.ctrl && i.key_pressed(egui::Key::Slash)) || i.key_pressed(egui::Key::F1));
         let search_shortcut = ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::F));
@@ -258,7 +286,6 @@ impl eframe::App for NabzApp {
             )
             .show(ctx, |ui| {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    // Right Side: Brand Logo & Title
                     draw_nabz_mark(ui, 38.0);
                     ui.add_space(8.0);
                     ui.vertical(|ui| {
@@ -268,7 +295,6 @@ impl eframe::App for NabzApp {
 
                     ui.add_space(24.0);
 
-                    // Quick Actions / Status Summary
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         if ui.add(egui::Button::new(RichText::new(format!("{}  تنظیمات سخت‌افزار", ph::GEAR)).size(12.0)))
                             .clicked() {
@@ -309,7 +335,7 @@ impl eframe::App for NabzApp {
             .exact_width(220.0)
             .frame(
                 Frame::none()
-                    .fill(Color32::from_rgb(15, 23, 42)) // Modern Dark Navy Slate Sidebar
+                    .fill(Color32::from_rgb(15, 23, 42))
                     .inner_margin(Margin::same(12.0)),
             )
             .show(ctx, |ui| {
@@ -330,7 +356,6 @@ impl eframe::App for NabzApp {
 
                     for (index, label, glyph) in menu_items {
                         let active = if index == 6 { !self.show_business } else { self.show_business && self.business_tab == index };
-
                         let bg_color = if active { Color32::from_rgb(15, 118, 110) } else { Color32::TRANSPARENT };
                         let text_color = if active { Color32::WHITE } else { Color32::from_rgb(203, 213, 225) };
 
@@ -378,12 +403,11 @@ impl eframe::App for NabzApp {
         egui::CentralPanel::default()
             .frame(
                 Frame::none()
-                    .fill(Color32::from_rgb(248, 250, 252)) // Soft Gray-Blue Background
+                    .fill(Color32::from_rgb(248, 250, 252))
                     .inner_margin(Margin::symmetric(20.0, 20.0)),
             )
             .show(ctx, |ui| {
                 if !self.show_business {
-                    // Personal Accounting / General Cash Book View
                     egui::ScrollArea::vertical()
                         .id_salt("cashbook_scroll")
                         .show(ui, |ui| {
@@ -400,7 +424,6 @@ impl eframe::App for NabzApp {
                                 ui.add_space(16.0);
 
                                 ui.columns(2, |cols| {
-                                    // Left Column: Transactions List
                                     cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                                         panel_title(ui, "لیست آخرین تراکنش‌ها");
                                         ui.add_space(6.0);
@@ -446,7 +469,6 @@ impl eframe::App for NabzApp {
                                             });
                                     });
 
-                                    // Right Column: Add Transaction Form
                                     cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
                                         panel_title(ui, "ثبت تراکنش جدید");
                                         ui.add_space(6.0);
@@ -505,7 +527,6 @@ impl eframe::App for NabzApp {
                             });
                         });
                 } else {
-                    // Business / Shop Management Views
                     egui::ScrollArea::vertical()
                         .id_salt("business_main_scroll")
                         .show(ui, |ui| {
@@ -758,7 +779,6 @@ impl NabzApp {
             ui.label(RichText::new("کالاها را اسکن کنید یا از لیست زیر به سبد خرید اضافه کنید.").size(12.0).color(Color32::from_rgb(100, 116, 139)));
             ui.add_space(12.0);
 
-            // Barcode Input Box
             Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(10.0)).inner_margin(Margin::same(12.0)).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{}  اسکن بارکد:", ph::BARCODE)).strong().size(14.0));
@@ -781,7 +801,6 @@ impl NabzApp {
             ui.add_space(14.0);
 
             ui.columns(2, |cols| {
-                // Left Column: Shopping Basket
                 cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "سبد خرید مشتری");
                     ui.add_space(6.0);
@@ -833,7 +852,6 @@ impl NabzApp {
                     });
                 });
 
-                // Right Column: Quick Product Selector List
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "انتخاب سریع کالاها");
                     ui.add_space(6.0);
@@ -874,7 +892,6 @@ impl NabzApp {
             ui.add_space(12.0);
 
             ui.columns(2, |cols| {
-                // Form Column
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "تعریف / ثبت کالای جدید");
                     ui.add_space(6.0);
@@ -931,7 +948,6 @@ impl NabzApp {
                     });
                 });
 
-                // List Column
                 cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "فهرست کالاهای موجود");
                     ui.add_space(6.0);
