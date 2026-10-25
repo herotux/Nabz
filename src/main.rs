@@ -1129,7 +1129,7 @@ impl eframe::App for NabzApp {
                 .open(&mut self.show_hardware)
                 .collapsible(false)
                 .default_width(460.0)
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     ui.with_layout(Layout::top_down(Align::Max), |ui| {
                         ui.heading(RichText::new("چاپ آزمایشی"));
                         ui.label(RichText::new("چاپگرهای لینوکس از مسیر CUPS شناسایی می‌شوند."));
