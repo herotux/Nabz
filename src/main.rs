@@ -616,7 +616,7 @@ impl eframe::App for NabzApp {
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     ui.label(RichText::new("این تراکنش برای همیشه از پایگاه داده محلی حذف می‌شود."));
                     ui.horizontal(|ui| {
                         if ui.button(RichText::new("انصراف")).clicked() {
