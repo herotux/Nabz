@@ -254,6 +254,12 @@ impl eframe::App for NabzApp {
         // egui 0.31.1 can panic in hit_test when a newly opened, scrollable Window
         // overlaps the pointer widget from that same frame.
         let show_business_at_frame_start = self.show_business;
+        // Defer every popup/window until the frame after its opening click. egui 0.32
+        // can panic in hit_test when a new window overlaps the widget clicked to open it.
+        let show_hardware_at_frame_start = self.show_hardware;
+        let show_shortcuts_at_frame_start = self.show_shortcuts;
+        let show_date_picker_at_frame_start = self.show_date_picker;
+        let show_delete_at_frame_start = self.show_delete.is_some();
         let save_shortcut = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Enter));
         let help_shortcut = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Slash));
         let help_f1 = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F1));
@@ -541,7 +547,7 @@ impl eframe::App for NabzApp {
             });
         }
 
-        if self.show_shortcuts {
+        if show_shortcuts_at_frame_start && self.show_shortcuts {
             egui::Window::new(RichText::new("راهنمای میان‌برهای نبض"))
                 .open(&mut self.show_shortcuts)
                 .collapsible(false)
@@ -560,7 +566,7 @@ impl eframe::App for NabzApp {
                 });
         }
 
-        if self.show_date_picker {
+        if show_date_picker_at_frame_start && self.show_date_picker {
             let mut close_picker = false;
             egui::Window::new(RichText::new("انتخاب تاریخ شمسی"))
                 .open(&mut self.show_date_picker)
@@ -606,7 +612,7 @@ impl eframe::App for NabzApp {
                 });
             if close_picker { self.show_date_picker = false; }
         }
-        if let Some(id) = self.show_delete {
+        if let Some(id) = self.show_delete.filter(|_| show_delete_at_frame_start) {
             egui::Window::new(RichText::new("حذف تراکنش؟"))
                 .collapsible(false)
                 .resizable(false)
@@ -1119,7 +1125,7 @@ impl eframe::App for NabzApp {
                 });
         }
 
-        if self.show_hardware {
+        if show_hardware_at_frame_start && self.show_hardware {
             egui::Window::new(RichText::new("چاپگر و بارکدخوان"))
                 .open(&mut self.show_hardware)
                 .collapsible(false)
