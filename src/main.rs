@@ -8,28 +8,12 @@ use std::{path::PathBuf, time::Duration};
 
 const APP_NAME: &str = "نبض | فروشگاه";
 const FONT: &[u8] = include_bytes!("../assets/Vazirmatn.ttf");
-// egui does not shape Persian/Arabic text or consistently order RTL runs.
-// Keep application strings in logical Unicode order and reshape only for display.
+// Keep Persian strings in logical Unicode order. egui 0.36 uses OpenType shaping;
+// manually reshaping/reversing strings here causes double-shaping and backwards text.
 struct RichText;
 impl RichText {
     fn new(text: impl ToString) -> EguiRichText {
-        // egui 0.31 renders text in left-to-right visual order. fa-shaper reshapes
-        // Persian glyphs and reverses RTL runs; mirror paired punctuation after
-        // that visual reordering so parentheses remain readable.
-        let shaped = fa_shaper::reshape(&text.to_string());
-        let display = shaped
-            .chars()
-            .map(|ch| match ch {
-                '(' => ')',
-                ')' => '(',
-                '[' => ']',
-                ']' => '[',
-                '{' => '}',
-                '}' => '{',
-                other => other,
-            })
-            .collect::<String>();
-        EguiRichText::new(display)
+        EguiRichText::new(text.to_string())
     }
 }
 
@@ -271,7 +255,6 @@ impl eframe::App for NabzApp {
         if help_shortcut || help_f1 { self.show_shortcuts = !self.show_shortcuts; }
         if search_shortcut { ctx.memory_mut(|m| m.request_focus(egui::Id::new("transaction_search"))); }
         if new_shortcut { self.amount.clear(); self.note.clear(); ctx.memory_mut(|m| m.request_focus(egui::Id::new("transaction_amount"))); }
-        ctx.set_visuals(egui::Visuals::light());
         ui.style_mut().spacing.item_spacing = Vec2::new(10.0, 9.0);
         ui.style_mut().spacing.button_padding = Vec2::new(12.0, 8.0);
 
@@ -284,6 +267,8 @@ impl eframe::App for NabzApp {
             )
             .show(ui, |ui| {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    draw_nabz_mark(ui, 44.0);
+                    ui.add_space(10.0);
                     ui.vertical(|ui| {
                         ui.label(
                             RichText::new(APP_NAME)
@@ -638,6 +623,14 @@ impl eframe::App for NabzApp {
             )
             .show(ui, |ui| {
                 ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                    ui.horizontal(|ui| {
+                        draw_nabz_mark(ui, 38.0);
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new("نبض").size(20.0).strong().color(Color32::WHITE));
+                            ui.label(RichText::new("حسابداری فروشگاهی").size(10.0).color(Color32::from_rgb(173, 191, 209)));
+                        });
+                    });
+                    ui.add_space(14.0);
                     ui.label(RichText::new("منوی اصلی").size(11.0).color(Color32::from_rgb(148, 168, 189)));
                     ui.add_space(12.0);
                     for (index, label, glyph) in [
@@ -1199,6 +1192,62 @@ impl eframe::App for NabzApp {
     }
 }
 
+fn draw_nabz_mark(ui: &mut egui::Ui, size: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, egui::CornerRadius::same(11), Color32::from_rgb(15, 118, 110));
+    let c = rect.center();
+    let pts = [
+        egui::pos2(rect.left() + size * 0.18, c.y),
+        egui::pos2(rect.left() + size * 0.34, c.y),
+        egui::pos2(rect.left() + size * 0.43, rect.top() + size * 0.28),
+        egui::pos2(rect.left() + size * 0.56, rect.bottom() - size * 0.25),
+        egui::pos2(rect.left() + size * 0.66, c.y),
+        egui::pos2(rect.right() - size * 0.16, c.y),
+    ];
+    for pair in pts.windows(2) {
+        painter.line_segment([pair[0], pair[1]], Stroke::new((size * 0.075).max(2.0), Color32::WHITE));
+    }
+}
+
+fn apply_nabz_theme(ctx: &egui::Context) {
+    let mut style = (*ctx.style()).clone();
+    let mut visuals = egui::Visuals::light();
+    let ink = Color32::from_rgb(30, 41, 59);
+    let muted = Color32::from_rgb(100, 116, 139);
+    let border = Color32::from_rgb(220, 228, 238);
+    let teal = Color32::from_rgb(15, 118, 110);
+    visuals.panel_fill = Color32::from_rgb(245, 248, 252);
+    visuals.window_fill = Color32::WHITE;
+    visuals.extreme_bg_color = Color32::WHITE;
+    visuals.faint_bg_color = Color32::from_rgb(248, 250, 252);
+    visuals.selection.bg_fill = Color32::from_rgb(204, 251, 241);
+    visuals.selection.stroke = Stroke::new(1.0, teal);
+    visuals.hyperlink_color = teal;
+    visuals.widgets.noninteractive.bg_fill = Color32::WHITE;
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, ink);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, border);
+    visuals.widgets.inactive.bg_fill = Color32::from_rgb(241, 245, 249);
+    visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(241, 245, 249);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, ink);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, border);
+    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(8);
+    visuals.widgets.hovered.bg_fill = Color32::from_rgb(204, 251, 241);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, teal);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, teal);
+    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(8);
+    visuals.widgets.active.bg_fill = teal;
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.0, teal);
+    visuals.widgets.active.corner_radius = egui::CornerRadius::same(8);
+    visuals.override_text_color = Some(ink);
+    style.visuals = visuals;
+    style.spacing.item_spacing = Vec2::new(10.0, 9.0);
+    style.spacing.button_padding = Vec2::new(12.0, 8.0);
+    style.spacing.interact_size.y = 34.0;
+    ctx.set_style(style);
+}
+
 fn main() -> eframe::Result<()> {
     let mut fonts = FontDefinitions::default();
     fonts.font_data.insert(
@@ -1225,6 +1274,7 @@ fn main() -> eframe::Result<()> {
         eframe::NativeOptions::default(),
         Box::new(move |cc| {
             cc.egui_ctx.set_fonts(fonts);
+            apply_nabz_theme(&cc.egui_ctx);
             Ok(Box::new(app))
         }),
     )
