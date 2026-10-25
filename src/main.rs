@@ -249,7 +249,8 @@ impl NabzApp {
 }
 
 impl eframe::App for NabzApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         // Do not create the store window in the same frame as the button click.
         // egui 0.31.1 can panic in hit_test when a newly opened, scrollable Window
         // overlaps the pointer widget from that same frame.
@@ -270,20 +271,19 @@ impl eframe::App for NabzApp {
         if search_shortcut { ctx.memory_mut(|m| m.request_focus(egui::Id::new("transaction_search"))); }
         if new_shortcut { self.amount.clear(); self.note.clear(); ctx.memory_mut(|m| m.request_focus(egui::Id::new("transaction_amount"))); }
         ctx.set_visuals(egui::Visuals::light());
-        let screen = ctx.available_rect();
-        let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = Vec2::new(10.0, 9.0);
-        style.spacing.button_padding = Vec2::new(12.0, 8.0);
-        ctx.set_style(style);
+        ui.style_mut(|style| {
+            style.spacing.item_spacing = Vec2::new(10.0, 9.0);
+            style.spacing.button_padding = Vec2::new(12.0, 8.0);
+        });
 
-        egui::TopBottomPanel::top("header")
+        egui::Panel::top("header")
             .frame(
                 Frame::new()
                     .fill(Color32::WHITE)
                     .stroke(Stroke::new(1.0, Color32::from_rgb(224, 230, 238)))
                     .inner_margin(egui::Margin::symmetric(20, 12)),
             )
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.vertical(|ui| {
                         ui.label(
@@ -552,7 +552,7 @@ impl eframe::App for NabzApp {
                 .open(&mut self.show_shortcuts)
                 .collapsible(false)
                 .resizable(false)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     egui::Grid::new("shortcut_help_grid").striped(true).show(ui, |ui| {
                         ui.label(RichText::new("کلید").strong()); ui.label(RichText::new("عملکرد").strong()); ui.end_row();
                         ui.label(RichText::new("Ctrl + Enter")); ui.label(RichText::new("ثبت درآمد یا هزینه")); ui.end_row();
@@ -629,7 +629,7 @@ impl eframe::App for NabzApp {
                     });
                 });
         }
-        egui::SidePanel::right("navigation")
+        egui::Panel::right("navigation")
             .resizable(false)
             .exact_width(240.0)
             .frame(
