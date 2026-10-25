@@ -641,9 +641,10 @@ impl eframe::App for NabzApp {
                         (1, "کالاها و انبار", "▤"),
                         (2, "خریدها", "⇄"),
                         (3, "مشتریان و تأمین‌کنندگان", "♙"),
+                        (6, "دریافت و پرداخت", "◈"),
                         (4, "هزینه‌ها و گزارش", "▧"),
                     ] {
-                        let active = self.business_tab == index;
+                        let active = if index == 6 { !self.show_business } else { self.show_business && self.business_tab == index };
                         let button = egui::Button::new(
                             RichText::new(format!("{glyph}   {label}"))
                                 .size(12.0)
@@ -654,15 +655,19 @@ impl eframe::App for NabzApp {
                         .corner_radius(egui::CornerRadius::same(8))
                         .min_size(Vec2::new(ui.available_width(), 40.0));
                         if ui.add(button).clicked() {
-                            self.business_tab = index;
-                            self.show_business = true;
+                            if index == 6 {
+                                self.show_business = false;
+                            } else {
+                                self.business_tab = index;
+                                self.show_business = true;
+                            }
                         }
                         ui.add_space(5.0);
                     }
                     ui.add_space(14.0);
                     ui.separator();
                     ui.label(RichText::new("ابزارها").size(11.0).color(Color32::from_rgb(148, 168, 189)));
-                    if ui.button(RichText::new("⚙  چاپگر و بارکد")).clicked() {
+                    if ui.button(RichText::new("⚙  تنظیمات دستگاه و بارکد")).clicked() {
                         self.hardware_printers = hardware::list_printers().unwrap_or_default();
                         if self.hardware_printer.is_empty() {
                             self.hardware_printer = self.hardware_printers.iter()
@@ -671,6 +676,20 @@ impl eframe::App for NabzApp {
                         }
                         self.show_hardware = true;
                     }
+                    if ui.button(RichText::new("⇧  پشتیبان‌گیری")).clicked() {
+                        let result = (|| -> Result<PathBuf, String> {
+                            self.db.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(|e| e.to_string())?;
+                            let source = data_path()?;
+                            let parent = source.parent().ok_or("مسیر داده معتبر نیست")?;
+                            let dir = parent.join("backups");
+                            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                            let target = dir.join(format!("nabz-backup-{}.sqlite3", Local::now().format("%Y%m%d-%H%M%S")));
+                            std::fs::copy(&source, &target).map_err(|e| e.to_string())?;
+                            Ok(target)
+                        })();
+                        self.business_status = match result { Ok(path) => format!("پشتیبان ذخیره شد: {}", path.display()), Err(e) => format!("پشتیبان‌گیری ناموفق بود: {e}") };
+                    }
+                    if ui.button(RichText::new("؟  راهنما")).clicked() { self.show_shortcuts = true; }
                     ui.add_space(8.0);
                     ui.label(RichText::new("نبض حسابداری").strong().color(Color32::WHITE));
                     ui.label(RichText::new("نسخه دسکتاپ • ذخیره‌سازی محلی").size(10.0).color(Color32::from_rgb(173, 191, 209)));
