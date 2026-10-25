@@ -273,7 +273,7 @@ impl eframe::App for NabzApp {
                     });
                     ui.add_space(18.0);
                     let search_width = ui.available_width().min(280.0).max(120.0);
-                    ui.add(egui::TextEdit::singleline(&mut self.search).id(egui::Id::new("global_search"))
+                    ui.add(egui::TextEdit::singleline(&mut self.search).horizontal_align(Align::Max).id(egui::Id::new("global_search"))
                         .hint_text("جست‌وجو در کالاها و فاکتورها").desired_width(search_width));
                     ui.add_space(8.0);
                     if ui.button(RichText::new(format!("{}  چاپگر و بارکد", ph::GEAR))).clicked() {
@@ -423,7 +423,7 @@ impl eframe::App for NabzApp {
                                         });
                                         ui.label(RichText::new("مبلغ به تومان"));
                                         ui.add(
-                                            egui::TextEdit::singleline(&mut self.amount)
+                                            egui::TextEdit::singleline(&mut self.amount).horizontal_align(Align::Max)
                                                 .id(egui::Id::new("transaction_amount"))
                                                 .hint_text(RichText::new("مثلاً ۲۵۰۰۰۰"))
                                                 .desired_width(ui.available_width()),
@@ -448,7 +448,7 @@ impl eframe::App for NabzApp {
                                         ui.label(RichText::new("تاریخ شمسی"));
                                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                             ui.add(
-                                                egui::TextEdit::singleline(&mut self.date)
+                                                egui::TextEdit::singleline(&mut self.date).horizontal_align(Align::Max)
                                                     .hint_text(RichText::new("۱۴۰۵/۰۷/۰۲"))
                                                     .desired_width(ui.available_width() - 42.0),
                                             );
@@ -463,7 +463,7 @@ impl eframe::App for NabzApp {
                                         });
                                         ui.label(RichText::new("یادداشت (اختیاری)"));
                                         ui.add(
-                                            egui::TextEdit::multiline(&mut self.note)
+                                            egui::TextEdit::multiline(&mut self.note).horizontal_align(Align::Max)
                                                 .hint_text(RichText::new("توضیح کوتاه..."))
                                                 .desired_rows(2)
                                                 .desired_width(ui.available_width()),
@@ -492,7 +492,7 @@ impl eframe::App for NabzApp {
                         cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut self.search)
+                                    egui::TextEdit::singleline(&mut self.search).horizontal_align(Align::Max)
                                         .id(egui::Id::new("transaction_search"))
                                         .hint_text(RichText::new("جست‌وجوی شرح یا دسته‌بندی"))
                                         .desired_width(ui.available_width() - 100.0),
@@ -797,22 +797,22 @@ impl eframe::App for NabzApp {
                             let field_width = ui.available_width().min(520.0).max(160.0);
                             ui.with_layout(Layout::top_down(Align::Max), |ui| {
                                 ui.label(RichText::new("نام کالا *").strong());
-                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_name).hint_text("مثلاً: روغن مایع ۱ لیتری"));
+                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_name).horizontal_align(Align::Max).hint_text("مثلاً: روغن مایع ۱ لیتری"));
                                 ui.add_space(8.0);
                                 ui.label(RichText::new("شناسه داخلی (SKU)").strong());
-                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_sku).hint_text("اختیاری؛ خودکار ساخته می‌شود"));
+                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_sku).horizontal_align(Align::Max).hint_text("اختیاری؛ خودکار ساخته می‌شود"));
                                 ui.add_space(8.0);
                                 ui.label(RichText::new("بارکد").strong());
-                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_barcode).hint_text("اختیاری؛ اسکن یا ورود دستی"));
+                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_barcode).horizontal_align(Align::Max).hint_text("اختیاری؛ اسکن یا ورود دستی"));
                                 ui.add_space(8.0);
                                 ui.label(RichText::new("قیمت خرید (تومان) *").strong());
-                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_purchase_price).hint_text("۰"));
+                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_purchase_price).horizontal_align(Align::Max).hint_text("۰"));
                                 ui.add_space(8.0);
                                 ui.label(RichText::new("قیمت فروش (تومان) *").strong());
-                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_sale_price).hint_text("۰"));
+                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_sale_price).horizontal_align(Align::Max).hint_text("۰"));
                                 ui.add_space(8.0);
                                 ui.label(RichText::new("موجودی اولیه *").strong());
-                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_stock).hint_text("۰"));
+                                ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_stock).horizontal_align(Align::Max).hint_text("۰"));
                             });
                             ui.add_space(12.0);
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -854,7 +854,7 @@ impl eframe::App for NabzApp {
                         if self.business_tab == 0 {
                         ui.heading(RichText::new("فروش با بارکدخوان USB/HID"));
                         ui.label(RichText::new("فیلد زیر را انتخاب کن و بارکد را اسکن کن؛ Enter در پایان هر اسکن کالا را به سبد اضافه می‌کند."));
-                        let scan_response = ui.add(egui::TextEdit::singleline(&mut self.business_scan).hint_text(RichText::new("اسکن بارکد کالا")).desired_width(ui.available_width()));
+                        let scan_response = ui.add(egui::TextEdit::singleline(&mut self.business_scan).horizontal_align(Align::Max).hint_text(RichText::new("اسکن بارکد کالا")).desired_width(ui.available_width()));
                         if scan_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             match business::scan_into_basket(&self.db, &mut self.business_basket, &self.business_scan) {
                                 Ok(()) => self.business_status = "کالا به سبد فروش اضافه شد.".into(),
@@ -925,16 +925,16 @@ impl eframe::App for NabzApp {
                                 });
                             ui.add_space(8.0);
                             ui.label(RichText::new("تعداد *").strong());
-                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.purchase_quantity));
+                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.purchase_quantity).horizontal_align(Align::Max));
                             ui.add_space(8.0);
                             ui.label(RichText::new("قیمت خرید واحد (تومان) *").strong());
-                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.purchase_unit_cost));
+                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.purchase_unit_cost).horizontal_align(Align::Max));
                             ui.add_space(8.0);
                             ui.label(RichText::new("مبلغ پرداخت‌شده (تومان)").strong());
-                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.purchase_paid));
+                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.purchase_paid).horizontal_align(Align::Max));
                             ui.add_space(8.0);
                             ui.label(RichText::new("تأمین‌کننده").strong());
-                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.purchase_supplier));
+                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.purchase_supplier).horizontal_align(Align::Max));
                         });
                         if ui.button(RichText::new(format!("{}  ثبت خرید و افزایش موجودی", ph::FLOPPY_DISK))).clicked() {
                             let qty = parse_business_number(&self.purchase_quantity);
@@ -960,10 +960,10 @@ impl eframe::App for NabzApp {
                         let field_width = ui.available_width().min(520.0).max(160.0);
                         ui.with_layout(Layout::top_down(Align::Max), |ui| {
                             ui.label(RichText::new("نام مشتری یا تأمین‌کننده *").strong());
-                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.party_name).hint_text("نام شخص یا شرکت"));
+                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.party_name).horizontal_align(Align::Max).hint_text("نام شخص یا شرکت"));
                             ui.add_space(8.0);
                             ui.label(RichText::new("شماره تماس").strong());
-                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.party_phone).hint_text("اختیاری"));
+                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.party_phone).horizontal_align(Align::Max).hint_text("اختیاری"));
                             ui.add_space(8.0);
                             ui.label(RichText::new("نوع طرف حساب").strong());
                             egui::ComboBox::from_id_salt("party_kind")
@@ -999,13 +999,13 @@ impl eframe::App for NabzApp {
                         let field_width = ui.available_width().min(520.0).max(160.0);
                         ui.with_layout(Layout::top_down(Align::Max), |ui| {
                             ui.label(RichText::new("دسته هزینه *").strong());
-                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.expense_category).hint_text("مثلاً اجاره، حمل‌ونقل"));
+                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.expense_category).horizontal_align(Align::Max).hint_text("مثلاً اجاره، حمل‌ونقل"));
                             ui.add_space(8.0);
                             ui.label(RichText::new("مبلغ هزینه (تومان) *").strong());
-                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.expense_amount).hint_text("۰"));
+                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.expense_amount).horizontal_align(Align::Max).hint_text("۰"));
                             ui.add_space(8.0);
                             ui.label(RichText::new("توضیح").strong());
-                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.expense_note).hint_text("اختیاری"));
+                            ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.expense_note).horizontal_align(Align::Max).hint_text("اختیاری"));
                         });
                         if ui.button(RichText::new(format!("{}  ثبت هزینه فروشگاه", ph::FLOPPY_DISK))).clicked() {
                             match parse_business_number(&self.expense_amount) {
@@ -1190,7 +1190,7 @@ impl eframe::App for NabzApp {
                         ui.heading(RichText::new("آزمون بارکدخوان USB/HID"));
                         ui.label(RichText::new("فیلد را انتخاب کن و یک بارکد اسکن کن؛ بارکدخوان معمولاً در پایان Enter می‌فرستد."));
                         let response = ui.add(
-                            egui::TextEdit::singleline(&mut self.hardware_scan)
+                            egui::TextEdit::singleline(&mut self.hardware_scan).horizontal_align(Align::Max)
                                 .hint_text(RichText::new("اسکن بارکد در این فیلد"))
                                 .desired_width(ui.available_width())
                         );
