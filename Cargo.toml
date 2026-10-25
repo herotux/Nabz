@@ -7,11 +7,9 @@ description = "Lightweight Persian personal accounting app with Jalali dates"
 license = "MIT"
 
 [dependencies]
-# egui 0.37 fixes a hit-test panic caused by NaN widget coordinates.
-# Keep default_fonts explicit: it is no longer enabled by default in 0.37.
-eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+eframe = { version = "0.32.3", default-features = false, features = ["glow", "x11", "wayland"] }
 fa-shaper = "0.1.0"
-egui = { version = "0.37.0", default-features = false, features = ["default_fonts"] }
+egui = { version = "0.32.3", default-features = false }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 barcoders = { version = "2.0", features = ["svg"] }
