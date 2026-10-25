@@ -812,9 +812,10 @@ impl eframe::App for NabzApp {
                                                 ui.label(RichText::new("تاریخ").strong());
                                                 ui.label(RichText::new("مبلغ").strong());
                                                 ui.label(RichText::new("وضعیت").strong()); ui.end_row();
-                                                let mut stmt = self.db.prepare("SELECT id,date,total FROM sales ORDER BY id DESC LIMIT 5").ok();
+                                                let needle: String = self.search.chars().map(normalize_digit).collect();
+                                                let mut stmt = self.db.prepare("SELECT s.id,s.date,s.total FROM sales s WHERE (?1='' OR CAST(s.id AS TEXT) LIKE '%'||?1||'%' OR s.date LIKE '%'||?1||'%' OR CAST(s.total AS TEXT) LIKE '%'||?1||'%' OR EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id=s.id AND si.product_name LIKE '%'||?1||'%')) ORDER BY s.id DESC LIMIT 5").ok();
                                                 if let Some(ref mut stmt) = stmt {
-                                                    let rows = stmt.query_map([], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?)));
+                                                    let rows = stmt.query_map([needle], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?)));
                                                     if let Ok(rows) = rows {
                                                         let mut any = false;
                                                         for row in rows.flatten() {
