@@ -8,7 +8,6 @@ license = "MIT"
 
 [dependencies]
 eframe = { version = "0.36.2", default-features = false, features = ["glow", "x11", "wayland"] }
-fa-shaper = "0.1.0"
 egui = { version = "0.36.2", default-features = false }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
