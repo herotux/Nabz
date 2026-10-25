@@ -348,7 +348,7 @@ impl eframe::App for NabzApp {
                         }
                         self.show_hardware = true;
                     }
-                    if ui.button(RichText::new("⇧  پشتیبان‌گیری")).clicked() {
+                    if ui.button(RichText::new(format!("{}  پشتیبان‌گیری", ph::FLOPPY_DISK))).clicked() {
                         let result = (|| -> Result<PathBuf, String> {
                             self.db.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(|e| e.to_string())?;
                             let source = data_path()?;
@@ -452,7 +452,7 @@ impl eframe::App for NabzApp {
                                                     .hint_text(RichText::new("۱۴۰۵/۰۷/۰۲"))
                                                     .desired_width(ui.available_width() - 42.0),
                                             );
-                                            if ui.button(RichText::new("📅")).on_hover_text(RichText::new("باز کردن تاریخ‌گزین شمسی")).clicked() {
+                                            if ui.button(RichText::new(ph::CALENDAR_BLANK)).on_hover_text(RichText::new("باز کردن تاریخ‌گزین شمسی")).clicked() {
                                                 let normalized: String = self.date.chars().map(normalize_digit).collect();
                                                 let parts: Vec<&str> = normalized.split('/').collect();
                                                 if parts.len() == 3 {
@@ -612,7 +612,7 @@ impl eframe::App for NabzApp {
                             });
                             ui.add_space(10.0);
                             ui.horizontal_wrapped(|ui| {
-                                for (label, tab) in [("＋ فاکتور فروش جدید",0usize),("＋ ثبت هزینه",4),("＋ افزودن کالا",1)] {
+                                for (label, tab) in [(format!("{}  فاکتور فروش جدید", ph::RECEIPT),0usize),(format!("{}  ثبت هزینه", ph::CHART_BAR),4),(format!("{}  افزودن کالا", ph::PACKAGE),1)] {
                                     if ui.button(RichText::new(label).strong()).clicked() { self.business_tab = tab; }
                                 }
                                 if ui.button(RichText::new(format!("{}  پشتیبان‌گیری", ph::FLOPPY_DISK))).clicked() {
@@ -670,7 +670,7 @@ impl eframe::App for NabzApp {
                                     ui.label(RichText::new(format!("{} فاکتور فروش ثبت شده", persian_digits(&today_sales_count.to_string()))).size(11.0).color(Color32::from_rgb(107, 122, 143)));
                                 });
                                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                                    if ui.button(RichText::new("پشتیبان‌گیری")).clicked() {
+                                    if ui.button(RichText::new(format!("{}  پشتیبان‌گیری", ph::FLOPPY_DISK))).clicked() {
                                         let result = (|| -> Result<PathBuf, String> {
                                             self.db.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(|e| e.to_string())?;
                                             let source = data_path()?;
@@ -712,7 +712,7 @@ impl eframe::App for NabzApp {
                             });
                             ui.add_space(10.0);
                             ui.horizontal_wrapped(|ui| {
-                                for (label, tab) in [("＋ فاکتور فروش جدید",0usize),("＋ افزودن کالا",1),("＋ ثبت خرید",2),("＋ ثبت مشتری",3),("＋ ثبت هزینه",4)] {
+                                for (label, tab) in [(format!("{}  فاکتور فروش جدید", ph::RECEIPT),0usize),(format!("{}  افزودن کالا", ph::PACKAGE),1),(format!("{}  ثبت خرید", ph::TRUCK),2),(format!("{}  ثبت مشتری", ph::USERS),3),(format!("{}  ثبت هزینه", ph::CHART_BAR),4)] {
                                     if ui.button(RichText::new(label).strong()).clicked() { self.business_tab = tab; }
                                 }
                             });
@@ -795,7 +795,7 @@ impl eframe::App for NabzApp {
                         ui.add_space(10.0);
                         Frame::group(ui.style()).fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(210, 222, 235))).inner_margin(egui::Margin::same(16)).show(ui, |ui| {
                             let field_width = ui.available_width().min(520.0).max(160.0);
-                            ui.vertical(|ui| {
+                            ui.with_layout(Layout::top_down(Align::Max), |ui| {
                                 ui.label(RichText::new("نام کالا *").strong());
                                 ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.product_name).hint_text("مثلاً: روغن مایع ۱ لیتری"));
                                 ui.add_space(8.0);
@@ -880,7 +880,7 @@ impl eframe::App for NabzApp {
                         let total = self.business_basket.iter().fold(0_i64, |sum, item| sum.saturating_add(item.line_total()));
                         ui.label(RichText::new(format!("جمع کل: {} تومان", money(total))).strong().size(16.0));
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.button(RichText::new("ثبت فروش و کسر موجودی")).clicked() {
+                            if ui.button(RichText::new(format!("{}  ثبت فروش و کسر موجودی", ph::CHECK_CIRCLE))).clicked() {
                                 match business::record_sale(&mut self.db, &self.business_basket, &today_jalali()) {
                                     Ok(sale_id) => {
                                         self.business_basket.clear();
@@ -890,8 +890,8 @@ impl eframe::App for NabzApp {
                                     Err(e) => self.business_status = e,
                                 }
                             }
-                            if ui.button(RichText::new("خالی کردن سبد")).clicked() { self.business_basket.clear(); }
-                            if ui.button(RichText::new("به‌روزرسانی کالاها")).clicked() {
+                            if ui.button(RichText::new(format!("{}  خالی کردن سبد", ph::TRASH))).clicked() { self.business_basket.clear(); }
+                            if ui.button(RichText::new(format!("{}  به‌روزرسانی کالاها", ph::ARROW_CLOCKWISE))).clicked() {
                                 if let Err(e) = self.refresh_business_products() { self.business_status = format!("خطا: {e}"); }
                             }
                         });
@@ -914,7 +914,7 @@ impl eframe::App for NabzApp {
                         if self.business_tab == 2 {
                         ui.heading(RichText::new("خرید و ورود موجودی"));
                         let field_width = ui.available_width().min(520.0).max(160.0);
-                        ui.vertical(|ui| {
+                        ui.with_layout(Layout::top_down(Align::Max), |ui| {
                             ui.label(RichText::new("کالا *").strong());
                             egui::ComboBox::from_id_salt("purchase_product")
                                 .selected_text(RichText::new(self.business_products.iter().find(|p| p.id == self.purchase_product_id).map(|p| p.name.clone()).unwrap_or_else(|| "انتخاب کالا".into())))
@@ -958,7 +958,7 @@ impl eframe::App for NabzApp {
                         if self.business_tab == 3 {
                         ui.heading(RichText::new("مشتری و تأمین‌کننده"));
                         let field_width = ui.available_width().min(520.0).max(160.0);
-                        ui.vertical(|ui| {
+                        ui.with_layout(Layout::top_down(Align::Max), |ui| {
                             ui.label(RichText::new("نام مشتری یا تأمین‌کننده *").strong());
                             ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.party_name).hint_text("نام شخص یا شرکت"));
                             ui.add_space(8.0);
@@ -997,7 +997,7 @@ impl eframe::App for NabzApp {
                         if self.business_tab == 4 {
                         ui.heading(RichText::new("هزینه‌های فروشگاه"));
                         let field_width = ui.available_width().min(520.0).max(160.0);
-                        ui.vertical(|ui| {
+                        ui.with_layout(Layout::top_down(Align::Max), |ui| {
                             ui.label(RichText::new("دسته هزینه *").strong());
                             ui.add_sized([field_width, 36.0], egui::TextEdit::singleline(&mut self.expense_category).hint_text("مثلاً اجاره، حمل‌ونقل"));
                             ui.add_space(8.0);
@@ -1028,7 +1028,7 @@ impl eframe::App for NabzApp {
                             }
                             Err(e) => self.business_status = format!("گزارش ناموفق بود: {e}"),
                         }
-                        if ui.button(RichText::new("خروجی CSV فروش‌ها")).clicked() {
+                        if ui.button(RichText::new(format!("{}  خروجی CSV فروش‌ها", ph::DOWNLOAD_SIMPLE))).clicked() {
                             match business::sales_csv(&self.db) {
                                 Ok(csv) => match data_path() {
                                     Ok(path) => {
@@ -1046,7 +1046,7 @@ impl eframe::App for NabzApp {
                                 Err(e) => self.business_status = format!("ساخت CSV ناموفق بود: {e}"),
                             }
                         }
-                        if ui.button(RichText::new("پشتیبان‌گیری از پایگاه داده")).clicked() {
+                        if ui.button(RichText::new(format!("{}  پشتیبان‌گیری از پایگاه داده", ph::FLOPPY_DISK))).clicked() {
                             let result = (|| -> Result<PathBuf, String> {
                                 self.db.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(|e| e.to_string())?;
                                 let source = data_path()?;
@@ -1160,7 +1160,7 @@ impl eframe::App for NabzApp {
                         ui.heading(RichText::new("چاپ آزمایشی"));
                         ui.label(RichText::new("چاپگرهای لینوکس از مسیر CUPS شناسایی می‌شوند."));
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.button(RichText::new("بازخوانی چاپگرها")).clicked() {
+                            if ui.button(RichText::new(format!("{}  بازخوانی چاپگرها", ph::ARROW_CLOCKWISE))).clicked() {
                                 match hardware::list_printers() {
                                     Ok(printers) => {
                                         self.hardware_printers = printers;
@@ -1179,10 +1179,10 @@ impl eframe::App for NabzApp {
                                 });
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.button(RichText::new("تست چاپ A4")).clicked() {
+                            if ui.button(RichText::new(format!("{}  تست چاپ A4", ph::PRINTER))).clicked() {
                                 run_printer_test(&self.hardware_printer, hardware::PrinterMode::A4, &mut self.hardware_status);
                             }
-                            if ui.button(RichText::new("تست فیش‌زن ESC/POS")).clicked() {
+                            if ui.button(RichText::new(format!("{}  تست فیش‌زن ESC/POS", ph::PRINTER))).clicked() {
                                 run_printer_test(&self.hardware_printer, hardware::PrinterMode::ThermalEscPos, &mut self.hardware_status);
                             }
                         });
@@ -1209,10 +1209,10 @@ impl eframe::App for NabzApp {
                         ui.label(RichText::new("Code 128 برای کد داخلی کالا؛ EAN-13 فقط با رقم کنترلی معتبر."));
                         ui.text_edit_singleline(&mut self.hardware_barcode);
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.button(RichText::new("ساخت SVG از Code 128")).clicked() {
+                            if ui.button(RichText::new(format!("{}  ساخت SVG از Code 128", ph::BARCODE))).clicked() {
                                 save_barcode_svg(&self.hardware_barcode, false, &mut self.hardware_status);
                             }
-                            if ui.button(RichText::new("ساخت SVG از EAN-13")).clicked() {
+                            if ui.button(RichText::new(format!("{}  ساخت SVG از EAN-13", ph::BARCODE))).clicked() {
                                 save_barcode_svg(&self.hardware_barcode, true, &mut self.hardware_status);
                             }
                         });
