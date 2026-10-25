@@ -293,8 +293,17 @@ impl eframe::App for NabzApp {
                         );
                     });
                     ui.add_space(18.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.search)
+                            .hint_text(RichText::new("جستجو در کالاها، فاکتورها و تراکنش‌ها…"))
+                            .desired_width(250.0),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("مدیر فروشگاه").size(11.0).strong().color(Color32::from_rgb(28,41,59)));
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(format!("♙  {}", persian_digits(&today_jalali()))).size(11.0).color(Color32::from_rgb(107,122,143)));
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        if ui.button(RichText::new("چاپگر و بارکد")).clicked() {
+                        if ui.button(RichText::new("⚙ چاپگر و بارکد")).clicked() {
                             self.hardware_printers = hardware::list_printers().unwrap_or_default();
                             if self.hardware_printer.is_empty() {
                                 self.hardware_printer = self.hardware_printers.iter()
