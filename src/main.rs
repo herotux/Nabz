@@ -271,10 +271,8 @@ impl eframe::App for NabzApp {
         if search_shortcut { ctx.memory_mut(|m| m.request_focus(egui::Id::new("transaction_search"))); }
         if new_shortcut { self.amount.clear(); self.note.clear(); ctx.memory_mut(|m| m.request_focus(egui::Id::new("transaction_amount"))); }
         ctx.set_visuals(egui::Visuals::light());
-        ui.style_mut(|style| {
-            style.spacing.item_spacing = Vec2::new(10.0, 9.0);
-            style.spacing.button_padding = Vec2::new(12.0, 8.0);
-        });
+        ui.style_mut().spacing.item_spacing = Vec2::new(10.0, 9.0);
+        ui.style_mut().spacing.button_padding = Vec2::new(12.0, 8.0);
 
         egui::Panel::top("header")
             .frame(
