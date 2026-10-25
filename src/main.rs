@@ -251,6 +251,7 @@ impl NabzApp {
 impl eframe::App for NabzApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        let screen_height = ui.available_height();
         // Do not create the store window in the same frame as the button click.
         // egui 0.31.1 can panic in hit_test when a newly opened, scrollable Window
         // overlaps the pointer widget from that same frame.
@@ -458,7 +459,7 @@ impl eframe::App for NabzApp {
                                 .inner_margin(12.0)
                                 .show(ui, |ui| {
                                     egui::ScrollArea::vertical()
-                                        .max_height((screen.height() - 210.0).max(180.0))
+                                        .max_height((screen_height - 210.0).max(180.0))
                                         .auto_shrink([false; 2])
                                         .show(ui, |ui| {
                                             let needle = self.search.to_lowercase();
@@ -570,7 +571,7 @@ impl eframe::App for NabzApp {
                 .open(&mut self.show_date_picker)
                 .collapsible(false)
                 .resizable(false)
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui.button(RichText::new("ماه بعد ←")).clicked() {
                             self.picker_month += 1;
@@ -629,7 +630,7 @@ impl eframe::App for NabzApp {
         }
         egui::Panel::right("navigation")
             .resizable(false)
-            .exact_width(240.0)
+            .exact_size(240.0)
             .frame(
                 Frame::new()
                     .fill(Color32::from_rgb(26, 41, 61))
