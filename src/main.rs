@@ -1211,7 +1211,7 @@ fn draw_nabz_mark(ui: &mut egui::Ui, size: f32) {
 }
 
 fn apply_nabz_theme(ctx: &egui::Context) {
-    let mut style = (*ctx.style()).clone();
+    ctx.global_style_mut(|style| {
     let mut visuals = egui::Visuals::light();
     let ink = Color32::from_rgb(30, 41, 59);
     let muted = Color32::from_rgb(100, 116, 139);
@@ -1244,8 +1244,8 @@ fn apply_nabz_theme(ctx: &egui::Context) {
     style.visuals = visuals;
     style.spacing.item_spacing = Vec2::new(10.0, 9.0);
     style.spacing.button_padding = Vec2::new(12.0, 8.0);
-    style.spacing.interact_size.y = 34.0;
-    ctx.set_style(style);
+    style.spacing.interact_size.y = 38.0;
+    });
 }
 
 fn main() -> eframe::Result<()> {
@@ -1264,6 +1264,7 @@ fn main() -> eframe::Result<()> {
         .entry(FontFamily::Monospace)
         .or_default()
         .insert(0, "noto-persian".to_owned());
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
 
     let app = NabzApp::new().map_err(|e| {
         eprintln!("Nabz startup failed: {e}");
