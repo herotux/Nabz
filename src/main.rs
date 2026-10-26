@@ -852,9 +852,7 @@ impl NabzApp {
 
     fn ui_sales_pos(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
-            ui.label(RichText::new("صندوق فروش سریع و صدور فاکتور").size(22.0).strong().color(Color32::from_rgb(15, 23, 42)));
-            ui.label(RichText::new("کالاها را اسکن کنید یا از لیست زیر به سبد خرید اضافه کنید.").size(12.0).color(Color32::from_rgb(100, 116, 139)));
-            ui.add_space(12.0);
+            page_header(ui, "صندوق فروش سریع و صدور فاکتور", "کالاها را اسکن کنید یا از لیست زیر به سبد خرید اضافه کنید.");
 
             card_frame(12.0).show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -964,9 +962,7 @@ impl NabzApp {
 
     fn ui_products(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
-            ui.label(RichText::new("مدیریت کالاها و انبار").size(22.0).strong().color(Color32::from_rgb(15, 23, 42)));
-            ui.label(RichText::new("تعریف سیم، کابل، کلید و پریز، روشنایی و سایر قطعات الکتریکی.").size(12.0).color(Color32::from_rgb(100, 116, 139)));
-            ui.add_space(12.0);
+            page_header(ui, "مدیریت کالاها و انبار", "تعریف سیم، کابل، کلید و پریز، روشنایی و سایر قطعات الکتریکی.");
 
             ui.columns(2, |cols| {
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
@@ -1058,9 +1054,7 @@ impl NabzApp {
 
     fn ui_purchases(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
-            ui.label(RichText::new("ثبت فاکتور خرید و ورود کالا به انبار").size(22.0).strong().color(Color32::from_rgb(15, 23, 42)));
-            ui.label(RichText::new("افزایش موجودی انبار همراه با به‌روزرسانی قیمت خرید و حساب تامین‌کننده.").size(12.0).color(Color32::from_rgb(100, 116, 139)));
-            ui.add_space(12.0);
+            page_header(ui, "ثبت فاکتور خرید و ورود کالا به انبار", "افزایش موجودی انبار همراه با به‌روزرسانی قیمت خرید و حساب تامین‌کننده.");
 
             card_frame(16.0).show(ui, |ui| {
                 ui.label(RichText::new("انتخاب کالا *").strong());
@@ -1128,9 +1122,7 @@ impl NabzApp {
 
     fn ui_parties(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
-            ui.label(RichText::new("مدیریت مشتریان و تامین‌کنندگان").size(22.0).strong().color(Color32::from_rgb(15, 23, 42)));
-            ui.label(RichText::new("ثبت مشخصات اشخاص و پیگیری مانده حساب و بدهکاری/بستانکاری.").size(12.0).color(Color32::from_rgb(100, 116, 139)));
-            ui.add_space(12.0);
+            page_header(ui, "مدیریت مشتریان و تامین‌کنندگان", "ثبت مشخصات اشخاص و پیگیری مانده حساب و بدهکاری/بستانکاری.");
 
             ui.columns(2, |cols| {
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
@@ -1208,9 +1200,7 @@ impl NabzApp {
 
     fn ui_expenses_reports(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
-            ui.label(RichText::new("هزینه‌های فروشگاه و گزارش سود").size(22.0).strong().color(Color32::from_rgb(15, 23, 42)));
-            ui.label(RichText::new("ثبت هزینه‌های جاری کسب‌وکار و مشاهده گزارش کلی سود و زیان.").size(12.0).color(Color32::from_rgb(100, 116, 139)));
-            ui.add_space(12.0);
+            page_header(ui, "هزینه‌های فروشگاه و گزارش سود", "ثبت هزینه‌های جاری کسب‌وکار و مشاهده گزارش کلی سود و زیان.");
 
             ui.columns(2, |cols| {
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
@@ -1425,6 +1415,14 @@ fn run_printer_test(printer: &str, mode: hardware::PrinterMode, status: &mut Str
         }
         Err(error) => *status = error,
     }
+}
+
+fn page_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
+    ui.add_space(2.0);
+    ui.label(RichText::new(title).size(22.0).strong().color(Color32::from_rgb(15, 23, 42)));
+    ui.add_space(3.0);
+    ui.label(RichText::new(subtitle).size(12.0).color(Color32::from_rgb(100, 116, 139)));
+    ui.add_space(14.0);
 }
 
 fn card_frame(padding: f32) -> Frame {
