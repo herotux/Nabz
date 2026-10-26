@@ -7,12 +7,12 @@ description = "Lightweight Persian personal accounting app with Jalali dates"
 license = "MIT"
 
 [dependencies]
-eframe = { version = "0.30", default-features = false, features = ["glow", "x11", "wayland"] }
-egui = { version = "0.30", default-features = false }
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "x11", "wayland"] }
+egui = { version = "0.36.2", default-features = false }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 barcoders = { version = "2.0", features = ["svg"] }
-egui-phosphor = "0.8"
+egui-phosphor = "0.14"
 arabic_reshaper = "0.4"
 unicode-bidi = "0.3"
 
