@@ -470,11 +470,7 @@ impl eframe::App for NabzApp {
                                     cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                                         panel_title(ui, "لیست آخرین تراکنش‌ها");
                                         ui.add_space(6.0);
-                                        Frame::none()
-                                            .fill(Color32::WHITE)
-                                            .stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240)))
-                                            .rounding(Rounding::same(12.0))
-                                            .inner_margin(Margin::same(14.0))
+                                        card_frame(14.0)
                                             .show(ui, |ui| {
                                                 egui::ScrollArea::vertical().max_height((screen_height - 280.0).max(200.0)).show(ui, |ui| {
                                                     let needle = self.search.to_lowercase();
@@ -515,11 +511,7 @@ impl eframe::App for NabzApp {
                                     cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
                                         panel_title(ui, "ثبت تراکنش جدید");
                                         ui.add_space(6.0);
-                                        Frame::none()
-                                            .fill(Color32::WHITE)
-                                            .stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240)))
-                                            .rounding(Rounding::same(12.0))
-                                            .inner_margin(Margin::same(16.0))
+                                        card_frame(16.0)
                                             .show(ui, |ui| {
                                                 ui.with_layout(Layout::top_down(Align::Max), |ui| {
                                                     ui.label(RichText::new("نوع تراکنش").strong());
@@ -761,7 +753,7 @@ impl NabzApp {
                 cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "آخرین فاکتورهای فروش");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(12.0)).show(ui, |ui| {
+                    card_frame(12.0).show(ui, |ui| {
                         egui::Grid::new("dash_sales_grid").striped(true).num_columns(4).spacing(Vec2::new(12.0, 8.0)).show(ui, |ui| {
                             ui.label(RichText::new("شماره").strong());
                             ui.label(RichText::new("تاریخ").strong());
@@ -795,7 +787,7 @@ impl NabzApp {
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "هشدار موجودی کالاها");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(12.0)).show(ui, |ui| {
+                    card_frame(12.0).show(ui, |ui| {
                         let low_stock: Vec<business::Product> = self.business_products.iter().filter(|p| p.stock <= 5).cloned().collect();
                         if low_stock.is_empty() {
                             ui.label(RichText::new("همه کالاها موجودی کافی دارند.").color(Color32::from_rgb(16, 185, 129)));
@@ -822,7 +814,7 @@ impl NabzApp {
             ui.label(RichText::new("کالاها را اسکن کنید یا از لیست زیر به سبد خرید اضافه کنید.").size(12.0).color(Color32::from_rgb(100, 116, 139)));
             ui.add_space(12.0);
 
-            Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(10.0)).inner_margin(Margin::same(12.0)).show(ui, |ui| {
+            card_frame(12.0).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{}  اسکن بارکد:", ph::BARCODE)).strong().size(14.0));
                     let response = ui.add(egui::TextEdit::singleline(&mut self.business_scan)
@@ -847,7 +839,7 @@ impl NabzApp {
                 cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "سبد خرید مشتری");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(12.0)).show(ui, |ui| {
+                    card_frame(12.0).show(ui, |ui| {
                         egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
                             egui::Grid::new("pos_basket_grid").striped(true).num_columns(5).spacing(Vec2::new(10.0, 8.0)).show(ui, |ui| {
                                 ui.label(RichText::new("نام کالا").strong());
@@ -898,7 +890,7 @@ impl NabzApp {
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "انتخاب سریع کالاها");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(12.0)).show(ui, |ui| {
+                    card_frame(12.0).show(ui, |ui| {
                         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                             for p in &self.business_products.clone() {
                                 ui.horizontal(|ui| {
@@ -938,7 +930,7 @@ impl NabzApp {
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "تعریف / ثبت کالای جدید");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(16.0)).show(ui, |ui| {
+                    card_frame(16.0).show(ui, |ui| {
                         ui.label(RichText::new("نام کالا *").strong());
                         ui.add(egui::TextEdit::singleline(&mut self.product_name).horizontal_align(Align::Max).hint_text("مثلاً: سیم ۲٫۵ خراسان افشار").desired_width(ui.available_width()));
                         ui.add_space(8.0);
@@ -994,7 +986,7 @@ impl NabzApp {
                 cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "فهرست کالاهای موجود");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(12.0)).show(ui, |ui| {
+                    card_frame(12.0).show(ui, |ui| {
                         egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
                             egui::Grid::new("products_list_grid").striped(true).num_columns(4).spacing(Vec2::new(12.0, 8.0)).show(ui, |ui| {
                                 ui.label(RichText::new("نام کالا").strong());
@@ -1028,7 +1020,7 @@ impl NabzApp {
             ui.label(RichText::new("افزایش موجودی انبار همراه با به‌روزرسانی قیمت خرید و حساب تامین‌کننده.").size(12.0).color(Color32::from_rgb(100, 116, 139)));
             ui.add_space(12.0);
 
-            Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(16.0)).show(ui, |ui| {
+            card_frame(16.0).show(ui, |ui| {
                 ui.label(RichText::new("انتخاب کالا *").strong());
                 egui::ComboBox::from_id_salt("purchase_product_select")
                     .selected_text(RichText::new(self.business_products.iter().find(|p| p.id == self.purchase_product_id).map(|p| p.name.clone()).unwrap_or_else(|| "انتخاب کالا...".into())))
@@ -1102,7 +1094,7 @@ impl NabzApp {
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "ثبت طرف‌حساب جدید");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(16.0)).show(ui, |ui| {
+                    card_frame(16.0).show(ui, |ui| {
                         ui.label(RichText::new("نام و نام خانوادگی / شرکت *").strong());
                         ui.add(egui::TextEdit::singleline(&mut self.party_name).horizontal_align(Align::Max).desired_width(ui.available_width()));
                         ui.add_space(8.0);
@@ -1139,7 +1131,7 @@ impl NabzApp {
                 cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "لیست طرف‌حساب‌ها");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(12.0)).show(ui, |ui| {
+                    card_frame(12.0).show(ui, |ui| {
                         match business::list_parties(&self.db) {
                             Ok(parties) => {
                                 egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
@@ -1182,7 +1174,7 @@ impl NabzApp {
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "ثبت هزینه جدید فروشگاه");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(16.0)).show(ui, |ui| {
+                    card_frame(16.0).show(ui, |ui| {
                         ui.label(RichText::new("دسته هزینه *").strong());
                         ui.add(egui::TextEdit::singleline(&mut self.expense_category).horizontal_align(Align::Max).desired_width(ui.available_width()));
                         ui.add_space(8.0);
@@ -1215,7 +1207,7 @@ impl NabzApp {
                 cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
                     panel_title(ui, "خلاصه گزارش مالی فروشگاه");
                     ui.add_space(6.0);
-                    Frame::none().fill(Color32::WHITE).stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240))).rounding(Rounding::same(12.0)).inner_margin(Margin::same(16.0)).show(ui, |ui| {
+                    card_frame(16.0).show(ui, |ui| {
                         if let Ok((sales, purchases, expenses, _low, gross_profit)) = business::business_totals(&self.db) {
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new("فروش کل:").strong());
@@ -1393,29 +1385,33 @@ fn run_printer_test(printer: &str, mode: hardware::PrinterMode, status: &mut Str
     }
 }
 
-fn summary_card(ui: &mut egui::Ui, title: &str, value: i64, color: Color32) {
+fn card_frame(padding: f32) -> Frame {
     Frame::none()
         .fill(Color32::WHITE)
         .stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240)))
         .rounding(Rounding::same(12.0))
-        .inner_margin(Margin::same(14.0))
-        .show(ui, |ui| {
-            ui.set_min_width((ui.available_width() / 3.0).max(120.0));
-            ui.with_layout(Layout::top_down(Align::Max), |ui| {
+        .inner_margin(Margin::same(padding))
+}
+
+fn summary_card(ui: &mut egui::Ui, title: &str, value: i64, color: Color32) {
+    card_frame(16.0).show(ui, |ui| {
+        ui.set_min_width((ui.available_width() / 3.0).max(120.0));
+        ui.set_min_height(82.0);
+        ui.with_layout(Layout::top_down(Align::Max), |ui| {
+            ui.horizontal(|ui| {
+                ui.add_sized([4.0, 30.0], egui::Label::new("").selectable(false));
                 ui.label(RichText::new(title).size(12.0).color(Color32::from_rgb(100, 116, 139)));
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new(format!("{} تومان", money(value)))
-                        .size(18.0)
-                        .strong()
-                        .color(color),
-                );
             });
+            ui.add_space(6.0);
+            ui.label(RichText::new(format!("{} تومان", money(value)))
+                .size(18.0).strong().color(color));
         });
+    });
 }
 
 fn panel_title(ui: &mut egui::Ui, text: &str) {
-    ui.label(RichText::new(text).size(16.0).strong().color(Color32::from_rgb(15, 23, 42)));
+    ui.add_space(2.0);
+    ui.label(RichText::new(text).size(15.0).strong().color(Color32::from_rgb(30, 41, 59)));
 }
 
 fn money(v: i64) -> String {
