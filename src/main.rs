@@ -880,25 +880,48 @@ impl NabzApp {
                     panel_title(ui, "سبد خرید مشتری");
                     ui.add_space(6.0);
                     card_frame(12.0).show(ui, |ui| {
+                        let mut quantity_updates: Vec<(usize, i64)> = Vec::new();
+                        let mut remove_basket_index: Option<usize> = None;
                         egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
                             egui::Grid::new("pos_basket_grid").striped(true).num_columns(5).spacing(Vec2::new(10.0, 8.0)).show(ui, |ui| {
                                 ui.label(RichText::new("نام کالا").strong());
                                 ui.label(RichText::new("تعداد").strong());
                                 ui.label(RichText::new("فی (تومان)").strong());
                                 ui.label(RichText::new("جمع").strong());
-                                ui.label("");
+                                ui.label(RichText::new("عملیات").strong());
                                 ui.end_row();
 
-                                for item in &self.business_basket {
+                                for (index, item) in self.business_basket.iter().enumerate() {
                                     ui.label(RichText::new(&item.name));
-                                    ui.label(RichText::new(persian_digits(&item.quantity.to_string())));
+                                    ui.horizontal(|ui| {
+                                        if ui.small_button("−").on_hover_text("کم کردن تعداد").clicked() {
+                                            quantity_updates.push((index, -1));
+                                        }
+                                        ui.label(RichText::new(persian_digits(&item.quantity.to_string())));
+                                        if ui.small_button("+").on_hover_text("افزودن یک عدد").clicked() {
+                                            quantity_updates.push((index, 1));
+                                        }
+                                    });
                                     ui.label(RichText::new(money(item.unit_price)));
                                     ui.label(RichText::new(money(item.line_total())));
-                                    ui.label("");
+                                    if ui.small_button("حذف").on_hover_text("حذف کالا از سبد").clicked() {
+                                        remove_basket_index = Some(index);
+                                    }
                                     ui.end_row();
                                 }
                             });
                         });
+
+                        for (index, delta) in quantity_updates {
+                            if let Some(item) = self.business_basket.get_mut(index) {
+                                item.quantity = item.quantity.saturating_add(delta).max(1);
+                            }
+                        }
+                        if let Some(index) = remove_basket_index {
+                            if index < self.business_basket.len() {
+                                self.business_basket.remove(index);
+                            }
+                        }
 
                         ui.separator();
                         let total = self.business_basket.iter().fold(0_i64, |sum, item| sum.saturating_add(item.line_total()));
