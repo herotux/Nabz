@@ -262,8 +262,51 @@ impl NabzApp {
     }
 }
 
+// Shared design tokens for every screen, dialog, form, and table in Nabz.
+fn apply_nabz_style(ctx: &egui::Context) {
+    ctx.style_mut(|style| {
+        style.spacing.item_spacing = Vec2::new(12.0, 10.0);
+        style.spacing.button_padding = Vec2::new(14.0, 9.0);
+        style.spacing.indent = 18.0;
+        style.spacing.interact_size = Vec2::new(40.0, 36.0);
+        style.spacing.text_edit_width = 220.0;
+        style.visuals = egui::Visuals::light();
+        style.visuals.panel_fill = Color32::from_rgb(247, 249, 252);
+        style.visuals.window_fill = Color32::WHITE;
+        style.visuals.extreme_bg_color = Color32::from_rgb(248, 250, 252);
+        style.visuals.faint_bg_color = Color32::from_rgb(245, 248, 251);
+        style.visuals.code_bg_color = Color32::from_rgb(241, 245, 249);
+        style.visuals.selection.bg_fill = Color32::from_rgb(204, 251, 241);
+        style.visuals.selection.stroke = Stroke::new(1.0, Color32::from_rgb(15, 118, 110));
+        style.visuals.window_rounding = Rounding::same(14.0);
+        style.visuals.menu_rounding = Rounding::same(10.0);
+        style.visuals.widgets.noninteractive.bg_fill = Color32::WHITE;
+        style.visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(226, 232, 240));
+        style.visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, Color32::from_rgb(51, 65, 85));
+        style.visuals.widgets.inactive.bg_fill = Color32::WHITE;
+        style.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(248, 250, 252);
+        style.visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(203, 213, 225));
+        style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.3, Color32::from_rgb(51, 65, 85));
+        style.visuals.widgets.inactive.rounding = Rounding::same(9.0);
+        style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(240, 253, 250);
+        style.visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(240, 253, 250);
+        style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, Color32::from_rgb(94, 234, 212));
+        style.visuals.widgets.hovered.fg_stroke = Stroke::new(1.4, Color32::from_rgb(15, 118, 110));
+        style.visuals.widgets.hovered.rounding = Rounding::same(9.0);
+        style.visuals.widgets.active.bg_fill = Color32::from_rgb(204, 251, 241);
+        style.visuals.widgets.active.weak_bg_fill = Color32::from_rgb(204, 251, 241);
+        style.visuals.widgets.active.bg_stroke = Stroke::new(1.2, Color32::from_rgb(15, 118, 110));
+        style.visuals.widgets.active.fg_stroke = Stroke::new(1.4, Color32::from_rgb(15, 118, 110));
+        style.visuals.widgets.active.rounding = Rounding::same(9.0);
+        style.visuals.widgets.open.bg_fill = Color32::from_rgb(240, 253, 250);
+        style.visuals.widgets.open.bg_stroke = Stroke::new(1.0, Color32::from_rgb(94, 234, 212));
+        style.visuals.widgets.open.rounding = Rounding::same(9.0);
+    });
+}
+
 impl eframe::App for NabzApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        apply_nabz_style(ctx);
         let screen_height = ctx.screen_rect().height();
 
         let save_shortcut = ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Enter));
