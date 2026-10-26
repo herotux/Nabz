@@ -98,6 +98,9 @@ struct NabzApp {
     purchase_unit_cost: String,
     purchase_paid: String,
     purchase_supplier: String,
+    purchase_date: String,
+    purchase_note: String,
+    show_purchase_date_picker: bool,
     party_name: String,
     party_phone: String,
     party_kind: usize,
@@ -169,6 +172,9 @@ impl NabzApp {
             purchase_unit_cost: "0".into(),
             purchase_paid: "0".into(),
             purchase_supplier: String::new(),
+            purchase_date: today_jalali(),
+            purchase_note: String::new(),
+            show_purchase_date_picker: false,
             party_name: String::new(),
             party_phone: String::new(),
             party_kind: 0,
@@ -607,6 +613,53 @@ impl eframe::App for NabzApp {
                         ui.end_row();
                     });
                 });
+        }
+
+        if self.show_purchase_date_picker {
+            let mut close_picker = false;
+            egui::Window::new(RichText::new("انتخاب تاریخ خرید شمسی"))
+                .open(&mut self.show_purchase_date_picker)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button(RichText::new("ماه بعد ←")).clicked() {
+                            self.picker_month += 1;
+                            if self.picker_month > 12 { self.picker_month = 1; self.picker_year += 1; }
+                        }
+                        ui.label(RichText::new(format!("{} {}", persian_digits(&self.picker_year.to_string()), jalali_month_name(self.picker_month))).strong().size(16.0));
+                        if ui.button(RichText::new("→ ماه قبل")).clicked() {
+                            self.picker_month -= 1;
+                            if self.picker_month < 1 { self.picker_month = 12; self.picker_year -= 1; }
+                        }
+                    });
+                    ui.separator();
+                    let days = if self.picker_month <= 6 { 31 } else if self.picker_month <= 11 { 30 } else if [1399, 1403, 1408, 1412, 1416, 1420].contains(&self.picker_year) { 30 } else { 29 };
+                    let weekdays = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
+                    egui::Grid::new("purchase_jalali_date_grid").spacing(Vec2::new(8.0, 8.0)).show(ui, |ui| {
+                        for w in weekdays { ui.label(RichText::new(w).strong()); }
+                        ui.end_row();
+                        let first_offset = jalali_weekday_offset(self.picker_year, self.picker_month);
+                        for cell in 0..(first_offset + days + 6) / 7 * 7 {
+                            if cell < first_offset || cell >= first_offset + days {
+                                ui.label(RichText::new(" "));
+                            } else {
+                                let day = cell - first_offset + 1;
+                                if ui.button(RichText::new(persian_digits(&day.to_string()))).clicked() {
+                                    self.purchase_date = persian_digits(&format!("{:04}/{:02}/{:02}", self.picker_year, self.picker_month, day));
+                                    close_picker = true;
+                                }
+                            }
+                            if cell % 7 == 6 { ui.end_row(); }
+                        }
+                    });
+                    ui.separator();
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button(RichText::new("امروز")).clicked() { self.purchase_date = today_jalali(); close_picker = true; }
+                        if ui.button(RichText::new("بستن")).clicked() { close_picker = true; }
+                    });
+                });
+            if close_picker { self.show_purchase_date_picker = false; }
         }
 
         if self.show_date_picker {
@@ -1168,11 +1221,26 @@ impl NabzApp {
         });
     }
 
-        fn ui_purchases(&mut self, ui: &mut egui::Ui) {
+    fn ui_purchases(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
-            page_header(ui, "ثبت فاکتور خرید و ورود کالا به انبار", "افزایش موجودی انبار همراه با به‌روزرسانی قیمت خرید و حساب تامین‌کننده.");
+            page_header(ui, "ثبت فاکتور خرید و ورود کالا به انبار", "تاریخ، شرح، مبلغ کل و مانده پرداخت را پیش از ثبت بررسی کن.");
 
             card_frame(16.0).show(ui, |ui| {
+                ui.label(RichText::new("تاریخ فاکتور *").strong());
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.purchase_date).horizontal_align(Align::Max).desired_width(ui.available_width() - 42.0).hint_text("۱۴۰۵/۰۷/۰۴"));
+                    if ui.button(RichText::new(ph::CALENDAR_BLANK)).on_hover_text("انتخاب تاریخ شمسی").clicked() {
+                        let normalized: String = self.purchase_date.chars().map(normalize_digit).collect();
+                        let parts: Vec<&str> = normalized.split('/').collect();
+                        if parts.len() == 3 {
+                            if let (Ok(y), Ok(m)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                                if (1200..=1600).contains(&y) && (1..=12).contains(&m) { self.picker_year = y; self.picker_month = m; }
+                            }
+                        }
+                        self.show_purchase_date_picker = true;
+                    }
+                });
+                ui.add_space(8.0);
                 ui.label(RichText::new("انتخاب کالا *").strong());
                 egui::ComboBox::from_id_salt("purchase_product_select")
                     .selected_text(RichText::new(self.business_products.iter().find(|p| p.id == self.purchase_product_id).map(|p| p.name.clone()).unwrap_or_else(|| "انتخاب کالا...".into())))
@@ -1208,7 +1276,34 @@ impl NabzApp {
                         ui.add(egui::TextEdit::singleline(&mut self.purchase_supplier).horizontal_align(Align::Max).desired_width(ui.available_width()));
                     });
                 });
-                ui.add_space(14.0);
+                ui.add_space(8.0);
+                ui.label(RichText::new("توضیحات خرید (اختیاری)").strong());
+                ui.add(egui::TextEdit::multiline(&mut self.purchase_note).horizontal_align(Align::Max).desired_rows(2).desired_width(ui.available_width()).hint_text("شماره فاکتور، شرایط خرید یا توضیحات دیگر..."));
+                ui.add_space(12.0);
+
+                let qty_preview = parse_business_number(&self.purchase_quantity);
+                let cost_preview = parse_business_number(&self.purchase_unit_cost);
+                let paid_preview = parse_business_number(&self.purchase_paid);
+                let total_preview = qty_preview.zip(cost_preview).and_then(|(q, c)| q.checked_mul(c));
+                let remaining_preview = total_preview.zip(paid_preview).map(|(total, paid)| total.saturating_sub(paid));
+                card_frame(12.0).show(ui, |ui| {
+                    ui.columns(2, |cols| {
+                        cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
+                            ui.label(RichText::new("مبلغ کل خرید").color(Color32::from_rgb(100, 116, 139)));
+                            ui.label(RichText::new(format!("{} تومان", total_preview.map(money).unwrap_or_else(|| "—".into()))).size(18.0).strong().color(Color32::from_rgb(15, 118, 110)));
+                        });
+                        cols[0].with_layout(Layout::top_down(Align::Max), |ui| {
+                            ui.label(RichText::new("مانده پرداختنی").color(Color32::from_rgb(100, 116, 139)));
+                            ui.label(RichText::new(format!("{} تومان", remaining_preview.map(money).unwrap_or_else(|| "—".into()))).size(18.0).strong().color(Color32::from_rgb(180, 83, 9)));
+                        });
+                    });
+                    if let (Some(total), Some(paid)) = (total_preview, paid_preview) {
+                        if paid > total {
+                            ui.label(RichText::new("مبلغ پرداختی از مبلغ کل بیشتر است.").color(Color32::from_rgb(185, 28, 28)));
+                        }
+                    }
+                });
+                ui.add_space(12.0);
 
                 if ui.add_sized([ui.available_width(), 38.0], egui::Button::new(RichText::new("ثبت فاکتور خرید و افزایش موجودی").strong().color(Color32::WHITE)).fill(Color32::from_rgb(15, 118, 110))).clicked() {
                     let qty = parse_business_number(&self.purchase_quantity);
@@ -1216,17 +1311,25 @@ impl NabzApp {
                     let paid = parse_business_number(&self.purchase_paid);
 
                     match (qty, cost, paid) {
-                        (Some(qty), Some(cost), Some(paid)) if self.purchase_product_id > 0 => {
-                            match business::record_purchase(&mut self.db, self.purchase_product_id, qty, cost, &self.purchase_supplier, &today_jalali(), paid, "") {
-                                Ok(id) => {
-                                    self.business_status = format!("فاکتور خرید #{id} ثبت شد و موجودی انبار افزایش یافت.");
-                                    self.purchase_quantity = "1".into();
-                                    let _ = self.refresh_business_products();
+                        (Some(qty), Some(cost), Some(paid)) if self.purchase_product_id > 0 && valid_jalali(&self.purchase_date) => {
+                            let total = qty.checked_mul(cost);
+                            if total.is_none() || paid > total.unwrap_or(0) {
+                                self.business_status = "مبلغ پرداختی نباید از کل خرید بیشتر باشد و حاصل‌ضرب باید معتبر باشد.".into();
+                            } else {
+                                match business::record_purchase(&mut self.db, self.purchase_product_id, qty, cost, &self.purchase_supplier, &self.purchase_date, paid, &self.purchase_note) {
+                                    Ok(id) => {
+                                        self.business_status = format!("فاکتور خرید #{} در تاریخ {} ثبت شد؛ مبلغ کل {} تومان، مانده {} تومان.", persian_digits(&id.to_string()), persian_digits(&self.purchase_date), money(total.unwrap_or(0)), money(total.unwrap_or(0) - paid));
+                                        self.purchase_quantity = "1".into();
+                                        self.purchase_note.clear();
+                                        self.purchase_date = today_jalali();
+                                        let _ = self.refresh_business_products();
+                                    }
+                                    Err(e) => self.business_status = e,
                                 }
-                                Err(e) => self.business_status = e,
                             }
                         }
-                        _ => self.business_status = "لطفاً کالا و مقادیر معتبر را مشخص کنید.".into(),
+                        (Some(_), Some(_), Some(_)) if !valid_jalali(&self.purchase_date) => self.business_status = "تاریخ شمسی معتبر نیست؛ نمونه: ۱۴۰۵/۰۷/۰۴".into(),
+                        _ => self.business_status = "لطفاً کالا، تعداد، قیمت، مبلغ پرداختی و تاریخ معتبر را مشخص کنید.".into(),
                     }
                 }
             });
