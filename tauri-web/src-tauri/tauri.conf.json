@@ -3,29 +3,7 @@
   "productName": "Nabz",
   "version": "0.1.0",
   "identifier": "com.herotux.nabz.webprototype",
-  "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "نبض | حسابداری",
-        "width": 1360,
-        "height": 900,
-        "minWidth": 900,
-        "minHeight": 650
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' asset: http://asset.localhost data:; connect-src ipc: http://ipc.localhost"
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": ["deb", "appimage"],
-    "icon": []
-  }
+  "build": {"beforeDevCommand":"npm run dev","devUrl":"http://localhost:1420","beforeBuildCommand":"npm run build","frontendDist":"../dist"},
+  "app": {"windows":[{"title":"نبض | حسابداری","width":1360,"height":900,"minWidth":900,"minHeight":650}],"security":{"csp":"default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' asset: http://asset.localhost data:; connect-src ipc: http://ipc.localhost"}},
+  "bundle":{"active":true,"targets":["deb","appimage"],"icon":["icons/icon.png"]}
 }
