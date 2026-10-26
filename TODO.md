@@ -67,10 +67,10 @@
 - [ ] Keep product name, barcode, purchase price, sale price, and stock clearly represented.
 - [ ] Explain that barcode and SKU are generated automatically when omitted.
 - [ ] Validate numeric values and prevent invalid negative prices/stock unless explicitly allowed by business rules.
-- [ ] Add editing and deletion flows for existing products, with safeguards when a product is referenced by transactions.
-- [ ] Improve product table readability: aligned columns, formatted prices, stock units, and clear low-stock warnings.
+- [x] Add editing and guarded deletion flows for existing products; deletion is refused when sales, purchases, or stock movements reference the product.
+- [x] Improve product table readability: aligned columns, formatted prices, stock units, and clear low-stock warnings.
 - [ ] Add useful product search/filtering and sorting where the current data volume warrants it.
-- [ ] Show helpful empty and no-search-results states.
+- [x] Show a helpful empty state when no products exist.
 - [ ] Ensure stock changes after sales and purchases are reflected without requiring a restart.
 
 ## 6. Purchase form and purchase history
