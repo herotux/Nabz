@@ -891,6 +891,11 @@ impl NabzApp {
                                 ui.label(RichText::new("عملیات").strong());
                                 ui.end_row();
 
+                                if self.business_basket.is_empty() {
+                                    ui.label(RichText::new("سبد خرید خالی است؛ از فهرست کالاها انتخاب کنید.").color(Color32::from_rgb(100, 116, 139)));
+                                    ui.end_row();
+                                }
+
                                 for (index, item) in self.business_basket.iter().enumerate() {
                                     ui.label(RichText::new(&item.name));
                                     ui.horizontal(|ui| {
@@ -932,7 +937,7 @@ impl NabzApp {
 
                         ui.add_space(10.0);
                         ui.horizontal(|ui| {
-                            if ui.add_sized([140.0, 36.0], egui::Button::new(RichText::new("ثبت و تسویه فاکتور").strong().color(Color32::WHITE)).fill(Color32::from_rgb(16, 185, 129))).clicked() {
+                            if ui.add_enabled(!self.business_basket.is_empty(), egui::Button::new(RichText::new("ثبت و تسویه فاکتور").strong().color(Color32::WHITE)).min_size(Vec2::new(140.0, 36.0)).fill(Color32::from_rgb(16, 185, 129))).clicked() {
                                 match business::record_sale(&mut self.db, &self.business_basket, &today_jalali()) {
                                     Ok(sale_id) => {
                                         self.business_basket.clear();
@@ -943,7 +948,7 @@ impl NabzApp {
                                 }
                             }
 
-                            if ui.button(RichText::new("خالی کردن سبد").color(Color32::from_rgb(239, 68, 68))).clicked() {
+                            if ui.add_enabled(!self.business_basket.is_empty(), egui::Button::new(RichText::new("خالی کردن سبد").color(Color32::from_rgb(239, 68, 68)))).clicked() {
                                 self.business_basket.clear();
                             }
                         });
