@@ -276,25 +276,17 @@ impl eframe::App for NabzApp {
         if search_shortcut { ctx.memory_mut(|m| m.request_focus(egui::Id::new("global_search"))); }
         if new_shortcut { self.amount.clear(); self.note.clear(); ctx.memory_mut(|m| m.request_focus(egui::Id::new("transaction_amount"))); }
 
-        // Top Navigation / Header Bar
+        // Top Header Bar
         egui::TopBottomPanel::top("header")
             .frame(
                 Frame::none()
                     .fill(Color32::from_rgb(255, 255, 255))
                     .stroke(Stroke::new(1.0, Color32::from_rgb(226, 232, 240)))
-                    .inner_margin(Margin::symmetric(20.0, 12.0))
+                    .inner_margin(Margin::symmetric(24.0, 12.0))
             )
             .show(ctx, |ui| {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    draw_nabz_mark(ui, 38.0);
-                    ui.add_space(8.0);
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new("حسابداری چابک نبض").size(18.0).strong().color(Color32::from_rgb(15, 118, 110)));
-                        ui.label(RichText::new("ویژه فروشگاه لوازم الکتریکی و برق").size(11.0).color(Color32::from_rgb(100, 116, 139)));
-                    });
-
-                    ui.add_space(24.0);
-
+                ui.horizontal(|ui| {
+                    // Left Header Section: Actions & Search
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         if ui.add(egui::Button::new(RichText::new(format!("{}  تنظیمات سخت‌افزار", ph::GEAR)).size(12.0)))
                             .clicked() {
@@ -322,21 +314,31 @@ impl eframe::App for NabzApp {
                         }
 
                         ui.add_space(10.0);
-                        let search_width = ui.available_width().min(240.0).max(120.0);
+                        let search_width = 220.0;
                         ui.add(egui::TextEdit::singleline(&mut self.search).horizontal_align(Align::Max).id(egui::Id::new("global_search"))
                             .hint_text("جست‌وجو...").desired_width(search_width));
+                    });
+
+                    // Right Header Section: Brand Logo & Title
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        draw_nabz_mark(ui, 38.0);
+                        ui.add_space(10.0);
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new("حسابداری چابک نبض").size(18.0).strong().color(Color32::from_rgb(15, 118, 110)));
+                            ui.label(RichText::new("ویژه فروشگاه لوازم الکتریکی و برق").size(11.0).color(Color32::from_rgb(100, 116, 139)));
+                        });
                     });
                 });
             });
 
-        // Right Sidebar Navigation (RTL Navigation)
+        // Right Sidebar Navigation
         egui::SidePanel::right("navigation")
             .resizable(false)
             .exact_width(220.0)
             .frame(
                 Frame::none()
                     .fill(Color32::from_rgb(15, 23, 42))
-                    .inner_margin(Margin::same(12.0)),
+                    .inner_margin(Margin::same(14.0)),
             )
             .show(ctx, |ui| {
                 ui.with_layout(Layout::top_down(Align::Max), |ui| {
@@ -404,7 +406,7 @@ impl eframe::App for NabzApp {
             .frame(
                 Frame::none()
                     .fill(Color32::from_rgb(248, 250, 252))
-                    .inner_margin(Margin::symmetric(20.0, 20.0)),
+                    .inner_margin(Margin::symmetric(28.0, 20.0)),
             )
             .show(ctx, |ui| {
                 if !self.show_business {
