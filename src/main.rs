@@ -88,6 +88,8 @@ struct NabzApp {
     product_purchase_price: String,
     product_sale_price: String,
     product_stock: String,
+    product_edit_id: Option<i64>,
+    product_delete_confirm: Option<i64>,
     business_scan: String,
     business_products: Vec<business::Product>,
     business_basket: Vec<business::BasketItem>,
@@ -157,6 +159,8 @@ impl NabzApp {
             product_purchase_price: "0".into(),
             product_sale_price: "0".into(),
             product_stock: "0".into(),
+            product_edit_id: None,
+            product_delete_confirm: None,
             business_scan: String::new(),
             business_products: vec![],
             business_basket: vec![],
@@ -990,11 +994,12 @@ impl NabzApp {
 
     fn ui_products(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
-            page_header(ui, "مدیریت کالاها و انبار", "تعریف سیم، کابل، کلید و پریز، روشنایی و سایر قطعات الکتریکی.");
+            page_header(ui, "مدیریت کالاها و انبار", "ثبت، ویرایش و بررسی موجودی کالاها؛ سوابق فروش و خرید حفظ می‌شوند.");
 
             ui.columns(2, |cols| {
                 cols[1].with_layout(Layout::top_down(Align::Max), |ui| {
-                    panel_title(ui, "تعریف / ثبت کالای جدید");
+                    let editing = self.product_edit_id.is_some();
+                    panel_title(ui, if editing { "ویرایش کالا" } else { "تعریف / ثبت کالای جدید" });
                     ui.add_space(6.0);
                     card_frame(16.0).show(ui, |ui| {
                         ui.label(RichText::new("نام کالا *").strong());
@@ -1002,7 +1007,7 @@ impl NabzApp {
                         ui.add_space(8.0);
 
                         ui.label(RichText::new("بارکد / کد شناسه").strong());
-                        ui.add(egui::TextEdit::singleline(&mut self.product_barcode).horizontal_align(Align::Max).hint_text("در صورت خالی بودن خودکار ساخته می‌شود").desired_width(ui.available_width()));
+                        ui.add(egui::TextEdit::singleline(&mut self.product_barcode).horizontal_align(Align::Max).hint_text("بارکد یکتای ASCII؛ در ثبت جدید خالی بماند تا خودکار ساخته شود").desired_width(ui.available_width()));
                         ui.add_space(8.0);
 
                         ui.label(RichText::new("قیمت خرید واحد (تومان) *").strong());
@@ -1013,11 +1018,18 @@ impl NabzApp {
                         ui.add(egui::TextEdit::singleline(&mut self.product_sale_price).horizontal_align(Align::Max).desired_width(ui.available_width()));
                         ui.add_space(8.0);
 
-                        ui.label(RichText::new("موجودی اولیه *").strong());
-                        ui.add(egui::TextEdit::singleline(&mut self.product_stock).horizontal_align(Align::Max).desired_width(ui.available_width()));
+                        if editing {
+                            ui.label(RichText::new("موجودی فعلی").strong());
+                            let stock = self.business_products.iter().find(|p| Some(p.id) == self.product_edit_id).map(|p| p.stock).unwrap_or(0);
+                            ui.label(RichText::new(format!("{} عدد — برای حفظ گردش انبار، موجودی از این فرم تغییر نمی‌کند.", persian_digits(&stock.to_string()))).color(Color32::from_rgb(100, 116, 139)));
+                        } else {
+                            ui.label(RichText::new("موجودی اولیه *").strong());
+                            ui.add(egui::TextEdit::singleline(&mut self.product_stock).horizontal_align(Align::Max).desired_width(ui.available_width()));
+                        }
                         ui.add_space(14.0);
 
-                        if ui.add_sized([ui.available_width(), 38.0], egui::Button::new(RichText::new("ذخیره کالا در انبار").strong().color(Color32::WHITE)).fill(Color32::from_rgb(15, 118, 110))).clicked() {
+                        let save_label = if editing { "ذخیره تغییرات کالا" } else { "ذخیره کالا در انبار" };
+                        if ui.add_sized([ui.available_width(), 38.0], egui::Button::new(RichText::new(save_label).strong().color(Color32::WHITE)).fill(Color32::from_rgb(15, 118, 110))).clicked() {
                             let name = self.product_name.trim().to_owned();
                             let purchase = parse_business_number(&self.product_purchase_price);
                             let sale = parse_business_number(&self.product_sale_price);
@@ -1025,26 +1037,56 @@ impl NabzApp {
 
                             if name.is_empty() {
                                 self.business_status = "نام کالا الزامی است.".into();
-                            } else if let (Some(purchase), Some(sale), Some(stock)) = (purchase, sale, stock) {
-                                let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
-                                let sku = if self.product_sku.trim().is_empty() { format!("SKU-{stamp}") } else { self.product_sku.clone() };
-                                let barcode = if self.product_barcode.trim().is_empty() { format!("NABZ{stamp}") } else { self.product_barcode.clone() };
-
-                                match business::add_product(&self.db, &name, &sku, &barcode, purchase, sale, stock) {
-                                    Ok(_) => {
-                                        self.business_status = format!("کالای «{name}» با موفقیت ثبت شد.");
-                                        self.product_name.clear();
-                                        self.product_barcode.clear();
-                                        self.product_purchase_price = "0".into();
-                                        self.product_sale_price = "0".into();
-                                        self.product_stock = "0".into();
-                                        let _ = self.refresh_business_products();
+                            } else if let (Some(purchase), Some(sale)) = (purchase, sale) {
+                                if self.product_edit_id.is_some() {
+                                    let id = self.product_edit_id.unwrap();
+                                    if self.product_barcode.trim().is_empty() {
+                                        self.business_status = "بارکد کالا نمی‌تواند خالی باشد.".into();
+                                    } else {
+                                        match business::update_product(&self.db, id, &name, &self.product_barcode, purchase, sale) {
+                                            Ok(()) => {
+                                                self.business_status = format!("تغییرات کالای «{name}» ذخیره شد.");
+                                                self.product_edit_id = None;
+                                                self.product_name.clear();
+                                                self.product_barcode.clear();
+                                                self.product_purchase_price = "0".into();
+                                                self.product_sale_price = "0".into();
+                                                let _ = self.refresh_business_products();
+                                            }
+                                            Err(e) => self.business_status = e,
+                                        }
                                     }
-                                    Err(e) => self.business_status = e,
+                                } else if let Some(stock) = stock {
+                                    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
+                                    let sku = if self.product_sku.trim().is_empty() { format!("SKU-{stamp}") } else { self.product_sku.clone() };
+                                    let barcode = if self.product_barcode.trim().is_empty() { format!("NABZ{stamp}") } else { self.product_barcode.clone() };
+                                    match business::add_product(&self.db, &name, &sku, &barcode, purchase, sale, stock) {
+                                        Ok(_) => {
+                                            self.business_status = format!("کالای «{name}» با موفقیت ثبت شد.");
+                                            self.product_name.clear();
+                                            self.product_barcode.clear();
+                                            self.product_purchase_price = "0".into();
+                                            self.product_sale_price = "0".into();
+                                            self.product_stock = "0".into();
+                                            let _ = self.refresh_business_products();
+                                        }
+                                        Err(e) => self.business_status = e,
+                                    }
+                                } else {
+                                    self.business_status = "موجودی اولیه باید یک عدد صحیح معتبر و غیرمنفی باشد.".into();
                                 }
                             } else {
-                                self.business_status = "لطفاً مقادیر عددی معتبر وارد کنید.".into();
+                                self.business_status = "قیمت خرید و فروش باید عدد صحیح معتبر و غیرمنفی باشند.".into();
                             }
+                        }
+
+                        if self.product_edit_id.is_some() && ui.button("انصراف از ویرایش").clicked() {
+                            self.product_edit_id = None;
+                            self.product_name.clear();
+                            self.product_barcode.clear();
+                            self.product_purchase_price = "0".into();
+                            self.product_sale_price = "0".into();
+                            self.product_stock = "0".into();
                         }
                     });
                 });
@@ -1053,34 +1095,80 @@ impl NabzApp {
                     panel_title(ui, "فهرست کالاهای موجود");
                     ui.add_space(6.0);
                     card_frame(12.0).show(ui, |ui| {
-                        egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
-                            egui::Grid::new("products_list_grid").striped(true).num_columns(4).spacing(Vec2::new(12.0, 8.0)).show(ui, |ui| {
-                                ui.label(RichText::new("نام کالا").strong());
-                                ui.label(RichText::new("قیمت فروش").strong());
-                                ui.label(RichText::new("قیمت خرید").strong());
-                                ui.label(RichText::new("موجودی").strong());
-                                ui.end_row();
-
-                                for p in &self.business_products {
-                                    ui.label(RichText::new(&p.name));
-                                    ui.label(RichText::new(money(p.sale_price)));
-                                    ui.label(RichText::new(money(p.purchase_price)));
-                                    let stock_color = if p.stock <= 3 { Color32::from_rgb(239, 68, 68) } else { Color32::from_rgb(16, 185, 129) };
-                                    ui.label(RichText::new(persian_digits(&p.stock.to_string())).color(stock_color).strong());
+                        if self.business_products.is_empty() {
+                            ui.label(RichText::new("هنوز کالایی ثبت نشده است. از فرم کنار صفحه اولین کالا را اضافه کنید.").color(Color32::from_rgb(100, 116, 139)));
+                        } else {
+                            egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                                egui::Grid::new("products_list_grid").striped(true).num_columns(6).spacing(Vec2::new(10.0, 8.0)).show(ui, |ui| {
+                                    ui.label(RichText::new("نام کالا").strong());
+                                    ui.label(RichText::new("قیمت فروش").strong());
+                                    ui.label(RichText::new("قیمت خرید").strong());
+                                    ui.label(RichText::new("موجودی").strong());
+                                    ui.label(RichText::new("ویرایش").strong());
+                                    ui.label(RichText::new("حذف").strong());
                                     ui.end_row();
-                                }
+
+                                    for p in self.business_products.clone() {
+                                        ui.label(RichText::new(&p.name));
+                                        ui.label(RichText::new(money(p.sale_price)));
+                                        ui.label(RichText::new(money(p.purchase_price)));
+                                        let stock_color = if p.stock <= 3 { Color32::from_rgb(239, 68, 68) } else { Color32::from_rgb(16, 185, 129) };
+                                        ui.label(RichText::new(persian_digits(&p.stock.to_string())).color(stock_color).strong());
+                                        if ui.small_button("ویرایش").clicked() {
+                                            self.product_edit_id = Some(p.id);
+                                            self.product_name = p.name.clone();
+                                            self.product_sku = p.sku.clone();
+                                            self.product_barcode = p.barcode.clone();
+                                            self.product_purchase_price = p.purchase_price.to_string();
+                                            self.product_sale_price = p.sale_price.to_string();
+                                            self.product_stock = p.stock.to_string();
+                                            self.business_status = format!("در حال ویرایش کالای «{}»؛ موجودی برای حفظ سوابق قابل تغییر نیست.", p.name);
+                                        }
+                                        if ui.small_button(RichText::new("حذف").color(Color32::from_rgb(185, 28, 28))).clicked() {
+                                            self.product_delete_confirm = Some(p.id);
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
                             });
-                        });
+                        }
                     });
                 });
             });
+
+            if let Some(id) = self.product_delete_confirm {
+                let product_name = self.business_products.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| "کالای انتخاب‌شده".into());
+                egui::Window::new("تأیید حذف کالا")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ui.ctx(), |ui| {
+                        ui.label(format!("آیا می‌خواهید کالای «{product_name}» حذف شود؟"));
+                        ui.label(RichText::new("اگر سابقه فروش، خرید یا گردش انبار داشته باشد، حذف برای حفظ اطلاعات حسابداری رد می‌شود.").color(Color32::from_rgb(100, 116, 139)));
+                        ui.horizontal(|ui| {
+                            if ui.button(RichText::new("حذف کالا").color(Color32::from_rgb(185, 28, 28))).clicked() {
+                                match business::delete_product_if_unused(&self.db, id) {
+                                    Ok(()) => {
+                                        self.business_status = format!("کالای «{product_name}» حذف شد.");
+                                        if self.product_edit_id == Some(id) { self.product_edit_id = None; }
+                                        let _ = self.refresh_business_products();
+                                    }
+                                    Err(e) => self.business_status = e,
+                                }
+                                self.product_delete_confirm = None;
+                            }
+                            if ui.button("انصراف").clicked() {
+                                self.product_delete_confirm = None;
+                            }
+                        });
+                    });
+            }
 
             ui.add_space(8.0);
             ui.label(RichText::new(&self.business_status).size(12.0).color(Color32::from_rgb(15, 118, 110)));
         });
     }
 
-    fn ui_purchases(&mut self, ui: &mut egui::Ui) {
+        fn ui_purchases(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
             page_header(ui, "ثبت فاکتور خرید و ورود کالا به انبار", "افزایش موجودی انبار همراه با به‌روزرسانی قیمت خرید و حساب تامین‌کننده.");
 
