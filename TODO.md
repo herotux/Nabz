@@ -75,12 +75,12 @@
 
 ## 6. Purchase form and purchase history
 
-- [ ] Group product, quantity, unit cost, amount paid, and supplier fields into a clear purchase-entry flow.
-- [ ] Make required and optional fields explicit and validate quantities/prices before saving.
-- [ ] Add an editable purchase date with the Jalali date picker.
-- [ ] Add an optional purchase note.
+- [x] Group product, quantity, unit cost, amount paid, and supplier fields into a clear purchase-entry flow.
+- [x] Make required and optional fields explicit and validate quantities/prices before saving.
+- [x] Add an editable purchase date with the Jalali date picker.
+- [x] Add an optional purchase note.
 - [ ] Make the supplier field/select consistent with the parties data and prevent inconsistent supplier names where possible.
-- [ ] Show the calculated purchase total and remaining payable amount before saving.
+- [x] Show the calculated purchase total and remaining payable amount before saving.
 - [ ] Improve purchase-history readability and provide filtering/search where supported.
 - [ ] Confirm that purchase recording updates stock, supplier balances, and financial totals correctly.
 - [ ] Add clear success/error feedback and protect against duplicate submissions.
