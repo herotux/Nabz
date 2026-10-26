@@ -49,8 +49,8 @@
 - [ ] Keep barcode/item-code entry prominent and make Enter-to-add behavior discoverable.
 - [ ] Improve the quick-product list so products and their prices are easy to scan.
 - [ ] Add a clear empty-basket state and helpful guidance for adding the first item.
-- [ ] Allow changing each basket line's quantity.
-- [ ] Allow removing a basket line without clearing the entire basket.
+- [x] Allow changing each basket line's quantity.
+- [x] Allow removing a basket line without clearing the entire basket.
 - [ ] Show product name, quantity, unit price, line total, and invoice total with consistent formatting.
 - [ ] Add customer selection, if supported by the existing data model.
 - [ ] Add discount entry and a clear subtotal/discount/final-total breakdown, after defining safe calculation rules.
