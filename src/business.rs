@@ -82,6 +82,45 @@ pub fn add_product(conn: &Connection, name: &str, sku: &str, barcode: &str, purc
     Ok(conn.last_insert_rowid())
 }
 
+pub fn update_product(conn: &Connection, id: i64, name: &str, barcode: &str, purchase_price: i64, sale_price: i64) -> Result<(), String> {
+    if name.trim().is_empty() { return Err("نام کالا الزامی است.".into()); }
+    if barcode.trim().is_empty() { return Err("بارکد کالا الزامی است.".into()); }
+    if barcode.len() > 128 || !barcode.is_ascii() || barcode.chars().any(char::is_control) {
+        return Err("بارکد باید حداکثر ۱۲۸ نویسهٔ ASCII قابل‌چاپ داشته باشد.".into());
+    }
+    if purchase_price < 0 || sale_price < 0 {
+        return Err("قیمت‌ها نمی‌توانند منفی باشند.".into());
+    }
+    let changed = conn.execute(
+        "UPDATE products SET name=?1, barcode=?2, purchase_price=?3, sale_price=?4 WHERE id=?5",
+        params![name.trim(), barcode.trim(), purchase_price, sale_price, id],
+    ).map_err(|e| {
+        if e.to_string().contains("UNIQUE constraint failed") {
+            "این بارکد قبلاً برای کالای دیگری ثبت شده است.".to_string()
+        } else { format!("ویرایش کالا ناموفق بود: {e}") }
+    })?;
+    if changed == 0 { return Err("کالای موردنظر پیدا نشد.".into()); }
+    Ok(())
+}
+
+pub fn delete_product_if_unused(conn: &Connection, id: i64) -> Result<(), String> {
+    let (sales, purchases, movements): (i64, i64, i64) = conn.query_row(
+        "SELECT
+            (SELECT COUNT(*) FROM sale_items WHERE product_id=?1),
+            (SELECT COUNT(*) FROM purchase_items WHERE product_id=?1),
+            (SELECT COUNT(*) FROM stock_movements WHERE product_id=?1)",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    ).map_err(|e| format!("بررسی سابقه کالا ناموفق بود: {e}"))?;
+    if sales > 0 || purchases > 0 || movements > 0 {
+        return Err("این کالا سابقه فروش، خرید یا گردش انبار دارد؛ برای حفظ سوابق مالی حذف نمی‌شود.".into());
+    }
+    let changed = conn.execute("DELETE FROM products WHERE id=?1", [id])
+        .map_err(|e| format!("حذف کالا ناموفق بود: {e}"))?;
+    if changed == 0 { return Err("کالای موردنظر پیدا نشد.".into()); }
+    Ok(())
+}
+
 pub fn list_products(conn: &Connection) -> rusqlite::Result<Vec<Product>> {
     let mut stmt = conn.prepare(
         "SELECT id,name,sku,barcode,purchase_price,sale_price,stock FROM products ORDER BY name COLLATE NOCASE, id"
