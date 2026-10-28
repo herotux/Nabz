@@ -81,7 +81,7 @@ function routeScannedBarcode(code:string){
  const modal=document.querySelector<HTMLElement>('#modal.open');
  if(modal){
   const active=document.activeElement as HTMLInputElement|null;
-  const target=active?.name.startsWith('item_')?active:modal.querySelector<HTMLInputElement>('#invoiceLines input[name^="item_"]');
+  const target=active?.name.startsWith('item_')?active:modal.querySelector<HTMLInputElement>('#fields input[name^="item_"]');
   if(target){if(active&&active!==target&&active.value===code){active.value='';active.dispatchEvent(new Event('input',{bubbles:true}));}target.value=code;target.dispatchEvent(new Event('input',{bubbles:true}));target.focus();notify('بارکد '+code+' به ردیف فاکتور وارد شد.');return}
  }
  if(current==='چاپ و بارکد'){
