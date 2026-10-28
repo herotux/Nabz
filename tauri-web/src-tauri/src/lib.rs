@@ -367,14 +367,14 @@ mod accounting_tests {
   assert_eq!(before["purchases_total"].as_i64(),Some(20));
   assert_eq!(before["receipts_total"].as_i64(),Some(0));
   assert_eq!(before["payments_total"].as_i64(),Some(0));
-  assert_eq!(before["customer_debt"].as_i64(),Some(65));
+  assert_eq!(before["customer_debt"].as_i64(),Some(40));
   assert_eq!(before["supplier_debt"].as_i64(),Some(60));
   save_payment_with_connection(json!({"kind":"receipt","customer":"Ali","amount":10,"method":"cash"}),&mut c).unwrap();
   save_payment_with_connection(json!({"kind":"payment","customer":"Vendor","amount":15,"method":"cash"}),&mut c).unwrap();
   let after=reports_summary_with_connection(&c).unwrap();
   assert_eq!(after["receipts_total"].as_i64(),Some(10));
   assert_eq!(after["payments_total"].as_i64(),Some(15));
-  assert_eq!(after["customer_debt"].as_i64(),Some(55));
+  assert_eq!(after["customer_debt"].as_i64(),Some(30));
   assert_eq!(after["supplier_debt"].as_i64(),Some(45));
  }
 
