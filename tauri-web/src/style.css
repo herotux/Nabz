@@ -95,3 +95,6 @@ td b{font-size:12px}
   #barcodePreview .barcode-bars{display:flex!important;justify-content:center;align-items:stretch;width:100%;height:58px;background:none!important;overflow:hidden}
   #barcodePreview .barcode-bars i{height:58px!important}
 }
+
+/* Real Code 39 bars are rendered as alternating dark bars and gaps. */
+.barcode-bars{display:flex;justify-content:center;align-items:stretch;overflow:hidden;background:none!important}
