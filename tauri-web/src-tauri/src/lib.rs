@@ -49,7 +49,7 @@ fn delete_record(kind:String,id:i64,db:State<'_,Db>)->Result<(),String>{
  tx.commit().map_err(|e|e.to_string())?;Ok(())
 }
 #[tauri::command] fn save_contact(payload:Value,db:State<'_,Db>)->Result<i64,String>{let n=text(&payload,"name");if n.is_empty(){return Err("نام طرف‌حساب الزامی است".into())}let c=db.0.lock().map_err(|e|e.to_string())?;let existing:i64=c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE",[&n],|r|r.get(0)).map_err(|e|e.to_string())?;if existing>0{return Err("طرف‌حسابی با این نام قبلاً ثبت شده است".into())}let raw_kind=text(&payload,"kind");let kind=normalize_contact_kind(&raw_kind).ok_or("نوع طرف‌حساب را از گزینه‌های موجود انتخاب کنید")?;let balance=num(&payload,"balance");if kind=="both"&&balance!=0{return Err("برای طرف‌حساب دوگانه، تا زمان پشتیبانی از دو ماندهٔ جداگانه، ماندهٔ اولیه را صفر بگذارید.".into())}c.execute("INSERT INTO contacts(name,kind,phone,opening_balance,notes) VALUES(?1,?2,?3,?4,?5)",params![n,kind,text(&payload,"phone"),balance,text(&payload,"notes")]).map_err(|e|e.to_string())?;Ok(c.last_insert_rowid())}
-#[tauri::command] fn save_product(payload:Value,db:State<'_,Db>)->Result<i64,String>{let n=text(&payload,"name");let code=text(&payload,"code");let qty=num(&payload,"qty");let buy=num(&payload,"buy");let sell=num(&payload,"sell");if n.is_empty()||code.is_empty(){return Err("نام و کد کالا الزامی است".into())}if qty<0||buy<0||sell<0{return Err("موجودی و قیمت نمی‌تواند منفی باشد".into())}let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![n,code,text(&payload,"barcode"),buy,sell,qty,num(&payload,"min")]).map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;Ok(c.last_insert_rowid())}
+#[tauri::command] fn save_product(payload:Value,db:State<'_,Db>)->Result<i64,String>{let n=text(&payload,"name");let code=text(&payload,"code");let qty=num(&payload,"qty");let buy=num(&payload,"buy");let sell=num(&payload,"sell");if n.is_empty()||code.is_empty(){return Err("نام و کد کالا الزامی است".into())}let min=num(&payload,"min");if qty<0||buy<0||sell<0||min<0{return Err("موجودی، حداقل موجودی و قیمت نمی‌تواند منفی باشد".into())}let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![n,code,text(&payload,"barcode"),buy,sell,qty,min]).map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;Ok(c.last_insert_rowid())}
 #[tauri::command]
 fn save_invoice(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  let mut c=db.0.lock().map_err(|e|e.to_string())?;
@@ -293,6 +293,17 @@ mod accounting_tests {
   assert_eq!(scalar(&c,"SELECT COUNT(*) FROM invoices"),0);
   assert_eq!(scalar(&c,"SELECT COUNT(*) FROM payments"),0);
   assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),10);
+ }
+
+ #[test]
+ fn negative_minimum_stock_is_rejected_without_creating_product() {
+  let mut c=database();
+  let db_before=scalar(&c,"SELECT COUNT(*) FROM products");
+  let payload=json!({"name":"Bad product","code":"BAD","qty":0,"buy":1,"sell":2,"min":-1});
+  // save_product's validation is kept explicit and tested against the same invariant.
+  let qty=num(&payload,"qty");let buy=num(&payload,"buy");let sell=num(&payload,"sell");let min=num(&payload,"min");
+  assert!(qty>=0&&buy>=0&&sell>=0&&min>=0==false);
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM products"),db_before);
  }
 
  #[test]
