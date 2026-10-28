@@ -3,6 +3,7 @@ name: Nabz Tauri Web CI
 on:
   push:
     branches:
+      - main
       - tauri-web-prototype
     paths:
       - "tauri-web/**"
