@@ -141,6 +141,9 @@ fn sales_trend(days:i64,db:State<'_,Db>)->Result<Vec<SalesTrendPoint>,String>{
 #[tauri::command]
 fn reports_summary(db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
+ reports_summary_with_connection(&c)
+}
+fn reports_summary_with_connection(c:&Connection)->Result<Value,String>{
  let q=|sql:&str|->Result<i64,String>{c.query_row(sql,[],|r|r.get(0)).map_err(|e|e.to_string())};
  Ok(json!({
   "sales_today":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date=date('now','localtime')")?,
@@ -293,6 +296,28 @@ mod accounting_tests {
   save_payment_with_connection(json!({"kind":"payment","customer":"Vendor","amount":15,"method":"cash","date":"2026-10-28"}),&mut c).unwrap();
   assert_eq!(scalar(&c,"SELECT opening_balance FROM contacts WHERE name='Vendor'"),25);
   assert_eq!(scalar(&c,"SELECT SUM(amount) FROM payments WHERE kind='payment'"),15);
+ }
+
+ #[test]
+ fn reports_reconcile_sales_purchases_receipts_and_role_specific_balances() {
+  let mut c=database();
+  c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Vendor','supplier',40)",[]).unwrap();
+  save_invoice_with_connection(sale("Ali","credit",0,2,20,0),&mut c).unwrap();
+  save_invoice_with_connection(json!({"kind":"purchase","customer":"Vendor","items":[{"item":"Pen","qty":2,"price":10}],"discount":0,"date":"2026-10-28"}),&mut c).unwrap();
+  let before=reports_summary_with_connection(&c).unwrap();
+  assert_eq!(before["sales_total"].as_i64(),Some(40));
+  assert_eq!(before["purchases_total"].as_i64(),Some(20));
+  assert_eq!(before["receipts_total"].as_i64(),Some(0));
+  assert_eq!(before["payments_total"].as_i64(),Some(0));
+  assert_eq!(before["customer_debt"].as_i64(),Some(65));
+  assert_eq!(before["supplier_debt"].as_i64(),Some(60));
+  save_payment_with_connection(json!({"kind":"receipt","customer":"Ali","amount":10,"method":"cash"}),&mut c).unwrap();
+  save_payment_with_connection(json!({"kind":"payment","customer":"Vendor","amount":15,"method":"cash"}),&mut c).unwrap();
+  let after=reports_summary_with_connection(&c).unwrap();
+  assert_eq!(after["receipts_total"].as_i64(),Some(10));
+  assert_eq!(after["payments_total"].as_i64(),Some(15));
+  assert_eq!(after["customer_debt"].as_i64(),Some(55));
+  assert_eq!(after["supplier_debt"].as_i64(),Some(45));
  }
 
  #[test]
