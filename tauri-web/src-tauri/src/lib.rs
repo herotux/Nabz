@@ -28,7 +28,10 @@ CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,co
 CREATE TABLE IF NOT EXISTS invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
-CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);").map_err(|e|e.to_string()) }
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+UPDATE contacts SET kind='customer' WHERE lower(trim(kind)) IN ('مشتری');
+UPDATE contacts SET kind='supplier' WHERE lower(trim(kind)) IN ('vendor','تامین‌کننده','تأمین‌کننده','تامین کننده','تأمین کننده');
+UPDATE contacts SET kind='both' WHERE trim(kind) IN ('مشتری و تامین‌کننده','مشتری و تأمین‌کننده','مشتری و تامین کننده','مشتری و تأمین کننده');").map_err(|e|e.to_string()) }
 #[tauri::command] fn app_version()-> &'static str { env!("CARGO_PKG_VERSION") }
 #[tauri::command] fn db_status(db:State<'_,Db>)->Result<String,String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.query_row("PRAGMA database_list",[],|r|r.get(2)).map_err(|e|e.to_string())}
 #[tauri::command] fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{let c=db.0.lock().map_err(|e|e.to_string())?;Ok(Summary{sales_today:c.query_row("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date=date('now','localtime')",[],|r|r.get(0)).map_err(|e|e.to_string())?,receipts_today:c.query_row("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')",[],|r|r.get(0)).map_err(|e|e.to_string())?,customer_balance:c.query_row("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale'),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind='customer'),0)",[],|r|r.get(0)).map_err(|e|e.to_string())?,inventory_value:c.query_row("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products",[],|r|r.get(0)).map_err(|e|e.to_string())?,contacts:c.query_row("SELECT COUNT(*) FROM contacts",[],|r|r.get(0)).map_err(|e|e.to_string())?,products:c.query_row("SELECT COUNT(*) FROM products",[],|r|r.get(0)).map_err(|e|e.to_string())?,invoices:c.query_row("SELECT COUNT(*) FROM invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?})}
@@ -279,6 +282,26 @@ mod accounting_tests {
   save_payment_with_connection(json!({"kind":"payment","customer":"Vendor","amount":15,"method":"cash","date":"2026-10-28"}),&mut c).unwrap();
   assert_eq!(scalar(&c,"SELECT opening_balance FROM contacts WHERE name='Vendor'"),25);
   assert_eq!(scalar(&c,"SELECT SUM(amount) FROM payments WHERE kind='payment'"),15);
+ }
+
+ #[test]
+ fn wrong_contact_role_is_rejected_without_financial_or_stock_side_effects() {
+  let mut c=database();
+  let purchase=json!({"kind":"purchase","customer":"Ali","items":[{"item":"Pen","qty":2,"price":10}],"discount":0});
+  assert!(save_invoice_with_connection(purchase,&mut c).is_err());
+  assert!(save_payment_with_connection(json!({"kind":"payment","customer":"Ali","amount":10}),&mut c).is_err());
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM invoices"),0);
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM payments"),0);
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),10);
+ }
+
+ #[test]
+ fn opening_balances_are_separated_by_contact_role() {
+  let mut c=database();
+  c.execute("UPDATE contacts SET opening_balance=25 WHERE name='Ali'",[]).unwrap();
+  c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Vendor','supplier',40)",[]).unwrap();
+  assert_eq!(scalar(&c,"SELECT SUM(opening_balance) FROM contacts WHERE kind='customer'"),25);
+  assert_eq!(scalar(&c,"SELECT SUM(opening_balance) FROM contacts WHERE kind='supplier'"),40);
  }
 
  #[test]
