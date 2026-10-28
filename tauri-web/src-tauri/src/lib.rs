@@ -102,7 +102,7 @@ fn save_invoice_with_connection(payload:Value,c:&mut Connection)->Result<i64,Str
    let code=format!("AUTO-{}",tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM products",[],|r|r.get::<_,i64>(0)).map_err(|e|e.to_string())?);
    tx.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)",params![name,code,price,qty]).map_err(|e|e.to_string())?;
    Some(tx.last_insert_rowid())
-  } else {None};
+  } else {return Err(format!("کالای «{name}» در انبار ثبت نشده است؛ ابتدا کالا را ثبت کنید.").into())};
   let line=qty.checked_mul(price).ok_or("مبلغ ردیف بیش از حد بزرگ است")?;
   resolved.push((pid,name,qty,price,line));
  }
@@ -239,6 +239,15 @@ mod accounting_tests {
   assert!(validate_backup(&wrong_kind).is_err());
  }
 
+ #[test]
+ fn sale_of_unknown_stock_item_is_rejected_without_creating_an_invoice() {
+  let mut c=database();
+  let payload=json!({"kind":"sale","customer":"Ali","payment_status":"paid","method":"cash","items":[{"item":"Unknown item","qty":1,"price":50}],"discount":0,"date":"2026-10-28"});
+  assert!(save_invoice_with_connection(payload,&mut c).is_err());
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM invoices"),0);
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),10);
+ }
+ 
  #[test]
  fn paid_walk_in_sale_records_one_receipt_and_updates_stock_atomically() {
   let mut c=database();
