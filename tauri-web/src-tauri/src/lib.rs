@@ -263,8 +263,10 @@ mod accounting_tests {
   save_invoice_with_connection(sale("Ali","credit",0,2,50,0),&mut c).unwrap();
   save_invoice_with_connection(sale("Ali","credit",0,1,50,0),&mut c).unwrap();
   save_payment_with_connection(json!({"kind":"receipt","customer":"Ali","amount":120,"method":"cash","date":"2026-10-28"}),&mut c).unwrap();
-  let mut st=c.prepare("SELECT paid FROM invoices ORDER BY id").unwrap();
-  let vals=st.query_map([],|r|r.get::<_,i64>(0)).unwrap().collect::<Result<Vec<_>,_>>().unwrap();
+  let vals={
+   let mut st=c.prepare("SELECT paid FROM invoices ORDER BY id").unwrap();
+   st.query_map([],|r|r.get::<_,i64>(0)).unwrap().collect::<Result<Vec<_>,_>>().unwrap()
+  };
   assert_eq!(vals,vec![100,20]);
   let before=scalar(&c,"SELECT COUNT(*) FROM payments");
   assert!(save_payment_with_connection(json!({"kind":"receipt","customer":"Ali","amount":31,"method":"cash"}),&mut c).is_err());
