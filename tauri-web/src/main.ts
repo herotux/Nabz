@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 type Page = 'داشبورد'|'طرف‌حساب‌ها'|'فاکتورها'|'دریافت و پرداخت'|'کالا و انبار'|'گزارش‌ها'|'چاپ و بارکد'|'تنظیمات';
 const nav: [string,Page][] = [['▦','داشبورد'],['♙','طرف‌حساب‌ها'],['▤','فاکتورها'],['↔','دریافت و پرداخت'],['▧','کالا و انبار'],['▥','گزارش‌ها'],['▤','چاپ و بارکد'],['⚙','تنظیمات']];
 const app = document.querySelector<HTMLDivElement>('#app')!;
-const today = '۴ آبان ۱۴۰۵';
+const today = new Intl.DateTimeFormat('fa-IR-u-ca-persian',{day:'numeric',month:'long',year:'numeric'}).format(new Date());
 let current: Page = 'داشبورد';
 let filter = '';
 let toastTimer = 0;
