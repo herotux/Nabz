@@ -55,6 +55,12 @@ jobs:
       - name: Install Node dependencies
         working-directory: tauri-web
         run: npm install
+      - name: Run Nabz accounting regression tests
+        working-directory: tauri-web
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+      - name: Install Node dependencies
+        working-directory: tauri-web
+        run: npm install
       - name: Build Tauri app
         working-directory: tauri-web
         run: npm run tauri build
