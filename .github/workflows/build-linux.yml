@@ -12,79 +12,92 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: tauri-web
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install build dependencies
+
+      - name: Install Tauri Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libfuse2 flatpak flatpak-builder python3-yaml python3-toml python3-requests python3-pip librsvg2-bin
-      - name: Fetch bundled Persian font
-        run: bash scripts/fetch-font.sh
-      - uses: Swatinem/rust-cache@v2
-      - name: Build release
-        run: cargo build --release
-      - name: Create portable archive
+          sudo apt-get install -y \
+            build-essential pkg-config libssl-dev libxdo-dev curl wget file patchelf libfuse2 \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xdg-utils
+
+      - name: Generate a valid PNG app icon
         run: |
-          mkdir -p dist/nabz
-          install -m 0755 target/release/nabz dist/nabz/nabz
-          cp README.md LICENSE dist/nabz/
-          cp assets/Vazirmatn.ttf assets/OFL.txt dist/nabz/
-          tar -C dist -czf Nabz-linux-x86_64.tar.gz nabz
-      - name: Prepare AppDir
+          python3 - <<'PY'
+          import struct, zlib
+          from pathlib import Path
+
+          size = 256
+          rows = []
+          for y in range(size):
+              row = bytearray([0])
+              for x in range(size):
+                  edge = min(x, y, size - 1 - x, size - 1 - y)
+                  bg = (min(20 + x // 32, 28), min(112 + y // 12, 140), min(170 + x // 16, 195), 255)
+                  if edge < 10:
+                      bg = (18, 92, 148, 255)
+                  mark = (62 <= x <= 91 and 62 <= y <= 190) or (165 <= x <= 194 and 62 <= y <= 190)
+                  mark = mark or (62 <= x <= 194 and abs(y - (190 - (x - 62) * 128 / 132)) <= 14)
+                  row.extend((245, 249, 255, 255) if mark else bg)
+              rows.append(bytes(row))
+          def chunk(kind, data):
+              return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+          png = b"\\x89PNG\\r\\n\\x1a\\n"
+          png += chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+          png += chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
+          png += chunk(b"IEND", b"")
+          target = Path("src-tauri/icons/icon.png")
+          target.write_bytes(png)
+          print(f"Generated valid {size}x{size} RGBA PNG: {target} ({len(png)} bytes)")
+          PY
+          file src-tauri/icons/icon.png
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build frontend and type-check
+        run: npm run build
+
+      - name: Run Rust and SQLite tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Build Tauri AppImage and deb
+        run: npm run tauri build
+
+      - name: Verify generated installers
         run: |
-          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/scalable/apps AppDir/usr/share
-          install -m 0755 target/release/nabz AppDir/usr/bin/nabz
-          cp packaging/nabz.desktop AppDir/nabz.desktop
-          cp packaging/nabz.desktop AppDir/usr/share/applications/nabz.desktop
-          cp assets/Vazirmatn.ttf AppDir/usr/share/nabz-Vazirmatn.ttf
-          cp assets/OFL.txt AppDir/usr/share/OFL-Vazirmatn.txt
-          cp assets/nabz.svg AppDir/nabz.svg
-          rsvg-convert -w 256 -h 256 assets/nabz.svg -o AppDir/nabz.png
-          cp assets/nabz.svg AppDir/usr/share/icons/hicolor/scalable/apps/nabz.svg
-          cat > AppDir/AppRun <<'EOF'
-          #!/bin/sh
-          HERE="$(dirname "$(readlink -f "$0")")"
-          exec "$HERE/usr/bin/nabz" "$@"
-          EOF
-          chmod +x AppDir/AppRun
-      - name: Download AppImage tooling
-        run: |
-          curl -fL --retry 3 -o appimagetool.AppImage https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool.AppImage
-      - name: Build AppImage
-        env:
-          ARCH: x86_64
-        run: ./appimagetool.AppImage --appimage-extract-and-run AppDir Nabz-x86_64.AppImage
-      - name: Prepare Flatpak build dependencies
-        run: |
-          cargo generate-lockfile
-          git clone --depth 1 https://github.com/flatpak/flatpak-builder-tools.git /tmp/flatpak-builder-tools
-          python3 -m pip install --user tomlkit aiohttp
-          python3 /tmp/flatpak-builder-tools/cargo/flatpak-cargo-generator.py Cargo.lock -o flatpak/cargo-sources.json
-          mkdir -p flatpak-source
-          cp Cargo.toml Cargo.lock flatpak-source/
-          cp -r src assets packaging flatpak-source/
-          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
-      - name: Build Flatpak bundle
-        run: |
-          flatpak-builder --force-clean --repo=flatpak-repo flatpak-build flatpak/io.github.herotux.Nabz.yml
-          flatpak build-bundle flatpak-repo Nabz-x86_64.flatpak io.github.herotux.Nabz
-      - name: Upload build artifacts
+          set -eu
+          find src-tauri/target/release/bundle -type f \\
+            \\( -name '*.AppImage' -o -name '*.deb' \\) -size +0c -print
+          test -n "$(find src-tauri/target/release/bundle -type f \\( -name '*.AppImage' -o -name '*.deb' \\) -size +0c -print -quit)"
+          test -n "$(find src-tauri/target/release/bundle -type f -name '*.AppImage' -size +0c -print -quit)"
+          test -n "$(find src-tauri/target/release/bundle -type f -name '*.deb' -size +0c -print -quit)"
+
+      - name: Upload Tauri Linux installers
         uses: actions/upload-artifact@v4
         with:
           name: nabz-linux-x86_64
           path: |
-            Nabz-x86_64.AppImage
-            Nabz-x86_64.flatpak
-            Nabz-linux-x86_64.tar.gz
+            tauri-web/src-tauri/target/release/bundle/**/*.AppImage
+            tauri-web/src-tauri/target/release/bundle/**/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Publish release assets for version tags
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            Nabz-x86_64.AppImage
-            Nabz-x86_64.flatpak
-            Nabz-linux-x86_64.tar.gz
+            tauri-web/src-tauri/target/release/bundle/**/*.AppImage
+            tauri-web/src-tauri/target/release/bundle/**/*.deb
           generate_release_notes: true
