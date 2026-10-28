@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: nabz-tauri-web-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-and-build-linux:
     runs-on: ubuntu-22.04
@@ -30,7 +34,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential curl wget file patchelf \
+            build-essential pkg-config libssl-dev libxdo-dev curl wget file patchelf \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev xdg-utils
 
