@@ -52,7 +52,7 @@ jobs:
               rows.append(bytes(row))
           def chunk(kind, data):
               return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
-          png = b"\\x89PNG\\r\\n\\x1a\\n"
+          png = bytes([137, 80, 78, 71, 13, 10, 26, 10])
           png += chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
           png += chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
           png += chunk(b"IEND", b"")
@@ -77,11 +77,11 @@ jobs:
       - name: Verify generated installers
         run: |
           set -eu
-          find src-tauri/target/release/bundle -type f \\
-            \\( -name '*.AppImage' -o -name '*.deb' \\) -size +0c -print
-          test -n "$(find src-tauri/target/release/bundle -type f \\( -name '*.AppImage' -o -name '*.deb' \\) -size +0c -print -quit)"
-          test -n "$(find src-tauri/target/release/bundle -type f -name '*.AppImage' -size +0c -print -quit)"
-          test -n "$(find src-tauri/target/release/bundle -type f -name '*.deb' -size +0c -print -quit)"
+          appimage="$(find src-tauri/target/release/bundle -type f -name '*.AppImage' -size +0c -print -quit)"
+          deb="$(find src-tauri/target/release/bundle -type f -name '*.deb' -size +0c -print -quit)"
+          test -n "$appimage"
+          test -n "$deb"
+          printf 'AppImage: %s\nDEB: %s\n' "$appimage" "$deb"
 
       - name: Upload Tauri Linux installers
         uses: actions/upload-artifact@v4
