@@ -85,3 +85,13 @@ td b{font-size:12px}
  th,td{font-size:11px}
  .panel-head h2,.tool-card h2,.settings-card h2{font-size:14px}
 }
+
+@media print{
+  @page{size:80mm auto;margin:4mm}
+  body{background:#fff!important}
+  body *{visibility:hidden!important}
+  #barcodePreview,#barcodePreview *{visibility:visible!important}
+  #barcodePreview{position:fixed;inset:0 auto auto 0;width:100%;margin:0;padding:4mm;border:0;border-radius:0;box-sizing:border-box}
+  #barcodePreview .barcode-bars{display:flex!important;justify-content:center;align-items:stretch;width:100%;height:58px;background:none!important;overflow:hidden}
+  #barcodePreview .barcode-bars i{height:58px!important}
+}
