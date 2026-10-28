@@ -40,7 +40,7 @@ function settingsPage(){return header('تنظیمات','اطلاعات فروش�
 <article class="panel settings-card"><div class="settings-title"><span class="settings-icon purple">⌁</span><div><h2>میان‌برهای صفحه‌کلید</h2><p>برای کار سریع‌تر با صفحه‌های اصلی</p></div></div><div class="shortcut-row"><span>فاکتور فروش جدید</span><kbd>Ctrl + N</kbd></div><div class="shortcut-row"><span>جست‌وجو</span><kbd>Ctrl + K</kbd></div><div class="shortcut-row"><span>داشبورد</span><kbd>Alt + 1</kbd></div><p class="helper-note">فعال‌سازی میان‌برها در مرحله تکمیل منطق برنامه انجام می‌شود.</p></article>
 </div>`}
 
-function htmlEscape(value:unknown){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]||ch))}
+function htmlEscape(value:unknown){const entities:Record<string,string>={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};return String(value??'').replace(/[&<>"']/g,ch=>entities[ch]||ch)}
 function printInvoiceDocument(data:{invoice:{id:number;number:number;kind:string;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string};items:{item_name:string;quantity:number;unit_price:number;line_total:number}[];shop:Record<string,string>}){
  const w=window.open('','_blank','width=900,height=700');
  if(!w){notify('پنجرهٔ چاپ فاکتور باز نشد؛ اجازهٔ بازشدن پنجرهٔ جدید را بده.');return}

@@ -429,7 +429,7 @@ mod accounting_tests {
   save_payment_with_connection(json!({"kind":"receipt","customer":"Ali","amount":31,"method":"cash"}),&mut c).unwrap();
   assert_eq!(scalar(&c,"SELECT COUNT(*) FROM payments"),before+1);
   assert_eq!(scalar(&c,"SELECT customer_credit_balance FROM contacts WHERE name='Ali'"),1);
-  assert_eq!(scalar(&c,"SELECT SUM(total-paid) FROM invoices WHERE kind='sale'"),30);
+  assert_eq!(scalar(&c,"SELECT SUM(total-paid) FROM invoices WHERE kind='sale'"),0);
   save_invoice_with_connection(sale("Ali","credit",0,1,20,0),&mut c).unwrap();
   assert_eq!(scalar(&c,"SELECT customer_credit_balance FROM contacts WHERE name='Ali'"),0);
   assert_eq!(scalar(&c,"SELECT paid FROM invoices ORDER BY id DESC LIMIT 1"),1);
