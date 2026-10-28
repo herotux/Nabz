@@ -1,0 +1,82 @@
+name: Nabz Tauri Web CI
+
+on:
+  push:
+    branches:
+      - tauri-web-prototype
+    paths:
+      - "tauri-web/**"
+      - ".github/workflows/tauri-web-ci.yml"
+  pull_request:
+    paths:
+      - "tauri-web/**"
+      - ".github/workflows/tauri-web-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build-linux:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: tauri-web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies for Tauri 2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential curl wget file patchelf \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev xdg-utils
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri-web/src-tauri -> target
+
+      - name: Verify required app icon
+        run: |
+          test -s src-tauri/icons/icon.png
+          file src-tauri/icons/icon.png
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build frontend and type-check
+        run: npm run build
+
+      - name: Run Rust and SQLite tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Build Linux packages
+        run: npm run tauri build
+
+      - name: Verify generated packages
+        run: |
+          set -eu
+          find src-tauri/target/release/bundle -type f \
+            \( -name '*.AppImage' -o -name '*.deb' \) -size +0c -print
+          test -n "$(find src-tauri/target/release/bundle -type f \( -name '*.AppImage' -o -name '*.deb' \) -size +0c -print -quit)"
+
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: nabz-linux-installers
+          path: |
+            tauri-web/src-tauri/target/release/bundle/**/*.AppImage
+            tauri-web/src-tauri/target/release/bundle/**/*.deb
+          if-no-files-found: error
+          retention-days: 14
