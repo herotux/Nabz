@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{fs, sync::Mutex};
 use tauri::{Manager, State};
 
@@ -65,6 +65,51 @@ fn save_invoice(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  tx.commit().map_err(|e|e.to_string())?;Ok(id)
 }
 #[tauri::command] fn save_payment(payload:Value,db:State<'_,Db>)->Result<i64,String>{let kind=text(&payload,"kind");let contact=text(&payload,"customer");let amount=num(&payload,"amount");if !["receipt","payment"].contains(&kind.as_str())||contact.is_empty()||amount<=0{return Err("طرف‌حساب و مبلغ مثبت الزامی است".into())}let method=text(&payload,"method");let date=text(&payload,"date");let notes=text(&payload,"notes");let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;let cid:Option<i64>=tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?;tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),COALESCE(NULLIF(?6,''),date('now','localtime')),?7)",params![kind,cid,contact,amount,method,date,notes]).map_err(|e|e.to_string())?;let id=tx.last_insert_rowid();let invoice_kind=if kind=="receipt"{"sale"}else{"purchase"};let mut remaining=amount;{let mut st=tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_name=?1 COLLATE NOCASE AND kind=?2 AND paid<total ORDER BY invoice_date,id").map_err(|e|e.to_string())?;let rows=st.query_map(params![contact,invoice_kind],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e|e.to_string())?;let invoices=rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;drop(st);for (iid,total,paid) in invoices{if remaining<=0{break}let applied=remaining.min(total-paid);tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2",params![applied,iid]).map_err(|e|e.to_string())?;remaining-=applied;}}tx.commit().map_err(|e|e.to_string())?;Ok(id)}
+
+#[tauri::command]
+fn reports_summary(db:State<'_,Db>)->Result<Value,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let q=|sql:&str|->Result<i64,String>{c.query_row(sql,[],|r|r.get(0)).map_err(|e|e.to_string())};
+ Ok(json!({
+  "sales_today":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date=date('now','localtime')")?,
+  "receipts_today":q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')")?,
+  "sales_total":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale'")?,
+  "purchases_total":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='purchase'")?,
+  "receipts_total":q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt'")?,
+  "payments_total":q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='payment'")?,
+  "customer_debt":q("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE kind='sale'")?,
+  "supplier_debt":q("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE kind='purchase'")?,
+  "inventory_value":q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?,
+  "contacts":q("SELECT COUNT(*) FROM contacts")?,
+  "products":q("SELECT COUNT(*) FROM products")?,
+  "invoices":q("SELECT COUNT(*) FROM invoices")?
+ }))
+}
+#[tauri::command]
+fn export_data(db:State<'_,Db>)->Result<Value,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let mut contacts=Vec::new();{let mut s=c.prepare("SELECT id,name,kind,phone,opening_balance,notes,created_at FROM contacts").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"kind":r.get::<_,String>(2)?,"phone":r.get::<_,String>(3)?,"opening_balance":r.get::<_,i64>(4)?,"notes":r.get::<_,String>(5)?,"created_at":r.get::<_,String>(6)?}))).map_err(|e|e.to_string())?;for x in rows{contacts.push(x.map_err(|e|e.to_string())?);}}
+ let mut products=Vec::new();{let mut s=c.prepare("SELECT id,name,code,barcode,buy_price,sell_price,quantity,min_quantity FROM products").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"code":r.get::<_,String>(2)?,"barcode":r.get::<_,String>(3)?,"buy_price":r.get::<_,i64>(4)?,"sell_price":r.get::<_,i64>(5)?,"quantity":r.get::<_,i64>(6)?,"min_quantity":r.get::<_,i64>(7)?}))).map_err(|e|e.to_string())?;for x in rows{products.push(x.map_err(|e|e.to_string())?);}}
+ let mut invoices=Vec::new();{let mut s=c.prepare("SELECT id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes FROM invoices").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,"contact_id":r.get::<_,Option<i64>>(3)?,"contact_name":r.get::<_,String>(4)?,"invoice_date":r.get::<_,String>(5)?,"subtotal":r.get::<_,i64>(6)?,"discount":r.get::<_,i64>(7)?,"total":r.get::<_,i64>(8)?,"paid":r.get::<_,i64>(9)?,"notes":r.get::<_,String>(10)?}))).map_err(|e|e.to_string())?;for x in rows{invoices.push(x.map_err(|e|e.to_string())?);}}
+ let mut items=Vec::new();{let mut s=c.prepare("SELECT id,invoice_id,product_id,item_name,quantity,unit_price,line_total FROM invoice_items").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"product_id":r.get::<_,Option<i64>>(2)?,"item_name":r.get::<_,String>(3)?,"quantity":r.get::<_,i64>(4)?,"unit_price":r.get::<_,i64>(5)?,"line_total":r.get::<_,i64>(6)?}))).map_err(|e|e.to_string())?;for x in rows{items.push(x.map_err(|e|e.to_string())?);}}
+ let mut payments=Vec::new();{let mut s=c.prepare("SELECT id,kind,contact_id,contact_name,amount,method,payment_date,notes FROM payments").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"kind":r.get::<_,String>(1)?,"contact_id":r.get::<_,Option<i64>>(2)?,"contact_name":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"method":r.get::<_,String>(5)?,"payment_date":r.get::<_,String>(6)?,"notes":r.get::<_,String>(7)?}))).map_err(|e|e.to_string())?;for x in rows{payments.push(x.map_err(|e|e.to_string())?);}}
+ let mut settings=Vec::new();{let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"key":r.get::<_,String>(0)?,"value":r.get::<_,String>(1)?}))).map_err(|e|e.to_string())?;for x in rows{settings.push(x.map_err(|e|e.to_string())?);}}
+ Ok(json!({"format":"nabz-backup-v1","contacts":contacts,"products":products,"invoices":invoices,"invoice_items":items,"payments":payments,"settings":settings}))
+}
+#[tauri::command]
+fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
+ if data.get("format").and_then(Value::as_str)!=Some("nabz-backup-v1"){return Err("فایل پشتیبان نبض معتبر نیست".into())}
+ for k in ["contacts","products","invoices","invoice_items","payments","settings"]{if !data.get(k).and_then(Value::as_array).is_some(){return Err(format!("ساختار پشتیبان ناقص است: {k}"))}}
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;
+ tx.execute_batch("DELETE FROM invoice_items; DELETE FROM payments; DELETE FROM invoices; DELETE FROM products; DELETE FROM contacts; DELETE FROM settings;").map_err(|e|e.to_string())?;
+ for x in data["contacts"].as_array().unwrap(){tx.execute("INSERT INTO contacts(id,name,kind,phone,opening_balance,notes,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![x["id"].as_i64(),x["name"].as_str().unwrap_or(""),x["kind"].as_str().unwrap_or("customer"),x["phone"].as_str().unwrap_or(""),x["opening_balance"].as_i64().unwrap_or(0),x["notes"].as_str().unwrap_or(""),x["created_at"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
+ for x in data["products"].as_array().unwrap(){tx.execute("INSERT INTO products(id,name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",params![x["id"].as_i64(),x["name"].as_str().unwrap_or(""),x["code"].as_str().unwrap_or(""),x["barcode"].as_str().unwrap_or(""),x["buy_price"].as_i64().unwrap_or(0),x["sell_price"].as_i64().unwrap_or(0),x["quantity"].as_i64().unwrap_or(0),x["min_quantity"].as_i64().unwrap_or(0)]).map_err(|e|e.to_string())?;}
+ for x in data["invoices"].as_array().unwrap(){tx.execute("INSERT INTO invoices(id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",params![x["id"].as_i64(),x["number"].as_i64(),x["kind"].as_str().unwrap_or("sale"),x["contact_id"].as_i64(),x["contact_name"].as_str().unwrap_or(""),x["invoice_date"].as_str().unwrap_or(""),x["subtotal"].as_i64().unwrap_or(0),x["discount"].as_i64().unwrap_or(0),x["total"].as_i64().unwrap_or(0),x["paid"].as_i64().unwrap_or(0),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
+ for x in data["invoice_items"].as_array().unwrap(){tx.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["product_id"].as_i64(),x["item_name"].as_str().unwrap_or(""),x["quantity"].as_i64().unwrap_or(0),x["unit_price"].as_i64().unwrap_or(0),x["line_total"].as_i64().unwrap_or(0)]).map_err(|e|e.to_string())?;}
+ for x in data["payments"].as_array().unwrap(){tx.execute("INSERT INTO payments(id,kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",params![x["id"].as_i64(),x["kind"].as_str().unwrap_or("receipt"),x["contact_id"].as_i64(),x["contact_name"].as_str().unwrap_or(""),x["amount"].as_i64().unwrap_or(0),x["method"].as_str().unwrap_or("cash"),x["payment_date"].as_str().unwrap_or(""),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
+ for x in data["settings"].as_array().unwrap(){tx.execute("INSERT INTO settings(key,value) VALUES(?1,?2)",params![x["key"].as_str().unwrap_or(""),x["value"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
+ tx.commit().map_err(|e|e.to_string())?;Ok(())
+}
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let dir=app.path().app_local_data_dir().map_err(std::io::Error::other)?;fs::create_dir_all(&dir)?;let c=Connection::open(dir.join("nabz.sqlite3")).map_err(std::io::Error::other)?;init(&c).map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,list_records,list_products,save_contact,save_product,save_invoice,save_payment,save_setting,get_settings]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let dir=app.path().app_local_data_dir().map_err(std::io::Error::other)?;fs::create_dir_all(&dir)?;let c=Connection::open(dir.join("nabz.sqlite3")).map_err(std::io::Error::other)?;init(&c).map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,save_contact,save_product,save_invoice,save_payment,save_setting,get_settings]).run(tauri::generate_context!()).expect("error while running Nabz");}
