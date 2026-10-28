@@ -96,9 +96,14 @@ fn save_payment(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  let mut c=db.0.lock().map_err(|e|e.to_string())?;
  save_payment_with_connection(payload,&mut c)
 }
-fn save_payment_with_connection(payload:Value,c:&mut Connection)->Result<i64,String>{let kind=text(&payload,"kind");let contact=text(&payload,"customer");let amount=num(&payload,"amount");if !["receipt","payment"].contains(&kind.as_str())||contact.is_empty()||amount<=0{return Err("طرف‌حساب و مبلغ مثبت الزامی است".into())}let method=text(&payload,"method");let date=text(&payload,"date");let notes=text(&payload,"notes");let tx=c.transaction().map_err(|e|e.to_string())?;let cid:Option<i64>=tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?;if cid.is_none(){return Err("طرف‌حساب ثبت‌شده‌ای با این نام پیدا نشد؛ ابتدا آن را در بخش طرف‌حساب‌ها ثبت کنید.".into())}tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),COALESCE(NULLIF(?6,''),date('now','localtime')),?7)",params![kind,cid,contact,amount,method,date,notes]).map_err(|e|e.to_string())?;let id=tx.last_insert_rowid();let invoice_kind=if kind=="receipt"{"sale"}else{"purchase"};let outstanding:i64=tx.query_row("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2",params![cid,invoice_kind],|r|r.get(0)).map_err(|e|e.to_string())?;
+fn save_payment_with_connection(payload:Value,c:&mut Connection)->Result<i64,String>{let kind=text(&payload,"kind");let contact=text(&payload,"customer");let amount=num(&payload,"amount");if !["receipt","payment"].contains(&kind.as_str())||contact.is_empty()||amount<=0{return Err("طرف‌حساب و مبلغ مثبت الزامی است".into())}let method=text(&payload,"method");let date=text(&payload,"date");let notes=text(&payload,"notes");let tx=c.transaction().map_err(|e|e.to_string())?;let cid:Option<i64>=tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?;if cid.is_none(){return Err("طرف‌حساب ثبت‌شده‌ای با این نام پیدا نشد؛ ابتدا آن را در بخش طرف‌حساب‌ها ثبت کنید.".into())}tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),COALESCE(NULLIF(?6,''),date('now','localtime')),?7)",params![kind,cid,contact,amount,method,date,notes]).map_err(|e|e.to_string())?;let id=tx.last_insert_rowid();let invoice_kind=if kind=="receipt"{"sale"}else{"purchase"};let invoice_outstanding:i64=tx.query_row("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2",params![cid,invoice_kind],|r|r.get(0)).map_err(|e|e.to_string())?;
+ let opening_balance:i64=tx.query_row("SELECT opening_balance FROM contacts WHERE id=?1",[cid],|r|r.get(0)).map_err(|e|e.to_string())?;
+ let opening_available=opening_balance.max(0);
+ let outstanding=invoice_outstanding+opening_available;
  if amount>outstanding{return Err(format!("مبلغ پرداخت از ماندهٔ باز طرف‌حساب بیشتر است؛ ماندهٔ قابل تخصیص {outstanding}"))}
- let mut remaining=amount;{let mut st=tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_id=?1 AND kind=?2 AND paid<total ORDER BY invoice_date,id").map_err(|e|e.to_string())?;let rows=st.query_map(params![cid,invoice_kind],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e|e.to_string())?;let invoices=rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;drop(st);for (iid,total,paid) in invoices{if remaining<=0{break}let applied=remaining.min(total-paid);tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2",params![applied,iid]).map_err(|e|e.to_string())?;remaining-=applied;}}tx.commit().map_err(|e|e.to_string())?;Ok(id)}
+ let mut remaining=amount;
+ let opening_applied=remaining.min(opening_available);
+ if opening_applied>0{tx.execute("UPDATE contacts SET opening_balance=opening_balance-?1 WHERE id=?2",params![opening_applied,cid]).map_err(|e|e.to_string())?;remaining-=opening_applied;}{let mut st=tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_id=?1 AND kind=?2 AND paid<total ORDER BY invoice_date,id").map_err(|e|e.to_string())?;let rows=st.query_map(params![cid,invoice_kind],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e|e.to_string())?;let invoices=rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;drop(st);for (iid,total,paid) in invoices{if remaining<=0{break}let applied=remaining.min(total-paid);tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2",params![applied,iid]).map_err(|e|e.to_string())?;remaining-=applied;}}tx.commit().map_err(|e|e.to_string())?;Ok(id)}
 
 #[derive(Serialize)]
 struct SalesTrendPoint { date:String, total:i64 }
@@ -251,6 +256,20 @@ mod accounting_tests {
   assert_eq!(scalar(&c,"SELECT buy_price FROM products WHERE code='PEN'"),12);
   assert_eq!(scalar(&c,"SELECT total-paid FROM invoices WHERE kind='purchase'"),60);
   assert_eq!(scalar(&c,"SELECT COUNT(*) FROM payments"),0);
+ }
+
+ #[test]
+ fn receipt_or_supplier_payment_reduces_positive_opening_balance_before_invoice_fifo() {
+  let mut c=database();
+  c.execute("UPDATE contacts SET opening_balance=50 WHERE name='Ali'",[]).unwrap();
+  save_payment_with_connection(json!({"kind":"receipt","customer":"Ali","amount":20,"method":"cash","date":"2026-10-28"}),&mut c).unwrap();
+  assert_eq!(scalar(&c,"SELECT opening_balance FROM contacts WHERE name='Ali'"),30);
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM invoices"),0);
+  assert_eq!(scalar(&c,"SELECT SUM(amount) FROM payments WHERE kind='receipt'"),20);
+  c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Vendor','supplier',40)",[]).unwrap();
+  save_payment_with_connection(json!({"kind":"payment","customer":"Vendor","amount":15,"method":"cash","date":"2026-10-28"}),&mut c).unwrap();
+  assert_eq!(scalar(&c,"SELECT opening_balance FROM contacts WHERE name='Vendor'"),25);
+  assert_eq!(scalar(&c,"SELECT SUM(amount) FROM payments WHERE kind='payment'"),15);
  }
 
  #[test]
