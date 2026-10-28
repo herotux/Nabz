@@ -42,7 +42,8 @@ fn delete_record(kind:String,id:i64,db:State<'_,Db>)->Result<(),String>{
 #[tauri::command]
 fn save_invoice(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  let kind=text(&payload,"kind"); let contact=text(&payload,"customer");
- if !["sale","purchase"].contains(&kind.as_str())||contact.is_empty(){return Err("نوع فاکتور و طرف‌حساب الزامی است".into())}
+ if !["sale","purchase"].contains(&kind.as_str()){return Err("نوع فاکتور نامعتبر است".into())}
+ if kind=="purchase"&&contact.is_empty(){return Err("انتخاب تأمین‌کننده برای فاکتور خرید الزامی است".into())}
  let mut items:Vec<(String,i64,i64)>=Vec::new();
  if let Some(arr)=payload.get("items").and_then(Value::as_array){
   for x in arr {let name=x.get("item").and_then(Value::as_str).unwrap_or("").trim().to_owned();let q=x.get("qty").and_then(Value::as_i64).unwrap_or(0);let p=x.get("price").and_then(Value::as_i64).unwrap_or(0);if !name.is_empty(){items.push((name,q,p));}}
@@ -54,7 +55,15 @@ fn save_invoice(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  let subtotal=items.iter().try_fold(0i64,|sum,(_,q,p)|q.checked_mul(*p).and_then(|v|sum.checked_add(v))).ok_or("مبلغ فاکتور بیش از حد بزرگ است")?;
  let discount=num(&payload,"discount");if discount<0||discount>subtotal{return Err("تخفیف باید بین صفر و مبلغ کل باشد".into())}
  let total=subtotal-discount;let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;
- let cid:Option<i64>=tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?;if cid.is_none(){return Err("طرف‌حساب ثبت‌شده‌ای با این نام پیدا نشد؛ ابتدا آن را در بخش طرف‌حساب‌ها ثبت کنید.".into())}
+ let cid:Option<i64>=if contact.is_empty(){None}else{tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?};
+ if kind=="purchase"&&cid.is_none(){return Err("تأمین‌کننده ثبت‌شده‌ای با این نام پیدا نشد؛ ابتدا آن را در بخش طرف‌حساب‌ها ثبت کنید.".into())}
+ if kind=="sale"&&!contact.is_empty()&&cid.is_none(){return Err("مشتری واردشده در فهرست طرف‌حساب‌ها پیدا نشد؛ نام را انتخاب کنید یا برای فروش گذری فیلد مشتری را خالی بگذارید.".into())}
+ let payment_status=if kind=="sale"{let s=text(&payload,"payment_status");if s.is_empty(){"credit".to_string()}else{s}}else{"credit".to_string()};
+ if !["paid","partial","credit"].contains(&payment_status.as_str()){return Err("وضعیت پرداخت نامعتبر است".into())}
+ let paid=if kind=="sale"{match payment_status.as_str(){"paid"=>total,"partial"=>num(&payload,"paid_amount"),_=>0}}else{0};
+ if paid<0||paid>total{return Err("مبلغ دریافتی باید بین صفر و مبلغ نهایی فاکتور باشد".into())}
+ if kind=="sale"&&paid<total&&cid.is_none(){return Err("برای فروش نسیه یا پرداخت ناقص، مشتری ثبت‌شده انتخاب کنید؛ فروش گذری باید تسویه کامل باشد.".into())}
+ if kind=="sale"&&payment_status=="partial"&&(paid<=0||paid>=total){return Err("مبلغ دریافت‌شده در پرداخت جزئی باید بیشتر از صفر و کمتر از مبلغ فاکتور باشد".into())}
  let mut resolved:Vec<(Option<i64>,String,i64,i64,i64)>=Vec::new();
  for (name,qty,price) in items {
   let found:Option<(i64,i64)>=tx.query_row("SELECT id,quantity FROM products WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",[&name],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
@@ -71,8 +80,11 @@ fn save_invoice(payload:Value,db:State<'_,Db>)->Result<i64,String>{
   resolved.push((pid,name,qty,price,line));
  }
  let number:i64=tx.query_row("SELECT COALESCE(MAX(number),1000)+1 FROM invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?;
- tx.execute("INSERT INTO invoices(number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),date('now','localtime')),?6,?7,?8,?9)",params![number,kind,cid,contact,text(&payload,"date"),subtotal,discount,total,text(&payload,"notes")]).map_err(|e|e.to_string())?;
- let id=tx.last_insert_rowid();for (pid,name,q,p,line) in resolved {tx.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(?1,?2,?3,?4,?5,?6)",params![id,pid,name,q,p,line]).map_err(|e|e.to_string())?;}
+ let contact_name=if contact.is_empty(){"مشتری گذری"}else{contact.as_str()};
+ tx.execute("INSERT INTO invoices(number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),date('now','localtime')),?6,?7,?8,?9,?10)",params![number,kind,cid,contact_name,text(&payload,"date"),subtotal,discount,total,paid,text(&payload,"notes")]).map_err(|e|e.to_string())?;
+ let id=tx.last_insert_rowid();
+ for (pid,name,q,p,line) in resolved {tx.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(?1,?2,?3,?4,?5,?6)",params![id,pid,name,q,p,line]).map_err(|e|e.to_string())?;}
+ if kind=="sale"&&paid>0 {let method=text(&payload,"method");tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES('receipt',?1,?2,?3,COALESCE(NULLIF(?4,''),'cash'),COALESCE(NULLIF(?5,''),date('now','localtime')),?6)",params![cid,contact_name,paid,method,text(&payload,"date"),format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e|e.to_string())?;}
  tx.commit().map_err(|e|e.to_string())?;Ok(id)
 }
 #[tauri::command] fn save_payment(payload:Value,db:State<'_,Db>)->Result<i64,String>{let kind=text(&payload,"kind");let contact=text(&payload,"customer");let amount=num(&payload,"amount");if !["receipt","payment"].contains(&kind.as_str())||contact.is_empty()||amount<=0{return Err("طرف‌حساب و مبلغ مثبت الزامی است".into())}let method=text(&payload,"method");let date=text(&payload,"date");let notes=text(&payload,"notes");let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;let cid:Option<i64>=tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?;if cid.is_none(){return Err("طرف‌حساب ثبت‌شده‌ای با این نام پیدا نشد؛ ابتدا آن را در بخش طرف‌حساب‌ها ثبت کنید.".into())}tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),COALESCE(NULLIF(?6,''),date('now','localtime')),?7)",params![kind,cid,contact,amount,method,date,notes]).map_err(|e|e.to_string())?;let id=tx.last_insert_rowid();let invoice_kind=if kind=="receipt"{"sale"}else{"purchase"};let mut remaining=amount;{let mut st=tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_name=?1 COLLATE NOCASE AND kind=?2 AND paid<total ORDER BY invoice_date,id").map_err(|e|e.to_string())?;let rows=st.query_map(params![contact,invoice_kind],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e|e.to_string())?;let invoices=rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;drop(st);for (iid,total,paid) in invoices{if remaining<=0{break}let applied=remaining.min(total-paid);tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2",params![applied,iid]).map_err(|e|e.to_string())?;remaining-=applied;}}tx.commit().map_err(|e|e.to_string())?;Ok(id)}
