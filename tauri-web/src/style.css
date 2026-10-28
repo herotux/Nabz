@@ -98,3 +98,19 @@ td b{font-size:12px}
 
 /* Real Code 39 bars are rendered as alternating dark bars and gaps. */
 .barcode-bars{display:flex;justify-content:center;align-items:stretch;overflow:hidden;background:none!important}
+
+
+/* Invoice editor: unlimited line items with live totals */
+.invoice-lines-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0 10px;padding-bottom:10px;border-bottom:1px solid var(--border,#e7ebf0)}
+.invoice-lines-head h3{font-size:14px;margin:0}
+.invoice-lines-head .secondary{background:#eef4ff;color:#2858ad;border:1px solid #d9e5ff;border-radius:9px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px}
+#invoiceLines{display:grid;gap:12px}
+.invoice-line{border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#fbfcfe;min-width:0}
+.invoice-line-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:12px;color:#344054}
+.invoice-line-fields{display:grid;grid-template-columns:minmax(160px,2fr) minmax(80px,.7fr) minmax(130px,1fr);gap:10px;align-items:end}
+.invoice-line-fields .field-label{margin:0;min-width:0}
+.invoice-line-fields input{width:100%;min-width:0;box-sizing:border-box}
+.invoice-line-total{grid-column:1/-1;text-align:left;font-size:12px;color:#475467;padding-top:2px}
+.invoice-total{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;padding:14px;background:#f0f7f2;border-radius:10px;color:#214b31}
+.invoice-total strong{font-size:16px}
+@media(max-width:560px){.invoice-line-fields{grid-template-columns:1fr 1fr}.invoice-line-fields .field-label:first-child{grid-column:1/-1}.invoice-line-total{grid-column:1/-1}}
