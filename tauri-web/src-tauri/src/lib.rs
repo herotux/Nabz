@@ -274,9 +274,25 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
  for x in data["settings"].as_array().unwrap(){tx.execute("INSERT INTO settings(key,value) VALUES(?1,?2)",params![x["key"].as_str().unwrap_or(""),x["value"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
  tx.commit().map_err(|e|e.to_string())?;Ok(())
 }
+#[tauri::command]
+fn get_invoice_print(id:i64,db:State<'_,Db>)->Result<Value,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let invoice:Value=c.query_row("SELECT id,number,kind,contact_name,invoice_date,subtotal,discount,total,paid,notes FROM invoices WHERE id=?1",[id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,"contact_name":r.get::<_,String>(3)?,"invoice_date":r.get::<_,String>(4)?,"subtotal":r.get::<_,i64>(5)?,"discount":r.get::<_,i64>(6)?,"total":r.get::<_,i64>(7)?,"paid":r.get::<_,i64>(8)?,"notes":r.get::<_,String>(9)?}))).optional().map_err(|e|e.to_string())?.ok_or("فاکتور پیدا نشد")?;
+ let mut items=Vec::new();
+ {let mut st=c.prepare("SELECT item_name,quantity,unit_price,line_total FROM invoice_items WHERE invoice_id=?1 ORDER BY id").map_err(|e|e.to_string())?;
+  let rows=st.query_map([id],|r|Ok(json!({"item_name":r.get::<_,String>(0)?,"quantity":r.get::<_,i64>(1)?,"unit_price":r.get::<_,i64>(2)?,"line_total":r.get::<_,i64>(3)?}))).map_err(|e|e.to_string())?;
+  for row in rows{items.push(row.map_err(|e|e.to_string())?);}
+ }
+ let mut shop=std::collections::HashMap::new();
+ {let mut st=c.prepare("SELECT key,value FROM settings WHERE key IN ('shop_name','shop_phone','shop_address','print_paper')").map_err(|e|e.to_string())?;
+  let rows=st.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).map_err(|e|e.to_string())?;
+  for row in rows{let (k,v)=row.map_err(|e|e.to_string())?;shop.insert(k,v);}
+ }
+ Ok(json!({"invoice":invoice,"items":items,"shop":shop}))
+}
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let dir=app.path().app_local_data_dir().map_err(std::io::Error::other)?;fs::create_dir_all(&dir)?;let c=Connection::open(dir.join("nabz.sqlite3")).map_err(std::io::Error::other)?;init(&c).map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,save_setting,get_settings,sales_trend]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let dir=app.path().app_local_data_dir().map_err(std::io::Error::other)?;fs::create_dir_all(&dir)?;let c=Connection::open(dir.join("nabz.sqlite3")).map_err(std::io::Error::other)?;init(&c).map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,get_invoice_print,save_setting,get_settings,sales_trend]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
