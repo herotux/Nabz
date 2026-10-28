@@ -257,7 +257,7 @@ mod accounting_tests {
  #[test]
  fn sale_of_unknown_stock_item_is_rejected_without_creating_an_invoice() {
   let mut c=database();
-  let payload=json!({"kind":"sale","customer":"Ali","payment_status":"paid","method":"cash","items":[{"item":"Unknown item","qty":1,"price":50}],"discount":0,"date":"2026-10-28"});
+  let payload=json!({"kind":"sale","customer":"Ali","payment_status":"paid","method":"cash","items":[{"item":"Pen","qty":1,"price":20},{"item":"Unknown item","qty":1,"price":50}],"discount":0,"date":"2026-10-28"});
   assert!(save_invoice_with_connection(payload,&mut c).is_err());
   assert_eq!(scalar(&c,"SELECT COUNT(*) FROM invoices"),0);
   assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),10);
