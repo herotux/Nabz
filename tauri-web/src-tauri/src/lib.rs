@@ -9,6 +9,8 @@ struct Db(Mutex<Connection>);
 struct Summary { sales_today:i64, receipts_today:i64, customer_balance:i64, inventory_value:i64, contacts:i64, products:i64, invoices:i64 }
 #[derive(Serialize)]
 struct Record { id:i64, name:String, detail:String, amount:i64, status:String, date:String }
+#[derive(Serialize)]
+struct ProductRecord { id:i64, name:String, code:String, quantity:i64, buy_price:i64, sell_price:i64, min_quantity:i64 }
 
 fn text(v:&Value,k:&str)->String { v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned() }
 fn num(v:&Value,k:&str)->i64 { v.get(k).and_then(|x|x.as_i64().or_else(||x.as_str().and_then(|s|s.replace(',',"").replace('٬',"").parse().ok()))).unwrap_or(0) }
