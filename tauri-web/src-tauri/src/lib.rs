@@ -171,10 +171,32 @@ fn export_data(db:State<'_,Db>)->Result<Value,String>{
  let mut settings=Vec::new();{let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"key":r.get::<_,String>(0)?,"value":r.get::<_,String>(1)?}))).map_err(|e|e.to_string())?;for x in rows{settings.push(x.map_err(|e|e.to_string())?);}}
  Ok(json!({"format":"nabz-backup-v1","contacts":contacts,"products":products,"invoices":invoices,"invoice_items":items,"payments":payments,"settings":settings}))
 }
-#[tauri::command]
-fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
+fn backup_has_int(x:&Value,key:&str)->bool{x.get(key).and_then(Value::as_i64).is_some()}
+fn backup_has_string(x:&Value,key:&str)->bool{x.get(key).and_then(Value::as_str).is_some()}
+fn backup_has_optional_int(x:&Value,key:&str)->bool{x.get(key).is_some_and(|v|v.is_null()||v.as_i64().is_some())}
+fn validate_backup(data:&Value)->Result<(),String>{
  if data.get("format").and_then(Value::as_str)!=Some("nabz-backup-v1"){return Err("فایل پشتیبان نبض معتبر نیست".into())}
  for k in ["contacts","products","invoices","invoice_items","payments","settings"]{if !data.get(k).and_then(Value::as_array).is_some(){return Err(format!("ساختار پشتیبان ناقص است: {k}"))}}
+ let arrays=["contacts","products","invoices","invoice_items","payments","settings"];
+ for k in arrays {
+  for (i,x) in data[k].as_array().unwrap().iter().enumerate(){
+   let bad=match k {
+    "contacts"=>!(backup_has_int(x,"id")&&backup_has_string(x,"name")&&!x["name"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"kind")&&backup_has_string(x,"phone")&&backup_has_int(x,"opening_balance")&&backup_has_string(x,"notes")&&backup_has_string(x,"created_at")),
+    "products"=>!(backup_has_int(x,"id")&&backup_has_string(x,"name")&&!x["name"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"code")&&!x["code"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"barcode")&&backup_has_int(x,"buy_price")&&backup_has_int(x,"sell_price")&&backup_has_int(x,"quantity")&&backup_has_int(x,"min_quantity")&&x["buy_price"].as_i64().unwrap_or(-1)>=0&&x["sell_price"].as_i64().unwrap_or(-1)>=0&&x["quantity"].as_i64().unwrap_or(-1)>=0&&x["min_quantity"].as_i64().unwrap_or(-1)>=0),
+    "invoices"=>!(backup_has_int(x,"id")&&backup_has_int(x,"number")&&backup_has_string(x,"kind")&&["sale","purchase"].contains(&x["kind"].as_str().unwrap_or(""))&&backup_has_optional_int(x,"contact_id")&&backup_has_string(x,"contact_name")&&backup_has_string(x,"invoice_date")&&backup_has_int(x,"subtotal")&&backup_has_int(x,"discount")&&backup_has_int(x,"total")&&backup_has_int(x,"paid")&&backup_has_string(x,"notes")&&x["subtotal"].as_i64().unwrap_or(-1)>=0&&x["discount"].as_i64().unwrap_or(-1)>=0&&x["total"].as_i64().unwrap_or(-1)>=0&&x["paid"].as_i64().unwrap_or(-1)>=0&&x["paid"].as_i64().unwrap_or(i64::MAX)<=x["total"].as_i64().unwrap_or(-1)),
+    "invoice_items"=>!(backup_has_int(x,"id")&&backup_has_int(x,"invoice_id")&&backup_has_optional_int(x,"product_id")&&backup_has_string(x,"item_name")&&!x["item_name"].as_str().unwrap_or("").trim().is_empty()&&backup_has_int(x,"quantity")&&x["quantity"].as_i64().unwrap_or(0)>0&&backup_has_int(x,"unit_price")&&x["unit_price"].as_i64().unwrap_or(-1)>=0&&backup_has_int(x,"line_total")&&x["line_total"].as_i64().unwrap_or(-1)>=0),
+    "payments"=>!(backup_has_int(x,"id")&&backup_has_string(x,"kind")&&["receipt","payment"].contains(&x["kind"].as_str().unwrap_or(""))&&backup_has_optional_int(x,"contact_id")&&backup_has_string(x,"contact_name")&&backup_has_int(x,"amount")&&x["amount"].as_i64().unwrap_or(0)>0&&backup_has_string(x,"method")&&backup_has_string(x,"payment_date")&&backup_has_string(x,"notes")),
+    "settings"=>!(backup_has_string(x,"key")&&!x["key"].as_str().unwrap_or("").is_empty()&&backup_has_string(x,"value")),
+    _=>true
+   };
+   if bad{return Err(format!("رکورد نامعتبر در بخش {k}، ردیف {}؛ داده‌های فعلی دست‌نخورده باقی می‌مانند.",i+1))}
+  }
+ }
+ Ok(())
+}
+#[tauri::command]
+fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
+ validate_backup(&data)?;
  let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;
  tx.execute_batch("DELETE FROM invoice_items; DELETE FROM payments; DELETE FROM invoices; DELETE FROM products; DELETE FROM contacts; DELETE FROM settings;").map_err(|e|e.to_string())?;
  for x in data["contacts"].as_array().unwrap(){tx.execute("INSERT INTO contacts(id,name,kind,phone,opening_balance,notes,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![x["id"].as_i64(),x["name"].as_str().unwrap_or(""),x["kind"].as_str().unwrap_or("customer"),x["phone"].as_str().unwrap_or(""),x["opening_balance"].as_i64().unwrap_or(0),x["notes"].as_str().unwrap_or(""),x["created_at"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
@@ -206,6 +228,16 @@ mod accounting_tests {
   json!({"kind":"sale","customer":customer,"payment_status":status,"paid_amount":paid,"method":"cash","items":[{"item":"Pen","qty":qty,"price":price}],"discount":discount,"date":"2026-10-28"})
  }
  fn scalar(c:&Connection,sql:&str)->i64 { c.query_row(sql,[],|r|r.get(0)).unwrap() }
+
+ #[test]
+ fn backup_validation_rejects_malformed_records_before_restore_can_start() {
+  let missing_fields=json!({"format":"nabz-backup-v1","contacts":[],"products":[{"id":1,"name":"Bad"}],"invoices":[],"invoice_items":[],"payments":[],"settings":[]});
+  assert!(validate_backup(&missing_fields).is_err());
+  let empty=json!({"format":"nabz-backup-v1","contacts":[],"products":[],"invoices":[],"invoice_items":[],"payments":[],"settings":[]});
+  assert!(validate_backup(&empty).is_ok());
+  let wrong_kind=json!({"format":"nabz-backup-v1","contacts":[],"products":[],"invoices":[],"invoice_items":[],"payments":[{"id":1,"kind":"cash","contact_id":null,"contact_name":"A","amount":5,"method":"cash","payment_date":"2026-10-28","notes":""}],"settings":[]});
+  assert!(validate_backup(&wrong_kind).is_err());
+ }
 
  #[test]
  fn paid_walk_in_sale_records_one_receipt_and_updates_stock_atomically() {
