@@ -48,7 +48,12 @@ fn delete_record(kind:String,id:i64,db:State<'_,Db>)->Result<(),String>{
  }
  tx.commit().map_err(|e|e.to_string())?;Ok(())
 }
-#[tauri::command] fn save_contact(payload:Value,db:State<'_,Db>)->Result<i64,String>{let n=text(&payload,"name");if n.is_empty(){return Err("نام طرف‌حساب الزامی است".into())}let c=db.0.lock().map_err(|e|e.to_string())?;let existing:i64=c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE",[&n],|r|r.get(0)).map_err(|e|e.to_string())?;if existing>0{return Err("طرف‌حسابی با این نام قبلاً ثبت شده است".into())}let raw_kind=text(&payload,"kind");let kind=normalize_contact_kind(&raw_kind).ok_or("نوع طرف‌حساب را از گزینه‌های موجود انتخاب کنید")?;let balance=num(&payload,"balance");if kind=="both"&&balance!=0{return Err("برای طرف‌حساب دوگانه، تا زمان پشتیبانی از دو ماندهٔ جداگانه، ماندهٔ اولیه را صفر بگذارید.".into())}c.execute("INSERT INTO contacts(name,kind,phone,opening_balance,notes) VALUES(?1,?2,?3,?4,?5)",params![n,kind,text(&payload,"phone"),balance,text(&payload,"notes")]).map_err(|e|e.to_string())?;Ok(c.last_insert_rowid())}
+fn validate_opening_balance(kind:&str,balance:i64)->Result<(),String>{
+ if balance<0{return Err("ماندهٔ افتتاحیهٔ منفی فعلاً پشتیبانی نمی‌شود؛ مبلغ را مثبت وارد کنید یا تا تعیین جهت مانده صفر بگذارید.".into())}
+ if kind=="both"&&balance!=0{return Err("برای طرف‌حساب دوگانه، تا زمان پشتیبانی از دو ماندهٔ جداگانه، ماندهٔ اولیه را صفر بگذارید.".into())}
+ Ok(())
+}
+#[tauri::command] fn save_contact(payload:Value,db:State<'_,Db>)->Result<i64,String>{let n=text(&payload,"name");if n.is_empty(){return Err("نام طرف‌حساب الزامی است".into())}let c=db.0.lock().map_err(|e|e.to_string())?;let existing:i64=c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE",[&n],|r|r.get(0)).map_err(|e|e.to_string())?;if existing>0{return Err("طرف‌حسابی با این نام قبلاً ثبت شده است".into())}let raw_kind=text(&payload,"kind");let kind=normalize_contact_kind(&raw_kind).ok_or("نوع طرف‌حساب را از گزینه‌های موجود انتخاب کنید")?;let balance=num(&payload,"balance");validate_opening_balance(kind,balance)?;c.execute("INSERT INTO contacts(name,kind,phone,opening_balance,notes) VALUES(?1,?2,?3,?4,?5)",params![n,kind,text(&payload,"phone"),balance,text(&payload,"notes")]).map_err(|e|e.to_string())?;Ok(c.last_insert_rowid())}
 #[tauri::command]
 fn save_product(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
@@ -239,6 +244,16 @@ mod accounting_tests {
   assert!(validate_backup(&wrong_kind).is_err());
  }
 
+ #[test]
+ fn unsupported_negative_and_dual_contact_opening_balances_are_rejected() {
+  assert!(validate_opening_balance("customer",-1).is_err());
+  assert!(validate_opening_balance("supplier",-100).is_err());
+  assert!(validate_opening_balance("both",1).is_err());
+  assert!(validate_opening_balance("customer",0).is_ok());
+  assert!(validate_opening_balance("supplier",100).is_ok());
+  assert!(validate_opening_balance("both",0).is_ok());
+ }
+ 
  #[test]
  fn sale_of_unknown_stock_item_is_rejected_without_creating_an_invoice() {
   let mut c=database();
