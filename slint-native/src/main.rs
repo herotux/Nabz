@@ -258,7 +258,7 @@ fn save_payment(c: &mut Connection, kind: &str, contact: &str, amount_text: &str
     if kind == "payment" && role == "customer" { return Err("برای پرداخت، تأمین‌کننده انتخاب کنید".into()); }
     let invoice_kind = if kind == "receipt" { "sale" } else { "purchase" };
     let invoice_outstanding: i64 = tx.query_row("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2", params![cid,invoice_kind], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let opening: i64 = tx.query_row("SELECT opening_balance FROM contacts WHERE id=?1", [cid], |r| r.get(0)).map_err(|e| e.to_string())?.max(0);
+    let opening: i64 = tx.query_row("SELECT opening_balance FROM contacts WHERE id=?1", [cid], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0_i64);
     let outstanding = invoice_outstanding.checked_add(opening).ok_or("ماندهٔ حساب بیش از حد بزرگ است")?;
     if amount > outstanding { return Err(format!("مبلغ از ماندهٔ قابل تخصیص بیشتر است: {}", money(outstanding))); }
     tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),?6)", params![kind,cid,contact,amount,method.trim(),notes.trim()]).map_err(|e| e.to_string())?;
