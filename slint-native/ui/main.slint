@@ -1,9 +1,9 @@
 import { Button, TextInput } from "std-widgets.slint";
 
-struct ContactRow { id: int, name: string, kind: string, phone: string, balance: string }
-struct ProductRow { id: int, name: string, code: string, quantity: string, price: string, stock: string }
-struct InvoiceRow { id: int, label: string, kind: string, total: string, status: string, date: string }
-struct PaymentRow { id: int, label: string, kind: string, amount: string, method: string, date: string }
+export struct ContactRow { id: int, name: string, kind: string, phone: string, balance: string }
+export struct ProductRow { id: int, name: string, code: string, quantity: string, price: string, stock: string }
+export struct InvoiceRow { id: int, label: string, kind: string, total: string, status: string, date: string }
+export struct PaymentRow { id: int, label: string, kind: string, amount: string, method: string, date: string }
 
 component SummaryCard inherits Rectangle {
     in property <string> title;
