@@ -77,7 +77,7 @@ jobs:
           AppPublisher={#MyAppPublisher}
           DefaultDirName={autopf}\Nabz Slint
           DefaultGroupName=Nabz Slint
-          OutputDir=dist
+          OutputDir=.
           OutputBaseFilename=Nabz-Slint-Setup
           ArchitecturesAllowed=x64
           ArchitecturesInstallIn64BitMode=x64
