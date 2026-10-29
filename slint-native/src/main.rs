@@ -435,7 +435,7 @@ fn return_sale_items(c: &mut Connection, invoice_id: i64, rows_text: &str, refun
     if credit<=0 { return Err("مبلغ خالص برگشت صفر است؛ مقدار برگشت را بررسی کنید".into()); }
     let new_subtotal=invoice.1-gross_return;
     let new_total=invoice.3.checked_sub(credit).ok_or("مبلغ نهایی نامعتبر است")?;
-    let refund = invoice.4.saturating_sub(new_total);
+    let refund = invoice.4.saturating_sub(new_total).max(0);
     let new_discount=new_subtotal-new_total;
     tx.execute("INSERT INTO sales_returns(invoice_id,amount,notes) VALUES(?1,?2,?3)",params![invoice_id,credit,format!("برگشت جزئی فاکتور #{}",invoice_id)]).map_err(|e|e.to_string())?;
     let return_id=tx.last_insert_rowid();
