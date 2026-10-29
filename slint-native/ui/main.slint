@@ -1,0 +1,216 @@
+import { Button } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "نبض | حسابداری فروشگاهی";
+    width: 1180px;
+    height: 760px;
+    min-width: 900px;
+    min-height: 620px;
+    background: #f4f6f8;
+
+    in-out property <string> active-page: "داشبورد";
+    in-out property <string> sales-today: "۰ تومان";
+    in-out property <string> receipts-today: "۰ تومان";
+    in-out property <string> customer-balance: "۰ تومان";
+    in-out property <string> inventory-value: "۰ تومان";
+    in-out property <string> status-message: "پایگاه داده آماده است";
+
+    callback refresh-requested();
+
+    VerticalLayout {
+        spacing: 0px;
+
+        Rectangle {
+            background: #ffffff;
+            height: 72px;
+            HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                alignment: center;
+                spacing: 16px;
+                Text {
+                    text: "نبض";
+                    color: #18864b;
+                    font-size: 27px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: "حسابداری فروشگاهی";
+                    color: #344054;
+                    font-size: 17px;
+                    horizontal-stretch: 1;
+                    horizontal-alignment: right;
+                }
+                Button {
+                    text: "به‌روزرسانی";
+                    clicked => { root.refresh-requested(); }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 0px;
+
+            Rectangle {
+                width: 190px;
+                background: #ffffff;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 8px;
+                    Text {
+                        text: "منوی اصلی";
+                        color: #667085;
+                        font-size: 13px;
+                        horizontal-alignment: right;
+                    }
+                    Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; } }
+                    Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; } }
+                    Button { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; } }
+                    Button { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; } }
+                    Button { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; } }
+                    Button { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; } }
+                    Button { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; } }
+                    Rectangle { background: transparent; vertical-stretch: 1; }
+                    Text {
+                        text: root.status-message;
+                        color: #667085;
+                        font-size: 11px;
+                        wrap: word-wrap;
+                        horizontal-alignment: right;
+                    }
+                }
+            }
+
+            Rectangle {
+                background: #f4f6f8;
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding: 24px;
+                    spacing: 18px;
+
+                    Text {
+                        text: root.active-page;
+                        color: #101828;
+                        font-size: 26px;
+                        font-weight: 700;
+                        horizontal-alignment: right;
+                    }
+
+                    if root.active-page == "داشبورد": VerticalLayout {
+                        spacing: 16px;
+                        Text {
+                            text: "خلاصه وضعیت فروشگاه";
+                            color: #667085;
+                            font-size: 14px;
+                            horizontal-alignment: right;
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            SummaryCard {
+                                title: "فروش امروز";
+                                value: root.sales-today;
+                                accent: #16834a;
+                            }
+                            SummaryCard {
+                                title: "دریافت امروز";
+                                value: root.receipts-today;
+                                accent: #2876c7;
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            SummaryCard {
+                                title: "مانده مشتریان";
+                                value: root.customer-balance;
+                                accent: #c47a16;
+                            }
+                            SummaryCard {
+                                title: "ارزش موجودی";
+                                value: root.inventory-value;
+                                accent: #6941c6;
+                            }
+                        }
+                        Rectangle {
+                            background: #ffffff;
+                            border-color: #e4e7ec;
+                            border-width: 1px;
+                            border-radius: 12px;
+                            padding: 20px;
+                            VerticalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: "شروع سریع";
+                                    color: #101828;
+                                    font-size: 17px;
+                                    font-weight: 600;
+                                    horizontal-alignment: right;
+                                }
+                                Text {
+                                    text: "از منوی سمت راست، بخش موردنظر را انتخاب کنید. این نسخهٔ Slint فعلاً نمونهٔ رابط بومی است؛ عملیات ثبت و ویرایش در مرحلهٔ اتصال کامل به منطق حسابداری منتقل می‌شود.";
+                                    color: #667085;
+                                    font-size: 14px;
+                                    wrap: word-wrap;
+                                    horizontal-alignment: right;
+                                }
+                            }
+                        }
+                    }
+
+                    if root.active-page != "داشبورد": Rectangle {
+                        background: #ffffff;
+                        border-color: #e4e7ec;
+                        border-width: 1px;
+                        border-radius: 12px;
+                        padding: 22px;
+                        VerticalLayout {
+                            spacing: 12px;
+                            Text {
+                                text: root.active-page;
+                                color: #101828;
+                                font-size: 20px;
+                                font-weight: 600;
+                                horizontal-alignment: right;
+                            }
+                            Text {
+                                text: "پوستهٔ بومی این بخش آمادهٔ توسعه است. در مرحلهٔ بعد، فهرست‌ها و فرم‌های همین بخش به فرمان‌های حسابداری و SQLite متصل می‌شوند.";
+                                color: #667085;
+                                font-size: 14px;
+                                wrap: word-wrap;
+                                horizontal-alignment: right;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component SummaryCard inherits Rectangle {
+    in property <string> title;
+    in property <string> value;
+    in property <color> accent;
+    background: #ffffff;
+    border-color: #e4e7ec;
+    border-width: 1px;
+    border-radius: 12px;
+    min-height: 128px;
+
+    VerticalLayout {
+        padding: 18px;
+        spacing: 12px;
+        Text {
+            text: title;
+            color: #667085;
+            font-size: 14px;
+            horizontal-alignment: right;
+        }
+        Text {
+            text: value;
+            color: accent;
+            font-size: 23px;
+            font-weight: 700;
+            horizontal-alignment: right;
+        }
+    }
+}
