@@ -1,0 +1,67 @@
+name: Build Nabz Slint Native Windows
+on:
+  push:
+    branches: [feature/slint-native-ui]
+    paths:
+      - "slint-native/**"
+      - ".github/workflows/build-windows.yml"
+  pull_request:
+    branches: [feature/slint-native-ui]
+    paths:
+      - "slint-native/**"
+      - ".github/workflows/build-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nabz-slint-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: slint-native
+
+      - name: Check native UI
+        run: cargo check --manifest-path slint-native/Cargo.toml
+
+      - name: Run tests
+        run: cargo test --manifest-path slint-native/Cargo.toml
+
+      - name: Build release executable
+        run: cargo build --release --manifest-path slint-native/Cargo.toml
+
+      - name: Package portable Windows build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/nabz-slint-windows-x64 | Out-Null
+          Copy-Item slint-native/target/release/nabz-slint.exe dist/nabz-slint-windows-x64/nabz-slint.exe
+          @"
+          Nabz Slint Native - Windows x64
+          Run nabz-slint.exe to start the application.
+          The application stores its database in the user's local application data directory unless NABZ_DB_PATH is set.
+          This is a portable preview build; no installer is included.
+          "@ | Set-Content dist/nabz-slint-windows-x64/README.txt
+          Compress-Archive -Path dist/nabz-slint-windows-x64/* -DestinationPath dist/nabz-slint-windows-x64.zip -Force
+
+      - name: Upload portable Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: nabz-slint-windows-x64
+          path: dist/nabz-slint-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
