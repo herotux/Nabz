@@ -60,6 +60,8 @@ export component MainWindow inherits Window {
     in-out property <string> invoice-contact: "";
     in-out property <string> invoice-items-text: "";
     in-out property <int> selected-invoice-id: 0;
+    in-out property <int> void-confirmation-id: 0;
+    in-out property <string> void-confirmation-message: "";
     in-out property <string> invoice-detail: "";
     in-out property <string> invoice-discount: "0";
     in-out property <string> invoice-paid: "0";
@@ -80,6 +82,7 @@ export component MainWindow inherits Window {
     callback save-product-requested();
     callback save-invoice-requested();
     callback invoice-detail-requested(int);
+    callback invoice-void-requested(int);
     callback save-payment-requested();
     callback save-settings-requested();
 
@@ -241,7 +244,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 HorizontalLayout { padding: 8px; Text { text: "فاکتور"; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } Text { text: "نوع"; width: 90px; horizontal-alignment: right; color: #667085; } Text { text: "مبلغ"; width: 120px; horizontal-alignment: right; color: #667085; } Text { text: "وضعیت"; width: 120px; horizontal-alignment: right; color: #667085; } }
                                 ListView { height: 390px; for row in root.invoices: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; } Text { text: row.kind; width: 90px; horizontal-alignment: right; color: #475467; } Text { text: row.total; width: 120px; horizontal-alignment: right; color: #475467; } Text { text: row.status; width: 120px; horizontal-alignment: right; color: #475467; } Button { text: "جزئیات"; clicked => { root.selected-invoice-id = row.id; root.invoice-detail-requested(row.id); } } } } }
-                                if root.invoice-detail != "": Rectangle { background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 12px; VerticalLayout { spacing: 6px; Text { text: "جزئیات فاکتور انتخاب‌شده"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; } Text { text: root.invoice-detail; color: #475467; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } } }
+                                if root.invoice-detail != "": Rectangle { background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 12px; VerticalLayout { spacing: 6px; Text { text: "جزئیات فاکتور انتخاب‌شده"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; } Text { text: root.invoice-detail; color: #475467; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } HorizontalLayout { spacing: 8px; Button { text: "ابطال فاکتور"; clicked => { root.void-confirmation-id = root.selected-invoice-id; root.void-confirmation-message = "برای تأیید نهایی، دکمهٔ تأیید ابطال را بزنید. این کار موجودی و دریافت اولیه را اصلاح می‌کند."; } } if root.void-confirmation-id == root.selected-invoice-id && root.void-confirmation-id > 0: Button { text: "تأیید ابطال"; clicked => { root.invoice-void-requested(root.selected-invoice-id); root.void-confirmation-id = 0; root.void-confirmation-message = ""; } } } if root.void-confirmation-message != "": Text { text: root.void-confirmation-message; color: #b54708; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } } }
                             }
                         }
                     }
