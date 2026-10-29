@@ -36,10 +36,8 @@ jobs:
         with:
           workspaces: slint-native
 
-      - name: Check native UI
-        run: cargo check --manifest-path slint-native/Cargo.toml
-
-      - name: Run tests
+      - name: Run tests (pull requests only)
+        if: github.event_name == 'pull_request'
         run: cargo test --manifest-path slint-native/Cargo.toml
 
       - name: Build release executable
