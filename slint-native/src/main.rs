@@ -93,7 +93,7 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     let q = |sql: &str| c.query_row(sql, [], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string());
     ui.set_sales_today(SharedString::from(money(q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date=date('now','localtime')")?)));
     ui.set_receipts_today(SharedString::from(money(q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')")?)));
-    let balance = q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale'),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?;
+    let balance = q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?;
     ui.set_customer_balance(SharedString::from(money(balance)));
     ui.set_inventory_value(SharedString::from(money(q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?)));
     ui.set_contacts_count(q("SELECT COUNT(*) FROM contacts")? as i32);
