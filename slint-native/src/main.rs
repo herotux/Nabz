@@ -367,8 +367,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
 
+    fn test_db() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE contacts(id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')));
+             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '');
+             CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL);
+             CREATE TABLE payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
+             CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+             INSERT INTO contacts(name,kind) VALUES('Ali','customer');
+             INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Pen','PEN',10,20,10,2);"
+        ).unwrap();
+        c
+    }
+
+    fn scalar(c: &Connection, sql: &str) -> i64 {
+        c.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
     #[test]
-    fn persian_digits_parse_to_integer() {
+    fn persian_and_arabic_digits_parse_to_integer() {
         assert_eq!(parse_amount("۱۲۳٬۴۵۶").unwrap(), 123456);
         assert_eq!(parse_amount("١٢٣").unwrap(), 123);
     }
@@ -382,5 +402,51 @@ mod tests {
     #[test]
     fn money_uses_persian_digits() {
         assert_eq!(fmt_number(12345), "۱۲٬۳۴۵");
+    }
+
+    #[test]
+    fn sale_updates_stock_and_records_initial_receipt_atomically() {
+        let mut c = test_db();
+        save_invoice(&mut c, "sale", "Ali", "PEN", "2", "50", "0", "30", "cash", "").unwrap();
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 8);
+        assert_eq!(scalar(&c, "SELECT total FROM invoices WHERE kind='sale'"), 100);
+        assert_eq!(scalar(&c, "SELECT paid FROM invoices WHERE kind='sale'"), 30);
+        assert_eq!(scalar(&c, "SELECT SUM(amount) FROM payments WHERE kind='receipt'"), 30);
+    }
+
+    #[test]
+    fn later_receipt_allocates_to_oldest_open_invoice() {
+        let mut c = test_db();
+        save_invoice(&mut c, "sale", "Ali", "PEN", "2", "50", "0", "30", "cash", "").unwrap();
+        save_payment(&mut c, "receipt", "Ali", "۲۰", "cash", "").unwrap();
+        assert_eq!(scalar(&c, "SELECT paid FROM invoices WHERE kind='sale'"), 50);
+        assert_eq!(scalar(&c, "SELECT SUM(amount) FROM payments WHERE kind='receipt'"), 50);
+        assert_eq!(scalar(&c, "SELECT total-paid FROM invoices WHERE kind='sale'"), 50);
+    }
+
+    #[test]
+    fn insufficient_stock_rolls_back_invoice_and_payment() {
+        let mut c = test_db();
+        assert!(save_invoice(&mut c, "sale", "Ali", "PEN", "99", "20", "0", "0", "cash", "").is_err());
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 0);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 10);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM payments"), 0);
+    }
+
+    #[test]
+    fn purchase_increases_stock_and_updates_buy_price() {
+        let mut c = test_db();
+        c.execute("INSERT INTO contacts(name,kind) VALUES('Vendor','supplier')", []).unwrap();
+        save_invoice(&mut c, "purchase", "Vendor", "PEN", "5", "12", "0", "0", "cash", "").unwrap();
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 15);
+        assert_eq!(scalar(&c, "SELECT buy_price FROM products WHERE code='PEN'"), 12);
+        assert_eq!(scalar(&c, "SELECT total FROM invoices WHERE kind='purchase'"), 60);
+    }
+
+    #[test]
+    fn duplicate_contact_and_product_code_are_rejected() {
+        let c = test_db();
+        assert!(save_contact(&c, "Ali", "customer", "", "0").is_err());
+        assert!(save_product(&c, "Another pen", "PEN", "", "1", "1", "2", "0").is_err());
     }
 }
