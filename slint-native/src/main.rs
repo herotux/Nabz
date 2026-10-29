@@ -39,6 +39,7 @@ fn open_database() -> Result<Connection, String> {
         c.execute("ALTER TABLE invoices ADD COLUMN voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1))", [])
             .map_err(|e| format!("افزودن وضعیت ابطال فاکتور ناموفق بود: {e}"))?;
     }
+    c.execute_batch("CREATE TABLE IF NOT EXISTS sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT ''); CREATE TABLE IF NOT EXISTS sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0));").map_err(|e|e.to_string())?;
     Ok(c)
 }
 
@@ -379,6 +380,57 @@ fn invoice_details(c: &Connection, invoice_id: i64) -> Result<String, String> {
         money(header.6.saturating_sub(header.7)), if header.8.trim().is_empty() { "—" } else { header.8.as_str() }
     ));
     Ok(out)
+}
+
+fn return_sale_items(c: &mut Connection, invoice_id: i64, rows_text: &str) -> Result<i64, String> {
+    if invoice_id <= 0 { return Err("ابتدا فاکتور فروش را انتخاب کنید".into()); }
+    let mut requested: Vec<(String,i64)> = Vec::new();
+    for (line_no, raw) in rows_text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() { continue; }
+        let parts: Vec<&str> = line.split('|').map(str::trim).collect();
+        if parts.len() != 2 || parts[0].is_empty() { return Err(format!("ردیف {}: قالب باید «کد یا نام کالا | تعداد برگشتی» باشد", line_no+1)); }
+        let qty = parse_amount(parts[1])?;
+        if qty <= 0 { return Err(format!("ردیف {}: تعداد برگشتی باید مثبت باشد", line_no+1)); }
+        requested.push((parts[0].to_string(),qty));
+    }
+    if requested.is_empty() { return Err("حداقل یک ردیف برگشت وارد کنید".into()); }
+    let tx = c.transaction().map_err(|e|e.to_string())?;
+    let invoice: (String,i64,i64,i64,i64) = tx.query_row("SELECT kind,subtotal,discount,total,paid FROM invoices WHERE id=?1 AND voided=0",[invoice_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|e|e.to_string())?.ok_or("فاکتور پیدا نشد یا باطل شده است")?;
+    if invoice.0 != "sale" { return Err("برگشت جزئی فقط برای فاکتور فروش مجاز است".into()); }
+    let mut lines: Vec<(i64,i64,i64,i64,String)> = Vec::new();
+    let mut gross_return = 0i64;
+    for (lookup, qty) in requested {
+        let mut st=tx.prepare("SELECT ii.id,ii.product_id,ii.quantity,ii.unit_price,ii.item_name FROM invoice_items ii JOIN products p ON p.id=ii.product_id WHERE ii.invoice_id=?1 AND (ii.item_name=?2 COLLATE NOCASE OR p.code=?2 OR p.barcode=?2) ORDER BY ii.id").map_err(|e|e.to_string())?;
+        let matches=st.query_map(params![invoice_id,lookup],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+        drop(st);
+        if matches.len()!=1 { return Err(format!("کالای «{lookup}» در این فاکتور یکتا نیست یا پیدا نشد؛ از کد یکتا استفاده کنید")); }
+        let (item_id,pid,original_qty,unit_price,item_name)=matches.into_iter().next().unwrap();
+        if pid<=0 { return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ برگشت ممکن نیست")); }
+        let already:i64=tx.query_row("SELECT COALESCE(SUM(quantity),0) FROM sales_return_items WHERE invoice_item_id=?1",[item_id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        let remaining=original_qty.checked_sub(already).ok_or("سابقهٔ برگشت نامعتبر است")?;
+        if qty>remaining { return Err(format!("برای «{item_name}» فقط {} عدد قابل برگشت است",remaining)); }
+        let gross=qty.checked_mul(unit_price).ok_or("مبلغ برگشت بیش از حد بزرگ است")?;
+        gross_return=gross_return.checked_add(gross).ok_or("جمع برگشت بیش از حد بزرگ است")?;
+        lines.push((item_id,pid,qty,unit_price,item_name));
+    }
+    if invoice.1<=0 || gross_return>invoice.1 { return Err("مبلغ ردیف‌های برگشتی از جمع اولیهٔ فاکتور بیشتر است".into()); }
+    let credit=gross_return.checked_mul(invoice.3).ok_or("محاسبهٔ مبلغ برگشت بیش از حد بزرگ است")? / invoice.1;
+    if credit<=0 { return Err("مبلغ خالص برگشت صفر است؛ مقدار برگشت را بررسی کنید".into()); }
+    let new_subtotal=invoice.1-gross_return;
+    let new_total=invoice.3.checked_sub(credit).ok_or("مبلغ نهایی نامعتبر است")?;
+    if new_total<invoice.4 { return Err(format!("این برگشت نیاز به بازپرداخت {} تومان دارد؛ ابتدا بازپرداخت را پشتیبانی/ثبت کنید",invoice.4-new_total)); }
+    let new_discount=new_subtotal-new_total;
+    tx.execute("INSERT INTO sales_returns(invoice_id,amount,notes) VALUES(?1,?2,?3)",params![invoice_id,credit,format!("برگشت جزئی فاکتور #{}",invoice_id)]).map_err(|e|e.to_string())?;
+    let return_id=tx.last_insert_rowid();
+    for (item_id,pid,qty,unit_price,item_name) in lines {
+        let amount=qty.checked_mul(unit_price).ok_or("مبلغ ردیف برگشت بیش از حد بزرگ است")?;
+        tx.execute("UPDATE products SET quantity=quantity+?1 WHERE id=?2",params![qty,pid]).map_err(|e|e.to_string())?;
+        tx.execute("INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![return_id,item_id,pid,item_name,qty,unit_price,amount]).map_err(|e|e.to_string())?;
+    }
+    tx.execute("UPDATE invoices SET subtotal=?1,discount=?2,total=?3 WHERE id=?4",params![new_subtotal,new_discount,new_total,invoice_id]).map_err(|e|e.to_string())?;
+    tx.commit().map_err(|e|e.to_string())?;
+    Ok(credit)
 }
 
 fn void_invoice(c: &mut Connection, invoice_id: i64) -> Result<(), String> {
