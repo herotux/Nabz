@@ -1,4 +1,4 @@
-import { Button, LineEdit, ListView } from "std-widgets.slint";
+import { Button, LineEdit, ListView, TextEdit } from "std-widgets.slint";
 
 export struct ContactRow { id: int, name: string, kind: string, phone: string, balance: string }
 export struct ProductRow { id: int, name: string, code: string, quantity: string, price: string, stock: string }
@@ -58,9 +58,7 @@ export component MainWindow inherits Window {
 
     in-out property <string> invoice-kind: "sale";
     in-out property <string> invoice-contact: "";
-    in-out property <string> invoice-item: "";
-    in-out property <string> invoice-quantity: "1";
-    in-out property <string> invoice-price: "0";
+    in-out property <string> invoice-items-text: "کد یا نام کالا | تعداد | قیمت واحد";
     in-out property <string> invoice-discount: "0";
     in-out property <string> invoice-paid: "0";
     in-out property <string> invoice-method: "cash";
@@ -229,8 +227,10 @@ export component MainWindow inherits Window {
                                 spacing: 7px;
                                 Text { text: "ثبت فاکتور"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                                 HorizontalLayout { spacing: 8px; Button { text: "فروش"; clicked => { root.invoice-kind = "sale"; } } Button { text: "خرید"; clicked => { root.invoice-kind = "purchase"; } } Text { text: "نوع: " + root.invoice-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-contact; placeholder-text: "نام مشتری یا تأمین‌کننده"; } LineEdit { text <=> root.invoice-item; placeholder-text: "نام یا کد کالا"; } LineEdit { text <=> root.invoice-quantity; placeholder-text: "تعداد"; } }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-price; placeholder-text: "قیمت واحد"; } LineEdit { text <=> root.invoice-discount; placeholder-text: "تخفیف"; } LineEdit { text <=> root.invoice-paid; placeholder-text: "مبلغ دریافتی (فروش)"; } LineEdit { text <=> root.invoice-method; placeholder-text: "روش پرداخت"; } Button { text: "ثبت فاکتور"; clicked => { root.save-invoice-requested(); } } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-contact; placeholder-text: "نام مشتری یا تأمین‌کننده"; } LineEdit { text <=> root.invoice-discount; placeholder-text: "تخفیف کل فاکتور"; } LineEdit { text <=> root.invoice-paid; placeholder-text: "مبلغ دریافتی (فروش)"; } LineEdit { text <=> root.invoice-method; placeholder-text: "روش پرداخت"; } }
+                                Text { text: "هر ردیف: کد یا نام کالا | تعداد | قیمت واحد"; color: #667085; font-size: 13px; horizontal-alignment: right; }
+                                TextEdit { text <=> root.invoice-items-text; height: 150px; } 
+                                HorizontalLayout { spacing: 8px; Button { text: "ثبت فاکتور چندردیفه"; clicked => { root.save-invoice-requested(); } } }
                             }
                         }
                         Rectangle {
