@@ -89,6 +89,16 @@ fn normalize_kind(raw: &str) -> Result<&'static str, String> {
     }
 }
 
+fn normalize_invoice_search(input: &str) -> String {
+    input.trim().chars().map(|c| match c {
+        '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+        '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+        '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+        '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+        other => other,
+    }).collect()
+}
+
 fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     let q = |sql: &str| c.query_row(sql, [], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string());
     ui.set_sales_today(SharedString::from(money(q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date=date('now','localtime')")?)));
@@ -135,8 +145,10 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
 
     let mut invoice_rows = Vec::new();
     {
-        let mut st = c.prepare("SELECT id,number,kind,contact_name,total,paid,invoice_date,voided FROM invoices ORDER BY id DESC LIMIT 500").map_err(|e| e.to_string())?;
-        let rows = st.query_map([], |r| {
+        let mut st = c.prepare("SELECT id,number,kind,contact_name,total,paid,invoice_date,voided FROM invoices WHERE (?1='' OR CAST(number AS TEXT) LIKE '%'||?1||'%' OR contact_name LIKE '%'||?1||'%' OR notes LIKE '%'||?1||'%') AND (?2='همه' OR (?2='فروش' AND kind='sale') OR (?2='خرید' AND kind='purchase') OR (?2='باطل‌شده' AND voided=1)) ORDER BY id DESC LIMIT 500").map_err(|e| e.to_string())?;
+        let search = normalize_invoice_search(&ui.get_invoice_search());
+        let filter = ui.get_invoice_filter_kind();
+        let rows = st.query_map(params![search, filter.as_str()], |r| {
             let kind: String = r.get(2)?;
             let total: i64 = r.get(4)?;
             let paid: i64 = r.get(5)?;
