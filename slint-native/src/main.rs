@@ -801,7 +801,7 @@ mod tests {
         save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 1 | 60", "10", "20", "cash", "test detail").unwrap();
         let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
         let details = invoice_details(&c, id).unwrap();
-        assert!(details.contains("PEN"));
+        assert!(details.contains("Pen"));
         assert!(details.contains("Cable"));
         assert!(details.contains("جمع: ۱۶۰ تومان"));
         assert!(details.contains("تخفیف: ۱۰ تومان"));
