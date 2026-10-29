@@ -1,190 +1,9 @@
-import { Button } from "std-widgets.slint";
+import { Button, TextInput } from "std-widgets.slint";
 
-export component MainWindow inherits Window {
-    title: "نبض | حسابداری فروشگاهی";
-    width: 1180px;
-    height: 760px;
-    min-width: 900px;
-    min-height: 620px;
-    background: #f4f6f8;
-
-    in-out property <string> active-page: "داشبورد";
-    in-out property <string> sales-today: "۰ تومان";
-    in-out property <string> receipts-today: "۰ تومان";
-    in-out property <string> customer-balance: "۰ تومان";
-    in-out property <string> inventory-value: "۰ تومان";
-    in-out property <string> status-message: "پایگاه داده آماده است";
-
-    callback refresh-requested();
-
-    VerticalLayout {
-        spacing: 0px;
-
-        Rectangle {
-            background: #ffffff;
-            height: 72px;
-            HorizontalLayout {
-                padding-left: 24px;
-                padding-right: 24px;
-                alignment: center;
-                spacing: 16px;
-                Text {
-                    text: "نبض";
-                    color: #18864b;
-                    font-size: 27px;
-                    font-weight: 700;
-                }
-                Text {
-                    text: "حسابداری فروشگاهی";
-                    color: #344054;
-                    font-size: 17px;
-                    horizontal-stretch: 1;
-                    horizontal-alignment: right;
-                }
-                Button {
-                    text: "به‌روزرسانی";
-                    clicked => { root.refresh-requested(); }
-                }
-            }
-        }
-
-        HorizontalLayout {
-            spacing: 0px;
-
-            Rectangle {
-                width: 190px;
-                background: #ffffff;
-                VerticalLayout {
-                    padding: 14px;
-                    spacing: 8px;
-                    Text {
-                        text: "منوی اصلی";
-                        color: #667085;
-                        font-size: 13px;
-                        horizontal-alignment: right;
-                    }
-                    Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; } }
-                    Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; } }
-                    Button { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; } }
-                    Button { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; } }
-                    Button { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; } }
-                    Button { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; } }
-                    Button { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; } }
-                    Rectangle { background: transparent; vertical-stretch: 1; }
-                    Text {
-                        text: root.status-message;
-                        color: #667085;
-                        font-size: 11px;
-                        wrap: word-wrap;
-                        horizontal-alignment: right;
-                    }
-                }
-            }
-
-            Rectangle {
-                background: #f4f6f8;
-                horizontal-stretch: 1;
-                VerticalLayout {
-                    padding: 24px;
-                    spacing: 18px;
-
-                    Text {
-                        text: root.active-page;
-                        color: #101828;
-                        font-size: 26px;
-                        font-weight: 700;
-                        horizontal-alignment: right;
-                    }
-
-                    if root.active-page == "داشبورد": VerticalLayout {
-                        spacing: 16px;
-                        Text {
-                            text: "خلاصه وضعیت فروشگاه";
-                            color: #667085;
-                            font-size: 14px;
-                            horizontal-alignment: right;
-                        }
-                        HorizontalLayout {
-                            spacing: 12px;
-                            SummaryCard {
-                                title: "فروش امروز";
-                                value: root.sales-today;
-                                accent: #16834a;
-                            }
-                            SummaryCard {
-                                title: "دریافت امروز";
-                                value: root.receipts-today;
-                                accent: #2876c7;
-                            }
-                        }
-                        HorizontalLayout {
-                            spacing: 12px;
-                            SummaryCard {
-                                title: "مانده مشتریان";
-                                value: root.customer-balance;
-                                accent: #c47a16;
-                            }
-                            SummaryCard {
-                                title: "ارزش موجودی";
-                                value: root.inventory-value;
-                                accent: #6941c6;
-                            }
-                        }
-                        Rectangle {
-                            background: #ffffff;
-                            border-color: #e4e7ec;
-                            border-width: 1px;
-                            border-radius: 12px;
-                            padding: 20px;
-                            VerticalLayout {
-                                spacing: 8px;
-                                Text {
-                                    text: "شروع سریع";
-                                    color: #101828;
-                                    font-size: 17px;
-                                    font-weight: 600;
-                                    horizontal-alignment: right;
-                                }
-                                Text {
-                                    text: "از منوی سمت راست، بخش موردنظر را انتخاب کنید. این نسخهٔ Slint فعلاً نمونهٔ رابط بومی است؛ عملیات ثبت و ویرایش در مرحلهٔ اتصال کامل به منطق حسابداری منتقل می‌شود.";
-                                    color: #667085;
-                                    font-size: 14px;
-                                    wrap: word-wrap;
-                                    horizontal-alignment: right;
-                                }
-                            }
-                        }
-                    }
-
-                    if root.active-page != "داشبورد": Rectangle {
-                        background: #ffffff;
-                        border-color: #e4e7ec;
-                        border-width: 1px;
-                        border-radius: 12px;
-                        padding: 22px;
-                        VerticalLayout {
-                            spacing: 12px;
-                            Text {
-                                text: root.active-page;
-                                color: #101828;
-                                font-size: 20px;
-                                font-weight: 600;
-                                horizontal-alignment: right;
-                            }
-                            Text {
-                                text: "پوستهٔ بومی این بخش آمادهٔ توسعه است. در مرحلهٔ بعد، فهرست‌ها و فرم‌های همین بخش به فرمان‌های حسابداری و SQLite متصل می‌شوند.";
-                                color: #667085;
-                                font-size: 14px;
-                                wrap: word-wrap;
-                                horizontal-alignment: right;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+struct ContactRow { id: int, name: string, kind: string, phone: string, balance: string }
+struct ProductRow { id: int, name: string, code: string, quantity: string, price: string, stock: string }
+struct InvoiceRow { id: int, label: string, kind: string, total: string, status: string, date: string }
+struct PaymentRow { id: int, label: string, kind: string, amount: string, method: string, date: string }
 
 component SummaryCard inherits Rectangle {
     in property <string> title;
@@ -194,23 +13,289 @@ component SummaryCard inherits Rectangle {
     border-color: #e4e7ec;
     border-width: 1px;
     border-radius: 12px;
-    min-height: 128px;
-
+    min-height: 118px;
     VerticalLayout {
         padding: 18px;
         spacing: 12px;
-        Text {
-            text: title;
-            color: #667085;
-            font-size: 14px;
-            horizontal-alignment: right;
+        Text { text: title; color: #667085; font-size: 14px; horizontal-alignment: right; }
+        Text { text: value; color: accent; font-size: 22px; font-weight: 700; horizontal-alignment: right; }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "نبض | حسابداری فروشگاهی";
+    width: 1220px;
+    height: 820px;
+    min-width: 980px;
+    min-height: 680px;
+    background: #f4f6f8;
+
+    in-out property <string> active-page: "داشبورد";
+    in-out property <string> status-message: "آماده";
+    in-out property <string> sales-today: "۰ تومان";
+    in-out property <string> receipts-today: "۰ تومان";
+    in-out property <string> customer-balance: "۰ تومان";
+    in-out property <string> inventory-value: "۰ تومان";
+    in-out property <int> contacts-count: 0;
+    in-out property <int> products-count: 0;
+    in-out property <int> invoices-count: 0;
+    in-out property <[ContactRow]> contacts: [];
+    in-out property <[ProductRow]> products: [];
+    in-out property <[InvoiceRow]> invoices: [];
+    in-out property <[PaymentRow]> payments: [];
+
+    in-out property <string> contact-name: "";
+    in-out property <string> contact-kind: "customer";
+    in-out property <string> contact-phone: "";
+    in-out property <string> contact-balance: "0";
+    in-out property <string> contact-notes: "";
+
+    in-out property <string> product-name: "";
+    in-out property <string> product-code: "";
+    in-out property <string> product-barcode: "";
+    in-out property <string> product-quantity: "0";
+    in-out property <string> product-buy-price: "0";
+    in-out property <string> product-sell-price: "0";
+    in-out property <string> product-minimum: "0";
+
+    in-out property <string> invoice-kind: "sale";
+    in-out property <string> invoice-contact: "";
+    in-out property <string> invoice-item: "";
+    in-out property <string> invoice-quantity: "1";
+    in-out property <string> invoice-price: "0";
+    in-out property <string> invoice-discount: "0";
+    in-out property <string> invoice-paid: "0";
+    in-out property <string> invoice-method: "cash";
+    in-out property <string> invoice-notes: "";
+
+    in-out property <string> payment-kind: "receipt";
+    in-out property <string> payment-contact: "";
+    in-out property <string> payment-amount: "";
+    in-out property <string> payment-method: "cash";
+    in-out property <string> payment-notes: "";
+
+    in-out property <string> settings-store-name: "فروشگاه من";
+    in-out property <string> settings-currency: "تومان";
+
+    callback refresh-requested();
+    callback save-contact-requested();
+    callback save-product-requested();
+    callback save-invoice-requested();
+    callback save-payment-requested();
+    callback save-settings-requested();
+
+    VerticalLayout {
+        spacing: 0px;
+        Rectangle {
+            background: #ffffff;
+            height: 70px;
+            HorizontalLayout {
+                padding-left: 22px; padding-right: 22px;
+                alignment: center; spacing: 14px;
+                Text { text: "نبض"; color: #18864b; font-size: 27px; font-weight: 700; }
+                Text { text: "حسابداری فروشگاهی"; color: #344054; font-size: 16px; horizontal-stretch: 1; horizontal-alignment: right; }
+                Button { text: "تازه‌سازی"; clicked => { root.refresh-requested(); } }
+            }
         }
-        Text {
-            text: value;
-            color: accent;
-            font-size: 23px;
-            font-weight: 700;
-            horizontal-alignment: right;
+        HorizontalLayout {
+            spacing: 0px;
+            Rectangle {
+                width: 190px; background: #ffffff;
+                VerticalLayout {
+                    padding: 12px; spacing: 7px;
+                    Text { text: "منوی اصلی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
+                    Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; root.refresh-requested(); } }
+                    Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
+                    Button { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; root.refresh-requested(); } }
+                    Button { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; root.refresh-requested(); } }
+                    Button { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; root.refresh-requested(); } }
+                    Button { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; root.refresh-requested(); } }
+                    Button { text: "چاپ و بارکد"; clicked => { root.active-page = "چاپ و بارکد"; } }
+                    Button { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; root.refresh-requested(); } }
+                    Rectangle { background: transparent; vertical-stretch: 1; }
+                    Text { text: root.status-message; color: #667085; font-size: 11px; wrap: word-wrap; horizontal-alignment: right; }
+                }
+            }
+            Rectangle {
+                background: #f4f6f8; horizontal-stretch: 1;
+                VerticalLayout {
+                    padding: 22px; spacing: 16px;
+                    Text { text: root.active-page; color: #101828; font-size: 25px; font-weight: 700; horizontal-alignment: right; }
+
+                    if root.active-page == "داشبورد": VerticalLayout {
+                        spacing: 14px;
+                        Text { text: "خلاصهٔ وضعیت فروشگاه"; color: #667085; font-size: 14px; horizontal-alignment: right; }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            SummaryCard { title: "فروش امروز"; value: root.sales-today; accent: #16834a; }
+                            SummaryCard { title: "دریافت امروز"; value: root.receipts-today; accent: #2876c7; }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            SummaryCard { title: "ماندهٔ مشتریان"; value: root.customer-balance; accent: #c47a16; }
+                            SummaryCard { title: "ارزش موجودی"; value: root.inventory-value; accent: #6941c6; }
+                        }
+                        Rectangle {
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 12px; padding: 18px;
+                            VerticalLayout {
+                                spacing: 8px;
+                                Text { text: "اطلاعات پایگاه داده"; color: #101828; font-size: 17px; font-weight: 600; horizontal-alignment: right; }
+                                Text { text: "طرف‌حساب: " + root.contacts-count + "    کالا: " + root.products-count + "    فاکتور: " + root.invoices-count; color: #475467; font-size: 15px; horizontal-alignment: right; }
+                                Text { text: "داده‌ها از SQLite محلی خوانده می‌شوند؛ این رابط بومی است و مرورگر داخلی ندارد."; color: #667085; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; }
+                            }
+                        }
+                    }
+
+                    if root.active-page == "طرف‌حساب‌ها": VerticalLayout {
+                        spacing: 10px;
+                        Rectangle {
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 12px;
+                            VerticalLayout {
+                                spacing: 7px;
+                                Text { text: "ثبت طرف‌حساب"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    TextInput { text <=> root.contact-name; placeholder-text: "نام طرف‌حساب"; }
+                                    TextInput { text <=> root.contact-phone; placeholder-text: "تلفن"; }
+                                    TextInput { text <=> root.contact-balance; placeholder-text: "ماندهٔ اولیه"; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button { text: "مشتری"; clicked => { root.contact-kind = "customer"; } }
+                                    Button { text: "تأمین‌کننده"; clicked => { root.contact-kind = "supplier"; } }
+                                    Button { text: "هر دو"; clicked => { root.contact-kind = "both"; } }
+                                    Text { text: "نوع انتخاب‌شده: " + root.contact-kind; color: #667085; horizontal-stretch: 1; horizontal-alignment: right; }
+                                    Button { text: "ثبت طرف‌حساب"; clicked => { root.save-contact-requested(); } }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 8px;
+                            VerticalLayout {
+                                spacing: 0px;
+                                HorizontalLayout { padding: 8px; Text { text: "نام"; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } Text { text: "نوع"; width: 100px; horizontal-alignment: right; color: #667085; } Text { text: "تلفن"; width: 120px; horizontal-alignment: right; color: #667085; } Text { text: "مانده"; width: 120px; horizontal-alignment: right; color: #667085; } }
+                                ListView {
+                                    height: 390px;
+                                    for row in root.contacts: Rectangle {
+                                        height: 42px; background: #ffffff;
+                                        HorizontalLayout {
+                                            padding: 8px; alignment: center;
+                                            Text { text: row.name; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; }
+                                            Text { text: row.kind; width: 100px; horizontal-alignment: right; color: #475467; }
+                                            Text { text: row.phone; width: 120px; horizontal-alignment: right; color: #475467; }
+                                            Text { text: row.balance; width: 120px; horizontal-alignment: right; color: #475467; }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if root.active-page == "کالا و انبار": VerticalLayout {
+                        spacing: 10px;
+                        Rectangle {
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 12px;
+                            VerticalLayout {
+                                spacing: 7px;
+                                Text { text: "ثبت کالا"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                                HorizontalLayout { spacing: 8px; TextInput { text <=> root.product-name; placeholder-text: "نام کالا"; } TextInput { text <=> root.product-code; placeholder-text: "کد کالا"; } TextInput { text <=> root.product-barcode; placeholder-text: "بارکد"; } }
+                                HorizontalLayout { spacing: 8px; TextInput { text <=> root.product-quantity; placeholder-text: "موجودی"; } TextInput { text <=> root.product-buy-price; placeholder-text: "قیمت خرید"; } TextInput { text <=> root.product-sell-price; placeholder-text: "قیمت فروش"; } TextInput { text <=> root.product-minimum; placeholder-text: "حداقل موجودی"; } Button { text: "ثبت کالا"; clicked => { root.save-product-requested(); } } }
+                            }
+                        }
+                        Rectangle {
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 8px;
+                            VerticalLayout {
+                                spacing: 0px;
+                                HorizontalLayout { padding: 8px; Text { text: "نام کالا"; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } Text { text: "کد"; width: 110px; horizontal-alignment: right; color: #667085; } Text { text: "موجودی"; width: 90px; horizontal-alignment: right; color: #667085; } Text { text: "قیمت فروش"; width: 130px; horizontal-alignment: right; color: #667085; } }
+                                ListView {
+                                    height: 390px;
+                                    for row in root.products: Rectangle {
+                                        height: 42px; background: #ffffff;
+                                        HorizontalLayout { padding: 8px; alignment: center;
+                                            Text { text: row.name; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; }
+                                            Text { text: row.code; width: 110px; horizontal-alignment: right; color: #475467; }
+                                            Text { text: row.quantity; width: 90px; horizontal-alignment: right; color: #475467; }
+                                            Text { text: row.price; width: 130px; horizontal-alignment: right; color: #475467; }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if root.active-page == "فاکتورها": VerticalLayout {
+                        spacing: 10px;
+                        Rectangle {
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 12px;
+                            VerticalLayout {
+                                spacing: 7px;
+                                Text { text: "ثبت فاکتور تک‌ردیفی (مرحلهٔ اول انتقال)"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                                HorizontalLayout { spacing: 8px; Button { text: "فروش"; clicked => { root.invoice-kind = "sale"; } } Button { text: "خرید"; clicked => { root.invoice-kind = "purchase"; } } Text { text: "نوع: " + root.invoice-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
+                                HorizontalLayout { spacing: 8px; TextInput { text <=> root.invoice-contact; placeholder-text: "نام مشتری یا تأمین‌کننده"; } TextInput { text <=> root.invoice-item; placeholder-text: "نام یا کد کالا"; } TextInput { text <=> root.invoice-quantity; placeholder-text: "تعداد"; } }
+                                HorizontalLayout { spacing: 8px; TextInput { text <=> root.invoice-price; placeholder-text: "قیمت واحد"; } TextInput { text <=> root.invoice-discount; placeholder-text: "تخفیف"; } TextInput { text <=> root.invoice-paid; placeholder-text: "مبلغ دریافتی (فروش)"; } TextInput { text <=> root.invoice-method; placeholder-text: "روش پرداخت"; } Button { text: "ثبت فاکتور"; clicked => { root.save-invoice-requested(); } } }
+                            }
+                        }
+                        Rectangle {
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 8px;
+                            VerticalLayout {
+                                HorizontalLayout { padding: 8px; Text { text: "فاکتور"; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } Text { text: "نوع"; width: 90px; horizontal-alignment: right; color: #667085; } Text { text: "مبلغ"; width: 120px; horizontal-alignment: right; color: #667085; } Text { text: "وضعیت"; width: 120px; horizontal-alignment: right; color: #667085; } }
+                                ListView { height: 390px; for row in root.invoices: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; } Text { text: row.kind; width: 90px; horizontal-alignment: right; color: #475467; } Text { text: row.total; width: 120px; horizontal-alignment: right; color: #475467; } Text { text: row.status; width: 120px; horizontal-alignment: right; color: #475467; } } } }
+                            }
+                        }
+                    }
+
+                    if root.active-page == "دریافت و پرداخت": VerticalLayout {
+                        spacing: 10px;
+                        Rectangle {
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 12px;
+                            VerticalLayout {
+                                spacing: 7px;
+                                Text { text: "ثبت دریافت یا پرداخت"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                                HorizontalLayout { spacing: 8px; Button { text: "دریافت از مشتری"; clicked => { root.payment-kind = "receipt"; } } Button { text: "پرداخت به تأمین‌کننده"; clicked => { root.payment-kind = "payment"; } } Text { text: "نوع: " + root.payment-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
+                                HorizontalLayout { spacing: 8px; TextInput { text <=> root.payment-contact; placeholder-text: "نام طرف‌حساب"; } TextInput { text <=> root.payment-amount; placeholder-text: "مبلغ"; } TextInput { text <=> root.payment-method; placeholder-text: "روش پرداخت"; } TextInput { text <=> root.payment-notes; placeholder-text: "شرح"; } Button { text: "ثبت گردش"; clicked => { root.save-payment-requested(); } } }
+                            }
+                        }
+                        Rectangle {
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 8px;
+                            VerticalLayout {
+                                HorizontalLayout { padding: 8px; Text { text: "طرف‌حساب"; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } Text { text: "نوع"; width: 90px; horizontal-alignment: right; color: #667085; } Text { text: "مبلغ"; width: 120px; horizontal-alignment: right; color: #667085; } Text { text: "روش"; width: 100px; horizontal-alignment: right; color: #667085; } }
+                                ListView { height: 390px; for row in root.payments: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; } Text { text: row.kind; width: 90px; horizontal-alignment: right; color: #475467; } Text { text: row.amount; width: 120px; horizontal-alignment: right; color: #475467; } Text { text: row.method; width: 100px; horizontal-alignment: right; color: #475467; } } } }
+                            }
+                        }
+                    }
+
+                    if root.active-page == "گزارش‌ها": Rectangle {
+                        background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 12px; padding: 20px;
+                        VerticalLayout { spacing: 12px;
+                            Text { text: "گزارش زنده از پایگاه داده"; color: #101828; font-size: 18px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: "فروش امروز: " + root.sales-today; color: #16834a; font-size: 16px; horizontal-alignment: right; }
+                            Text { text: "دریافت امروز: " + root.receipts-today; color: #2876c7; font-size: 16px; horizontal-alignment: right; }
+                            Text { text: "ماندهٔ مشتریان: " + root.customer-balance; color: #c47a16; font-size: 16px; horizontal-alignment: right; }
+                            Text { text: "ارزش موجودی: " + root.inventory-value; color: #6941c6; font-size: 16px; horizontal-alignment: right; }
+                            Text { text: "تعداد طرف‌حساب‌ها: " + root.contacts-count + " | تعداد کالاها: " + root.products-count + " | تعداد فاکتورها: " + root.invoices-count; color: #475467; font-size: 15px; horizontal-alignment: right; }
+                        }
+                    }
+
+                    if root.active-page == "چاپ و بارکد": Rectangle {
+                        background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 12px; padding: 20px;
+                        VerticalLayout { spacing: 10px;
+                            Text { text: "چاپ و بارکد"; color: #101828; font-size: 18px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: "این بخش هنوز به موتور چاپ و تولید بارکد منتقل نشده است. چاپ مستقیم، برچسب حرارتی و قالب A4/A5 باید در مرحلهٔ بعد پیاده‌سازی و روی چاپگر واقعی آزمایش شوند."; color: #667085; font-size: 14px; wrap: word-wrap; horizontal-alignment: right; }
+                        }
+                    }
+
+                    if root.active-page == "تنظیمات": Rectangle {
+                        background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 12px; padding: 20px;
+                        VerticalLayout { spacing: 10px;
+                            Text { text: "تنظیمات فروشگاه"; color: #101828; font-size: 18px; font-weight: 600; horizontal-alignment: right; }
+                            TextInput { text <=> root.settings-store-name; placeholder-text: "نام فروشگاه"; }
+                            TextInput { text <=> root.settings-currency; placeholder-text: "واحد پول"; }
+                            Button { text: "ذخیرهٔ تنظیمات"; clicked => { root.save-settings-requested(); } }
+                            Text { text: "تنظیمات این نسخه در SQLite ذخیره می‌شوند."; color: #667085; font-size: 13px; horizontal-alignment: right; }
+                        }
+                    }
+                }
+            }
         }
     }
 }
