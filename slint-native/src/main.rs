@@ -460,6 +460,10 @@ fn void_invoice(c: &mut Connection, invoice_id: i64) -> Result<(), String> {
         [invoice_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
     ).optional().map_err(|e| e.to_string())?;
     let (number,kind,contact_id,contact_name,total,paid)=invoice.ok_or("فاکتور پیدا نشد یا قبلاً باطل شده است")?;
+    let return_count: i64 = tx.query_row("SELECT COUNT(*) FROM sales_returns WHERE invoice_id=?1", [invoice_id], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if return_count > 0 {
+        return Err("این فاکتور سابقهٔ برگشت کالا/بازپرداخت دارد؛ ابطال مستقیم برای جلوگیری از دوباره‌کاری موجودی مجاز نیست".into());
+    }
 
     let initial_receipt: i64 = if kind == "sale" {
         tx.query_row("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND notes=?1",
@@ -860,6 +864,18 @@ mod tests {
         assert_eq!(scalar(&c, "SELECT voided FROM invoices WHERE id=1"), 1);
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM payments WHERE kind='receipt'"), 0);
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices WHERE voided=0"), 0);
+    }
+
+    #[test]
+    fn void_sale_is_rejected_after_partial_return_without_double_restoring_stock() {
+        let mut c = test_db();
+        save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 20", "0", "0", "cash", "").unwrap();
+        let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
+        return_sale_items(&mut c, id, "PEN | 1", "cash").unwrap();
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 9);
+        assert!(void_invoice(&mut c, id).is_err());
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 9);
+        assert_eq!(scalar(&c, "SELECT voided FROM invoices WHERE id=1"), 0);
     }
 
     #[test]
