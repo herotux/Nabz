@@ -9,6 +9,7 @@ Updated: 2026-10-29
 - [x] Extend tests for anonymous unpaid sale rejection and receipt overpayment rollback.
 - [x] Confirm Slint Native UI CI and Rust tests succeed after the compile fix.
 - [ ] Download and launch the Linux artifact on Manjaro; verify Persian glyph shaping, RTL, and keyboard input.
+- [ ] Validate the latest cash-refund commit in Rust tests, Slint CI, and Linux installer workflow before downloading an artifact.
 
 ## Implemented in the native prototype
 - [x] Native Slint window, Persian dashboard and section navigation.
@@ -39,7 +40,9 @@ Updated: 2026-10-29
 - [x] Add invoice list search and kind/void-status filters.
 - [x] Add partial return entry from selected invoice details.
 - [x] Add invoice voiding with safe stock reversal.
-- [x] Add transactional partial sales returns with stock restoration, return history, proportional invoice discount adjustment, over-return prevention, and a guard against unimplemented cash refunds.
+- [x] Add transactional partial sales returns with stock restoration, return history, proportional invoice discount adjustment, and over-return prevention.
+- [x] Add transactional refunds when a partial return exceeds the unpaid balance; record refund amount/method, reduce invoice paid amount, and subtract refunds from today's net receipts.
+- [ ] Test multi-stage returns with discounts, prior receipt allocations, and refunds on different dates.
 
 ## Priority 3 — record management
 - [ ] Add search/filter for contacts, products, and payments.
