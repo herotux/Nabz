@@ -1,4 +1,4 @@
-import { Button, LineEdit, ListView, TextEdit } from "std-widgets.slint";
+import { Button, LineEdit, ListView } from "std-widgets.slint";
 
 export struct ContactRow { id: int, name: string, kind: string, phone: string, balance: string }
 export struct ProductRow { id: int, name: string, code: string, quantity: string, price: string, stock: string }
@@ -58,7 +58,7 @@ export component MainWindow inherits Window {
 
     in-out property <string> invoice-kind: "sale";
     in-out property <string> invoice-contact: "";
-    in-out property <string> invoice-items-text: "";
+    in-out property <string> invoice-item: "";
     in-out property <string> invoice-quantity: "1";
     in-out property <string> invoice-price: "0";
     in-out property <string> invoice-discount: "0";
@@ -227,12 +227,10 @@ export component MainWindow inherits Window {
                             background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 12px;
                             VerticalLayout {
                                 spacing: 7px;
-                                Text { text: "ثبت فاکتور چندردیفی"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                                Text { text: "ثبت فاکتور"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                                 HorizontalLayout { spacing: 8px; Button { text: "فروش"; clicked => { root.invoice-kind = "sale"; } } Button { text: "خرید"; clicked => { root.invoice-kind = "purchase"; } } Text { text: "نوع: " + root.invoice-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
-                                LineEdit { text <=> root.invoice-contact; placeholder-text: "نام مشتری یا تأمین‌کننده (فروش گذری: خالی بگذارید)"; }
-                                Text { text: "هر ردیف: کد کالا | تعداد | قیمت واحد — برای هر کالا یک خط"; color: #667085; font-size: 12px; horizontal-alignment: right; }
-                                TextEdit { text <=> root.invoice-items-text; placeholder-text: "PEN | 2 | 50000\nCABLE | 3 | 12000"; height: 110px; }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-discount; placeholder-text: "تخفیف کل فاکتور"; } LineEdit { text <=> root.invoice-paid; placeholder-text: "مبلغ دریافتی (فروش)"; } LineEdit { text <=> root.invoice-method; placeholder-text: "روش پرداخت"; } Button { text: "ثبت فاکتور"; clicked => { root.save-invoice-requested(); } } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-contact; placeholder-text: "نام مشتری یا تأمین‌کننده"; } LineEdit { text <=> root.invoice-item; placeholder-text: "نام یا کد کالا"; } LineEdit { text <=> root.invoice-quantity; placeholder-text: "تعداد"; } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-price; placeholder-text: "قیمت واحد"; } LineEdit { text <=> root.invoice-discount; placeholder-text: "تخفیف"; } LineEdit { text <=> root.invoice-paid; placeholder-text: "مبلغ دریافتی (فروش)"; } LineEdit { text <=> root.invoice-method; placeholder-text: "روش پرداخت"; } Button { text: "ثبت فاکتور"; clicked => { root.save-invoice-requested(); } } }
                             }
                         }
                         Rectangle {
