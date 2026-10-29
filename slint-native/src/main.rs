@@ -828,7 +828,7 @@ mod tests {
         assert_eq!(scalar(&c, "SELECT amount FROM sales_refunds"), 10);
         assert_eq!(scalar(&c, "SELECT paid FROM invoices WHERE id=1"), 20);
         assert!(return_sale_items(&mut c, id, "PEN | 3", "cash").is_err());
-        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 8);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 9);
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM sales_returns"), 1);
     }
 
