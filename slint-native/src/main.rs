@@ -330,6 +330,36 @@ fn save_invoice_multi(c: &mut Connection, kind: &str, contact: &str, rows_text: 
     Ok(())
 }
 
+fn invoice_details(c: &Connection, invoice_id: i64) -> Result<String, String> {
+    let header: (i64, String, String, String, i64, i64, i64, i64, String) = c.query_row(
+        "SELECT number,kind,contact_name,invoice_date,subtotal,discount,total,paid,notes FROM invoices WHERE id=?1",
+        [invoice_id],
+        |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?))
+    ).optional().map_err(|e| e.to_string())?.ok_or("فاکتور پیدا نشد")?;
+    let mut out = format!(
+        "فاکتور {} · {}\nطرف‌حساب: {}\nتاریخ: {}\n",
+        fmt_number(header.0),
+        if header.1 == "purchase" { "خرید" } else { "فروش" },
+        header.2,
+        header.3
+    );
+    let mut st = c.prepare("SELECT item_name,quantity,unit_price,line_total FROM invoice_items WHERE invoice_id=?1 ORDER BY id").map_err(|e| e.to_string())?;
+    let rows = st.query_map([invoice_id], |r| Ok((
+        r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?
+    ))).map_err(|e| e.to_string())?;
+    let lines = rows.collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())?;
+    if lines.is_empty() { out.push_str("ردیف کالا ثبت نشده است\n"); }
+    for (index,(name,qty,price,line_total)) in lines.iter().enumerate() {
+        out.push_str(&format!("{}. {} | تعداد {} | فی {} | جمع {}\n", index+1, name, fmt_number(*qty), money(*price), money(*line_total)));
+    }
+    out.push_str(&format!(
+        "جمع: {}\nتخفیف: {}\nمبلغ نهایی: {}\nپرداخت‌شده: {}\nمانده: {}\nشرح: {}",
+        money(header.4), money(header.5), money(header.6), money(header.7),
+        money(header.6.saturating_sub(header.7)), if header.8.trim().is_empty() { "—" } else { header.8.as_str() }
+    ));
+    Ok(out)
+}
+
 fn save_payment(c: &mut Connection, kind: &str, contact: &str, amount_text: &str, method: &str, notes: &str) -> Result<(), String> {
     let amount = parse_amount(amount_text)?;
     let contact = contact.trim();
@@ -415,6 +445,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => set_status(&ui, format!("خطا: {e}")),
             }
             if let Err(e) = refresh_ui(&ui, &db.borrow()) { set_status(&ui, format!("خطای تازه‌سازی: {e}")); }
+        });
+    }
+    {
+        let weak = ui.as_weak(); let db = db.clone();
+        ui.on_invoice_detail_requested(move |invoice_id| if let Some(ui) = weak.upgrade() {
+            match invoice_details(&db.borrow(), invoice_id as i64) {
+                Ok(details) => { ui.set_invoice_detail(details.into()); set_status(&ui, format!("جزئیات فاکتور {} نمایش داده شد", invoice_id)); }
+                Err(e) => { ui.set_invoice_detail("".into()); set_status(&ui, format!("خطا در نمایش جزئیات: {e}")); }
+            }
         });
     }
     {
@@ -575,6 +614,23 @@ mod tests {
         assert!(save_invoice_multi(&mut c, "sale", "Ali", "PEN | 1", "0", "0", "cash", "").is_err());
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 0);
         assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 10);
+    }
+
+
+    #[test]
+    fn invoice_details_show_all_lines_and_balance() {
+        let mut c = test_db();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Cable','CAB',30,60,5,1)", []).unwrap();
+        save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 1 | 60", "10", "20", "cash", "test detail").unwrap();
+        let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
+        let details = invoice_details(&c, id).unwrap();
+        assert!(details.contains("PEN"));
+        assert!(details.contains("Cable"));
+        assert!(details.contains("جمع: ۱۶۰ تومان"));
+        assert!(details.contains("تخفیف: ۱۰ تومان"));
+        assert!(details.contains("مبلغ نهایی: ۱۵۰ تومان"));
+        assert!(details.contains("مانده: ۱۳۰ تومان"));
+        assert!(details.contains("test detail"));
     }
 
     #[test]
