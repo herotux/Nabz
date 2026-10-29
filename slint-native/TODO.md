@@ -34,7 +34,8 @@ Updated: 2026-10-29
 - [x] Calculate each line, subtotal, invoice discount, total, and paid amount with overflow validation.
 - [x] Apply stock movements in one SQLite transaction; invalid rows and insufficient stock roll back the entire invoice.
 - [ ] Support invoice-level and per-line discounts without double counting.
-- [ ] Add invoice details view and customer walk-in rules.
+- [x] Add invoice details view showing all lines, subtotal, discount, paid amount, balance, and notes.
+- [ ] Add invoice void/return workflow with safe stock and ledger reversal rules.
 - [ ] Add returns/voiding with safe stock and ledger reversal rules.
 
 ## Priority 3 — record management
