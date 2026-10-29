@@ -45,23 +45,82 @@ jobs:
       - name: Build release executable
         run: cargo build --release --manifest-path slint-native/Cargo.toml
 
-      - name: Package portable Windows build
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Package portable build and Windows installer
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist/nabz-slint-windows-x64 | Out-Null
-          Copy-Item slint-native/target/release/nabz-slint.exe dist/nabz-slint-windows-x64/nabz-slint.exe
+          $ErrorActionPreference = "Stop"
+          $exe = (Resolve-Path "slint-native/target/release/nabz-slint.exe").Path
+          New-Item -ItemType Directory -Force -Path "dist/nabz-slint-windows-x64" | Out-Null
+          Copy-Item $exe "dist/nabz-slint-windows-x64/nabz-slint.exe"
           @"
           Nabz Slint Native - Windows x64
           Run nabz-slint.exe to start the application.
           The application stores its database in the user's local application data directory unless NABZ_DB_PATH is set.
-          This is a portable preview build; no installer is included.
-          "@ | Set-Content dist/nabz-slint-windows-x64/README.txt
-          Compress-Archive -Path dist/nabz-slint-windows-x64/* -DestinationPath dist/nabz-slint-windows-x64.zip -Force
+          This is the portable version. For a guided installation, use Nabz-Slint-Setup.exe.
+          "@ | Set-Content "dist/nabz-slint-windows-x64/README.txt" -Encoding utf8
+          Compress-Archive -Path "dist/nabz-slint-windows-x64/*" -DestinationPath "dist/nabz-slint-windows-x64.zip" -Force
+
+          @'
+          #define MyAppName "Nabz Slint"
+          #define MyAppVersion "0.1.0"
+          #define MyAppPublisher "Herotux"
+          #define MyAppExeName "nabz-slint.exe"
+
+          [Setup]
+          AppId={{C8B1D48B-5D3A-4B8B-9C0D-7E2B4A6D13F1}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          AppPublisher={#MyAppPublisher}
+          DefaultDirName={autopf}\Nabz Slint
+          DefaultGroupName=Nabz Slint
+          OutputDir=dist
+          OutputBaseFilename=Nabz-Slint-Setup
+          ArchitecturesAllowed=x64
+          ArchitecturesInstallIn64BitMode=x64
+          PrivilegesRequired=admin
+          UninstallDisplayIcon={app}\{#MyAppExeName}
+          WizardStyle=modern
+          Compression=lzma2
+          SolidCompression=yes
+          SetupLogging=yes
+
+          [Tasks]
+          Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+
+          [Files]
+          Source: "slint-native\target\release\nabz-slint.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "dist\nabz-slint-windows-x64\README.txt"; DestDir: "{app}"; Flags: ignoreversion
+
+          [Icons]
+          Name: "{group}\Nabz Slint"; Filename: "{app}\{#MyAppExeName}"
+          Name: "{autodesktop}\Nabz Slint"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+          [Run]
+          Filename: "{app}\{#MyAppExeName}"; Description: "Launch Nabz Slint"; Flags: postinstall nowait skipifsilent
+          '@ | Set-Content "dist/nabz-slint.iss" -Encoding ascii
+
+          $iscc = Get-ChildItem "C:\Program Files (x86)\Inno Setup\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) { throw "Inno Setup compiler (ISCC.exe) was not found." }
+          & $iscc.FullName "/Qp" "dist/nabz-slint.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path "dist/Nabz-Slint-Setup.exe")) { throw "Installer output was not created." }
 
       - name: Upload portable Windows build
         uses: actions/upload-artifact@v4
         with:
           name: nabz-slint-windows-x64
           path: dist/nabz-slint-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: nabz-slint-windows-installer-x64
+          path: dist/Nabz-Slint-Setup.exe
           if-no-files-found: error
           retention-days: 14
