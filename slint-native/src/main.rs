@@ -611,8 +611,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         let weak = ui.as_weak(); let db = db.clone();
-        ui.on_invoice_return_requested(move |invoice_id, rows_text| if let Some(ui) = weak.upgrade() {
-            match return_sale_items(&mut db.borrow_mut(), invoice_id as i64, &rows_text, &ui.get_return_refund_method()) {
+        ui.on_invoice_return_requested(move |invoice_id, rows_text, refund_method| if let Some(ui) = weak.upgrade() {
+            match return_sale_items(&mut db.borrow_mut(), invoice_id as i64, &rows_text, &refund_method) {
                 Ok((amount,refund)) => {
                     ui.set_return_items_text("".into());
                     set_status(&ui, if refund > 0 { format!("برگشت ثبت شد؛ اعتبار {} و بازپرداخت {} با روش انتخابی ثبت شد؛ موجودی اصلاح شد", money(amount), money(refund)) } else { format!("برگشت جزئی ثبت شد؛ اعتبار فاکتور {} کاهش یافت و موجودی اصلاح شد", money(amount)) });
