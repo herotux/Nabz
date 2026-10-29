@@ -140,7 +140,7 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
             let kind: String = r.get(2)?;
             let total: i64 = r.get(4)?;
             let paid: i64 = r.get(5)?;
-            let voided: i64 = r.get(7)? != 0;
+            let voided: bool = r.get::<_, i64>(7)? != 0;
             Ok(InvoiceRow {
                 id: r.get::<_, i64>(0)? as i32,
                 label: format!("فاکتور {} · {}", fmt_number(r.get::<_, i64>(1)?), r.get::<_, String>(3)?).into(),
