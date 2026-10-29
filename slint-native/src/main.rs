@@ -605,6 +605,13 @@ mod tests {
     }
 
     #[test]
+    fn invoice_search_normalizes_persian_and_arabic_digits() {
+        assert_eq!(normalize_invoice_search("فاکتور ۱۲۳"), "فاکتور 123");
+        assert_eq!(normalize_invoice_search("٤٥٦"), "456");
+        assert_eq!(normalize_invoice_search("  Ali  "), "Ali");
+    }
+
+    #[test]
     fn sale_updates_stock_and_records_initial_receipt_atomically() {
         let mut c = test_db();
         save_invoice(&mut c, "sale", "Ali", "PEN", "2", "50", "0", "30", "cash", "").unwrap();
