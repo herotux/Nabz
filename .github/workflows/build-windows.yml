@@ -103,9 +103,23 @@ jobs:
           Filename: "{app}\{#MyAppExeName}"; Description: "Launch Nabz Slint"; Flags: postinstall nowait skipifsilent
           '@ | Set-Content "dist/nabz-slint.iss" -Encoding ascii
 
-          $iscc = Get-ChildItem "C:\Program Files (x86)\Inno Setup\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $iscc) { throw "Inno Setup compiler (ISCC.exe) was not found." }
-          & $iscc.FullName "/Qp" "dist/nabz-slint.iss"
+          $isccCandidates = @(
+            "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe",
+            "C:\\Program Files\\Inno Setup 6\\ISCC.exe",
+            "$env:ChocolateyInstall\\lib\\innosetup\\tools\\ISCC.exe"
+          )
+          $isccPath = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $isccPath) {
+            $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($isccCommand) { $isccPath = $isccCommand.Source }
+          }
+          if (-not $isccPath) {
+            $programFilesX86 = [Environment]::GetFolderPath("ProgramFilesX86")
+            $searchRoots = @("$env:ProgramFiles", $programFilesX86, "$env:ChocolateyInstall\\lib")
+            $isccPath = Get-ChildItem $searchRoots -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1
+          }
+          if (-not $isccPath) { throw "Inno Setup compiler (ISCC.exe) was not found after installation." }
+          & $isccPath "/Qp" "dist/nabz-slint.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path "dist/Nabz-Slint-Setup.exe")) { throw "Installer output was not created." }
 
