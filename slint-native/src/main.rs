@@ -374,8 +374,14 @@ fn invoice_details(c: &Connection, invoice_id: i64) -> Result<String, String> {
     for (index,(name,qty,price,line_total)) in lines.iter().enumerate() {
         out.push_str(&format!("{}. {} | تعداد {} | فی {} | جمع {}\n", index+1, name, fmt_number(*qty), money(*price), money(*line_total)));
     }
+    let mut return_st=c.prepare("SELECT sr.return_date,sri.item_name,sri.quantity,sri.amount FROM sales_returns sr JOIN sales_return_items sri ON sri.return_id=sr.id WHERE sr.invoice_id=?1 ORDER BY sr.id,sri.id").map_err(|e|e.to_string())?;
+    let returns=return_st.query_map([invoice_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+    if !returns.is_empty() {
+        out.push_str("برگشت‌های ثبت‌شده:\\n");
+        for (date,name,qty,amount) in returns { out.push_str(&format!("{} · {} | تعداد {} | مبلغ خام {}\\n",date,name,fmt_number(qty),money(amount))); }
+    }
     out.push_str(&format!(
-        "جمع: {}\nتخفیف: {}\nمبلغ نهایی: {}\nپرداخت‌شده: {}\nمانده: {}\nشرح: {}",
+        "جمع: {}\\nتخفیف: {}\\nمبلغ نهایی: {}\\nپرداخت‌شده: {}\\nمانده: {}\\nشرح: {}",
         money(header.4), money(header.5), money(header.6), money(header.7),
         money(header.6.saturating_sub(header.7)), if header.8.trim().is_empty() { "—" } else { header.8.as_str() }
     ));
