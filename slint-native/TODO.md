@@ -37,7 +37,9 @@ Updated: 2026-10-29
 - [x] Add invoice details view showing all lines, subtotal, discount, paid amount, balance, and notes.
 - [x] Add invoice void workflow with confirmation, transactional stock reversal, and safe restrictions for later allocations.
 - [x] Add invoice list search and kind/void-status filters.
-- [x] Add invoice voiding with safe stock reversal; physical partial returns remain TODO.
+- [x] Add partial return entry from selected invoice details.
+- [x] Add invoice voiding with safe stock reversal.
+- [x] Add transactional partial sales returns with stock restoration, return history, proportional invoice discount adjustment, over-return prevention, and a guard against unimplemented cash refunds.
 
 ## Priority 3 — record management
 - [ ] Add search/filter for contacts, products, and payments.
