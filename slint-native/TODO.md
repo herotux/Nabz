@@ -36,10 +36,12 @@ Updated: 2026-10-29
 - [ ] Support invoice-level and per-line discounts without double counting.
 - [x] Add invoice details view showing all lines, subtotal, discount, paid amount, balance, and notes.
 - [x] Add invoice void workflow with confirmation, transactional stock reversal, and safe restrictions for later allocations.
+- [x] Add invoice list search and kind/void-status filters.
 - [x] Add invoice voiding with safe stock reversal; physical partial returns remain TODO.
 
 ## Priority 3 — record management
-- [ ] Add search/filter for contacts, products, invoices, and payments.
+- [ ] Add search/filter for contacts, products, and payments.
+- [x] Add invoice search by number, contact, and notes; filter all/sales/purchases/voided invoices.
 - [ ] Add edit/delete flows with confirmations and accounting-safe restrictions.
 - [ ] Add barcode lookup and USB HID scanner workflow.
 - [ ] Add keyboard-first navigation and clear validation errors.
