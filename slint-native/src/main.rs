@@ -247,6 +247,89 @@ fn save_invoice(c: &mut Connection, kind: &str, contact: &str, item: &str, qty_t
     Ok(())
 }
 
+fn save_invoice_multi(c: &mut Connection, kind: &str, contact: &str, rows_text: &str, discount_text: &str, paid_text: &str, method: &str, notes: &str) -> Result<(), String> {
+    if kind != "sale" && kind != "purchase" { return Err("نوع فاکتور معتبر نیست".into()); }
+    let contact = contact.trim();
+    let discount = parse_amount(discount_text)?;
+    let paid_input = parse_amount(paid_text)?;
+    if discount < 0 || paid_input < 0 { return Err("تخفیف و مبلغ دریافتی نمی‌توانند منفی باشند".into()); }
+
+    let mut rows: Vec<(String, i64, i64, i64)> = Vec::new();
+    let mut subtotal: i64 = 0;
+    for (line_no, raw) in rows_text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() { continue; }
+        let parts: Vec<&str> = line.split('|').map(str::trim).collect();
+        if parts.len() != 3 || parts[0].is_empty() {
+            return Err(format!("ردیف {}: قالب باید «کد یا نام کالا | تعداد | قیمت واحد» باشد", line_no + 1));
+        }
+        let qty = parse_amount(parts[1]).map_err(|e| format!("ردیف {}: {e}", line_no + 1))?;
+        let price = parse_amount(parts[2]).map_err(|e| format!("ردیف {}: {e}", line_no + 1))?;
+        if qty <= 0 || price < 0 {
+            return Err(format!("ردیف {}: تعداد باید مثبت و قیمت نامنفی باشد", line_no + 1));
+        }
+        let line_total = qty.checked_mul(price).ok_or_else(|| format!("ردیف {}: مبلغ بیش از حد بزرگ است", line_no + 1))?;
+        subtotal = subtotal.checked_add(line_total).ok_or("جمع فاکتور بیش از حد بزرگ است")?;
+        rows.push((parts[0].to_string(), qty, price, line_total));
+    }
+    if rows.is_empty() { return Err("حداقل یک ردیف کالا وارد کنید".into()); }
+    if discount > subtotal { return Err("تخفیف از جمع فاکتور بیشتر است".into()); }
+    let total = subtotal.checked_sub(discount).ok_or("مبلغ نهایی نامعتبر است")?;
+    let paid = if kind == "sale" { paid_input } else { 0 };
+    if paid > total { return Err("مبلغ دریافتی از مبلغ نهایی بیشتر است".into()); }
+
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    let cid: Option<i64> = if contact.is_empty() { None } else {
+        tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1", [contact], |r| r.get(0))
+            .optional().map_err(|e| e.to_string())?
+    };
+    if kind == "purchase" && cid.is_none() { return Err("برای خرید، تأمین‌کنندهٔ ثبت‌شده الزامی است".into()); }
+    if kind == "sale" && !contact.is_empty() && cid.is_none() { return Err("مشتری پیدا نشد؛ ابتدا طرف‌حساب را ثبت کنید".into()); }
+    if let Some(id) = cid {
+        let role: String = tx.query_row("SELECT kind FROM contacts WHERE id=?1", [id], |r| r.get(0)).map_err(|e| e.to_string())?;
+        if kind == "sale" && role == "supplier" { return Err("برای فاکتور فروش، مشتری انتخاب کنید".into()); }
+        if kind == "purchase" && role == "customer" { return Err("برای فاکتور خرید، تأمین‌کننده انتخاب کنید".into()); }
+    }
+    if kind == "sale" && paid < total && cid.is_none() { return Err("فروش گذری باید کامل تسویه شود".into()); }
+
+    let number: i64 = tx.query_row("SELECT COALESCE(MAX(number),1000)+1 FROM invoices", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let contact_name = if contact.is_empty() { "مشتری گذری" } else { contact };
+    tx.execute("INSERT INTO invoices(number,kind,contact_id,contact_name,subtotal,discount,total,paid,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        params![number,kind,cid,contact_name,subtotal,discount,total,paid,notes.trim()]).map_err(|e| e.to_string())?;
+    let invoice_id = tx.last_insert_rowid();
+
+    for (item, qty, price, line_total) in rows {
+        let product: Option<(i64, i64)> = tx.query_row(
+            "SELECT id,quantity FROM products WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
+            [&item], |r| Ok((r.get(0)?, r.get(1)?))
+        ).optional().map_err(|e| e.to_string())?;
+        let (pid, item_name) = if let Some((id, stock)) = product {
+            if kind == "sale" {
+                if stock < qty { return Err(format!("موجودی «{item}» کافی نیست؛ موجودی فعلی: {stock}")); }
+                let changed = tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2 AND quantity>=?1", params![qty,id]).map_err(|e| e.to_string())?;
+                if changed != 1 { return Err(format!("موجودی «{item}» کافی نیست")); }
+            } else {
+                tx.execute("UPDATE products SET quantity=quantity+?1,buy_price=?2 WHERE id=?3", params![qty,price,id]).map_err(|e| e.to_string())?;
+            }
+            (id, item)
+        } else if kind == "purchase" {
+            let code = format!("AUTO-{}", tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM products", [], |r| r.get::<_,i64>(0)).map_err(|e| e.to_string())?);
+            tx.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)", params![item,code,price,qty]).map_err(|e| e.to_string())?;
+            (tx.last_insert_rowid(), item)
+        } else {
+            return Err(format!("کالای «{item}» در انبار پیدا نشد؛ ابتدا کالا را ثبت کنید"));
+        };
+        tx.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![invoice_id,pid,item_name,qty,price,line_total]).map_err(|e| e.to_string())?;
+    }
+    if kind == "sale" && paid > 0 {
+        tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,notes) VALUES('receipt',?1,?2,?3,COALESCE(NULLIF(?4,''),'cash'),?5)",
+            params![cid,contact_name,paid,method.trim(),format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn save_payment(c: &mut Connection, kind: &str, contact: &str, amount_text: &str, method: &str, notes: &str) -> Result<(), String> {
     let amount = parse_amount(amount_text)?;
     let contact = contact.trim();
@@ -326,9 +409,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak = ui.as_weak(); let db = db.clone();
         ui.on_save_invoice_requested(move || if let Some(ui) = weak.upgrade() {
-            let result = save_invoice(&mut db.borrow_mut(), &ui.get_invoice_kind(), &ui.get_invoice_contact(), &ui.get_invoice_item(), &ui.get_invoice_quantity(), &ui.get_invoice_price(), &ui.get_invoice_discount(), &ui.get_invoice_paid(), &ui.get_invoice_method(), &ui.get_invoice_notes());
+            let result = save_invoice_multi(&mut db.borrow_mut(), &ui.get_invoice_kind(), &ui.get_invoice_contact(), &ui.get_invoice_items_text(), &ui.get_invoice_discount(), &ui.get_invoice_paid(), &ui.get_invoice_method(), &ui.get_invoice_notes());
             match result {
-                Ok(()) => { ui.set_invoice_item("".into()); ui.set_invoice_quantity("1".into()); ui.set_invoice_price("0".into()); ui.set_invoice_discount("0".into()); ui.set_invoice_paid("0".into()); ui.set_invoice_notes("".into()); set_status(&ui, "فاکتور ثبت شد و موجودی به‌روزرسانی شد"); }
+                Ok(()) => { ui.set_invoice_items_text("".into()); ui.set_invoice_discount("0".into()); ui.set_invoice_paid("0".into()); ui.set_invoice_notes("".into()); set_status(&ui, "فاکتور ثبت شد و موجودی به‌روزرسانی شد"); }
                 Err(e) => set_status(&ui, format!("خطا: {e}")),
             }
             if let Err(e) = refresh_ui(&ui, &db.borrow()) { set_status(&ui, format!("خطای تازه‌سازی: {e}")); }
@@ -458,6 +541,40 @@ mod tests {
         assert!(save_payment(&mut c, "receipt", "Ali", "21", "cash", "").is_err());
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM payments"), 0);
         assert_eq!(scalar(&c, "SELECT paid FROM invoices WHERE kind='sale'"), 0);
+    }
+
+
+    #[test]
+    fn multi_row_sale_records_all_lines_and_updates_stock() {
+        let mut c = test_db();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Cable','CAB',30,60,5,1)", []).unwrap();
+        save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 3 | 60", "10", "100", "cash", "").unwrap();
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoice_items"), 2);
+        assert_eq!(scalar(&c, "SELECT subtotal FROM invoices WHERE kind='sale'"), 280);
+        assert_eq!(scalar(&c, "SELECT total FROM invoices WHERE kind='sale'"), 270);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 8);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='CAB'"), 2);
+        assert_eq!(scalar(&c, "SELECT paid FROM invoices WHERE kind='sale'"), 100);
+    }
+
+    #[test]
+    fn multi_row_sale_rolls_back_everything_when_later_row_has_insufficient_stock() {
+        let mut c = test_db();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Cable','CAB',30,60,1,1)", []).unwrap();
+        assert!(save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 2 | 60", "0", "0", "cash", "").is_err());
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 0);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoice_items"), 0);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM payments"), 0);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 10);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='CAB'"), 1);
+    }
+
+    #[test]
+    fn multi_row_invoice_rejects_malformed_rows_without_side_effects() {
+        let mut c = test_db();
+        assert!(save_invoice_multi(&mut c, "sale", "Ali", "PEN | 1", "0", "0", "cash", "").is_err());
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 0);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 10);
     }
 
     #[test]
