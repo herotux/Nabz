@@ -398,6 +398,9 @@ fn return_sale_items(c: &mut Connection, invoice_id: i64, rows_text: &str) -> Re
         if parts.len() != 2 || parts[0].is_empty() { return Err(format!("ردیف {}: قالب باید «کد یا نام کالا | تعداد برگشتی» باشد", line_no+1)); }
         let qty = parse_amount(parts[1])?;
         if qty <= 0 { return Err(format!("ردیف {}: تعداد برگشتی باید مثبت باشد", line_no+1)); }
+        if requested.iter().any(|(name,_)| name.eq_ignore_ascii_case(parts[0])) {
+            return Err(format!("کالای «{}» را فقط یک بار در فهرست برگشت وارد کنید", parts[0]));
+        }
         requested.push((parts[0].to_string(),qty));
     }
     if requested.is_empty() { return Err("حداقل یک ردیف برگشت وارد کنید".into()); }
