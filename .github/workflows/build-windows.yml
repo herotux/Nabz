@@ -92,8 +92,8 @@ jobs:
           Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
           [Files]
-          Source: "slint-native\target\release\nabz-slint.exe"; DestDir: "{app}"; Flags: ignoreversion
-          Source: "dist\nabz-slint-windows-x64\README.txt"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "..\slint-native\target\release\nabz-slint.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "nabz-slint-windows-x64\README.txt"; DestDir: "{app}"; Flags: ignoreversion
 
           [Icons]
           Name: "{group}\Nabz Slint"; Filename: "{app}\{#MyAppExeName}"
