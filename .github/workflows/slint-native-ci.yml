@@ -1,0 +1,40 @@
+name: Slint native UI CI
+
+on:
+  push:
+    branches: [feature/slint-native-ui]
+    paths:
+      - "slint-native/**"
+      - ".github/workflows/slint-native-ci.yml"
+  pull_request:
+    paths:
+      - "slint-native/**"
+      - ".github/workflows/slint-native-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: slint-native
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev libssl-dev pkg-config
+      - name: Check native UI
+        run: cargo check --manifest-path slint-native/Cargo.toml
+      - name: Build release binary
+        run: cargo build --release --manifest-path slint-native/Cargo.toml
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: nabz-slint-linux-x86_64
+          path: slint-native/target/release/nabz-slint
+          if-no-files-found: error
