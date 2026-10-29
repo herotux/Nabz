@@ -85,7 +85,7 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     let q = |sql: &str| c.query_row(sql, [], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string());
     ui.set_sales_today(SharedString::from(money(q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date=date('now','localtime')")?)));
     ui.set_receipts_today(SharedString::from(money(q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')")?)));
-    let balance = q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale'),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind='customer'),0)")?;
+    let balance = q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale'),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?;
     ui.set_customer_balance(SharedString::from(money(balance)));
     ui.set_inventory_value(SharedString::from(money(q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?)));
     ui.set_contacts_count(q("SELECT COUNT(*) FROM contacts")? as i32);
@@ -441,6 +441,23 @@ mod tests {
         assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 15);
         assert_eq!(scalar(&c, "SELECT buy_price FROM products WHERE code='PEN'"), 12);
         assert_eq!(scalar(&c, "SELECT total FROM invoices WHERE kind='purchase'"), 60);
+    }
+
+    #[test]
+    fn anonymous_unpaid_sale_is_rejected_without_side_effects() {
+        let mut c = test_db();
+        assert!(save_invoice(&mut c, "sale", "", "PEN", "1", "20", "0", "0", "cash", "").is_err());
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 0);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 10);
+    }
+
+    #[test]
+    fn receipt_overpayment_is_rejected_without_partial_write() {
+        let mut c = test_db();
+        save_invoice(&mut c, "sale", "Ali", "PEN", "1", "20", "0", "0", "cash", "").unwrap();
+        assert!(save_payment(&mut c, "receipt", "Ali", "21", "cash", "").is_err());
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM payments"), 0);
+        assert_eq!(scalar(&c, "SELECT paid FROM invoices WHERE kind='sale'"), 0);
     }
 
     #[test]
