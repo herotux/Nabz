@@ -321,11 +321,11 @@ fn save_invoice_multi(c: &mut Connection, kind: &str, contact: &str, rows_text: 
     let invoice_id = tx.last_insert_rowid();
 
     for (item, qty, price, line_total) in rows {
-        let product: Option<(i64, i64)> = tx.query_row(
-            "SELECT id,quantity FROM products WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
-            [&item], |r| Ok((r.get(0)?, r.get(1)?))
+        let product: Option<(i64, i64, String)> = tx.query_row(
+            "SELECT id,quantity,name FROM products WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
+            [&item], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         ).optional().map_err(|e| e.to_string())?;
-        let (pid, item_name) = if let Some((id, stock)) = product {
+        let (pid, item_name) = if let Some((id, stock, product_name)) = product {
             if kind == "sale" {
                 if stock < qty { return Err(format!("موجودی «{item}» کافی نیست؛ موجودی فعلی: {stock}")); }
                 let changed = tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2 AND quantity>=?1", params![qty,id]).map_err(|e| e.to_string())?;
@@ -333,7 +333,7 @@ fn save_invoice_multi(c: &mut Connection, kind: &str, contact: &str, rows_text: 
             } else {
                 tx.execute("UPDATE products SET quantity=quantity+?1,buy_price=?2 WHERE id=?3", params![qty,price,id]).map_err(|e| e.to_string())?;
             }
-            (id, item)
+            (id, product_name)
         } else if kind == "purchase" {
             let code = format!("AUTO-{}", tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM products", [], |r| r.get::<_,i64>(0)).map_err(|e| e.to_string())?);
             tx.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)", params![item,code,price,qty]).map_err(|e| e.to_string())?;
