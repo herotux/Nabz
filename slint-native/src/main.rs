@@ -39,7 +39,7 @@ fn open_database() -> Result<Connection, String> {
         c.execute("ALTER TABLE invoices ADD COLUMN voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1))", [])
             .map_err(|e| format!("افزودن وضعیت ابطال فاکتور ناموفق بود: {e}"))?;
     }
-    c.execute_batch("CREATE TABLE IF NOT EXISTS sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT ''); CREATE TABLE IF NOT EXISTS sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0));").map_err(|e|e.to_string())?;
+    c.execute_batch("CREATE TABLE IF NOT EXISTS sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT ''); CREATE TABLE IF NOT EXISTS sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0)); CREATE TABLE IF NOT EXISTS sales_refunds(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_id INTEGER NOT NULL REFERENCES sales_returns(id),refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',notes TEXT NOT NULL DEFAULT '');").map_err(|e|e.to_string())?;
     Ok(c)
 }
 
@@ -103,7 +103,7 @@ fn normalize_invoice_search(input: &str) -> String {
 fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     let q = |sql: &str| c.query_row(sql, [], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string());
     ui.set_sales_today(SharedString::from(money(q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date=date('now','localtime')")?)));
-    ui.set_receipts_today(SharedString::from(money(q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')")?)));
+    ui.set_receipts_today(SharedString::from(money(q("SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')),0)-COALESCE((SELECT SUM(amount) FROM sales_refunds WHERE refund_date=date('now','localtime')),0)")?)));
     let balance = q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?;
     ui.set_customer_balance(SharedString::from(money(balance)));
     ui.set_inventory_value(SharedString::from(money(q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?)));
@@ -388,7 +388,7 @@ fn invoice_details(c: &Connection, invoice_id: i64) -> Result<String, String> {
     Ok(out)
 }
 
-fn return_sale_items(c: &mut Connection, invoice_id: i64, rows_text: &str) -> Result<i64, String> {
+fn return_sale_items(c: &mut Connection, invoice_id: i64, rows_text: &str, refund_method: &str) -> Result<(i64,i64), String> {
     if invoice_id <= 0 { return Err("ابتدا فاکتور فروش را انتخاب کنید".into()); }
     let mut requested: Vec<(String,i64)> = Vec::new();
     for (line_no, raw) in rows_text.lines().enumerate() {
@@ -404,6 +404,7 @@ fn return_sale_items(c: &mut Connection, invoice_id: i64, rows_text: &str) -> Re
         requested.push((parts[0].to_string(),qty));
     }
     if requested.is_empty() { return Err("حداقل یک ردیف برگشت وارد کنید".into()); }
+    let refund_method = if refund_method.trim().is_empty() { "cash" } else { refund_method.trim() };
     let tx = c.transaction().map_err(|e|e.to_string())?;
     let invoice: (String,i64,i64,i64,i64) = tx.query_row("SELECT kind,subtotal,discount,total,paid FROM invoices WHERE id=?1 AND voided=0",[invoice_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|e|e.to_string())?.ok_or("فاکتور پیدا نشد یا باطل شده است")?;
     if invoice.0 != "sale" { return Err("برگشت جزئی فقط برای فاکتور فروش مجاز است".into()); }
@@ -428,18 +429,21 @@ fn return_sale_items(c: &mut Connection, invoice_id: i64, rows_text: &str) -> Re
     if credit<=0 { return Err("مبلغ خالص برگشت صفر است؛ مقدار برگشت را بررسی کنید".into()); }
     let new_subtotal=invoice.1-gross_return;
     let new_total=invoice.3.checked_sub(credit).ok_or("مبلغ نهایی نامعتبر است")?;
-    if new_total<invoice.4 { return Err(format!("این برگشت نیاز به بازپرداخت {} تومان دارد؛ ابتدا بازپرداخت را پشتیبانی/ثبت کنید",invoice.4-new_total)); }
+    let refund = invoice.4.saturating_sub(new_total);
     let new_discount=new_subtotal-new_total;
     tx.execute("INSERT INTO sales_returns(invoice_id,amount,notes) VALUES(?1,?2,?3)",params![invoice_id,credit,format!("برگشت جزئی فاکتور #{}",invoice_id)]).map_err(|e|e.to_string())?;
     let return_id=tx.last_insert_rowid();
+    if refund > 0 {
+        tx.execute("INSERT INTO sales_refunds(invoice_id,return_id,amount,method,notes) VALUES(?1,?2,?3,?4,?5)", params![invoice_id,return_id,refund,refund_method,format!("بازپرداخت بابت برگشت فاکتور #{}",invoice_id)]).map_err(|e|e.to_string())?;
+    }
     for (item_id,pid,qty,unit_price,item_name) in lines {
         let amount=qty.checked_mul(unit_price).ok_or("مبلغ ردیف برگشت بیش از حد بزرگ است")?;
         tx.execute("UPDATE products SET quantity=quantity+?1 WHERE id=?2",params![qty,pid]).map_err(|e|e.to_string())?;
         tx.execute("INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![return_id,item_id,pid,item_name,qty,unit_price,amount]).map_err(|e|e.to_string())?;
     }
-    tx.execute("UPDATE invoices SET subtotal=?1,discount=?2,total=?3 WHERE id=?4",params![new_subtotal,new_discount,new_total,invoice_id]).map_err(|e|e.to_string())?;
+    tx.execute("UPDATE invoices SET subtotal=?1,discount=?2,total=?3,paid=MIN(paid,?3) WHERE id=?4",params![new_subtotal,new_discount,new_total,invoice_id]).map_err(|e|e.to_string())?;
     tx.commit().map_err(|e|e.to_string())?;
-    Ok(credit)
+    Ok((credit,refund))
 }
 
 fn void_invoice(c: &mut Connection, invoice_id: i64) -> Result<(), String> {
@@ -598,10 +602,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak = ui.as_weak(); let db = db.clone();
         ui.on_invoice_return_requested(move |invoice_id, rows_text| if let Some(ui) = weak.upgrade() {
-            match return_sale_items(&mut db.borrow_mut(), invoice_id as i64, &rows_text) {
-                Ok(amount) => {
+            match return_sale_items(&mut db.borrow_mut(), invoice_id as i64, &rows_text, &ui.get_return_refund_method()) {
+                Ok((amount,refund)) => {
                     ui.set_return_items_text("".into());
-                    set_status(&ui, format!("برگشت جزئی ثبت شد؛ اعتبار فاکتور {} کاهش یافت و موجودی اصلاح شد", money(amount)));
+                    set_status(&ui, if refund > 0 { format!("برگشت ثبت شد؛ اعتبار {} و بازپرداخت {} با روش انتخابی ثبت شد؛ موجودی اصلاح شد", money(amount), money(refund)) } else { format!("برگشت جزئی ثبت شد؛ اعتبار فاکتور {} کاهش یافت و موجودی اصلاح شد", money(amount)) });
                     if let Ok(details) = invoice_details(&db.borrow(), invoice_id as i64) { ui.set_invoice_detail(details.into()); }
                 }
                 Err(e) => set_status(&ui, format!("برگشت ثبت نشد: {e}")),
@@ -652,6 +656,7 @@ mod tests {
              CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL);
              CREATE TABLE sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT '');
              CREATE TABLE sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0));
+             CREATE TABLE sales_refunds(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_id INTEGER NOT NULL REFERENCES sales_returns(id),refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',notes TEXT NOT NULL DEFAULT '');
              CREATE TABLE payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
              CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
              INSERT INTO contacts(name,kind) VALUES('Ali','customer');
@@ -801,8 +806,9 @@ mod tests {
         let mut c = test_db();
         save_invoice_multi(&mut c, "sale", "Ali", "PEN | 4 | 20", "0", "20", "cash", "").unwrap();
         let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
-        let credit = return_sale_items(&mut c, id, "PEN | 1").unwrap();
+        let (credit,refund) = return_sale_items(&mut c, id, "PEN | 1", "cash").unwrap();
         assert_eq!(credit, 20);
+        assert_eq!(refund, 0);
         assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 7);
         assert_eq!(scalar(&c, "SELECT total FROM invoices WHERE id=1"), 60);
         assert_eq!(scalar(&c, "SELECT paid FROM invoices WHERE id=1"), 20);
@@ -810,17 +816,32 @@ mod tests {
     }
 
     #[test]
-    fn partial_sale_return_rejects_over_return_and_refund_requirement_atomically() {
+    fn partial_sale_return_rejects_over_return_atomically() {
         let mut c = test_db();
         save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 20", "0", "30", "cash", "").unwrap();
         let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
-        assert!(return_sale_items(&mut c, id, "PEN | 1").is_err());
+        let result = return_sale_items(&mut c, id, "PEN | 1", "cash");
+        assert_eq!(result.unwrap(), (20,10));
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 9);
+        assert_eq!(scalar(&c, "SELECT total FROM invoices WHERE id=1"), 20);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM sales_returns"), 1);
+        assert_eq!(scalar(&c, "SELECT amount FROM sales_refunds"), 10);
+        assert_eq!(scalar(&c, "SELECT paid FROM invoices WHERE id=1"), 20);
+        assert!(return_sale_items(&mut c, id, "PEN | 3", "cash").is_err());
         assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 8);
-        assert_eq!(scalar(&c, "SELECT total FROM invoices WHERE id=1"), 40);
-        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM sales_returns"), 0);
-        assert!(return_sale_items(&mut c, id, "PEN | 3").is_err());
-        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 8);
-        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM sales_returns"), 0);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM sales_returns"), 1);
+    }
+
+    #[test]
+    fn partial_sale_return_refund_tracks_method_and_reduces_paid_balance() {
+        let mut c = test_db();
+        save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 20", "0", "30", "cash", "").unwrap();
+        let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
+        let (credit, refund) = return_sale_items(&mut c, id, "PEN | 1", "bank transfer").unwrap();
+        assert_eq!((credit, refund), (20, 10));
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM sales_refunds WHERE method='bank transfer'"), 1);
+        assert_eq!(scalar(&c, "SELECT paid FROM invoices WHERE id=1"), 20);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 9);
     }
 
     #[test]
