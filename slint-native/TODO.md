@@ -35,8 +35,8 @@ Updated: 2026-10-29
 - [x] Apply stock movements in one SQLite transaction; invalid rows and insufficient stock roll back the entire invoice.
 - [ ] Support invoice-level and per-line discounts without double counting.
 - [x] Add invoice details view showing all lines, subtotal, discount, paid amount, balance, and notes.
-- [ ] Add invoice void/return workflow with safe stock and ledger reversal rules.
-- [ ] Add returns/voiding with safe stock and ledger reversal rules.
+- [x] Add invoice void workflow with confirmation, transactional stock reversal, and safe restrictions for later allocations.
+- [x] Add invoice voiding with safe stock reversal; physical partial returns remain TODO.
 
 ## Priority 3 — record management
 - [ ] Add search/filter for contacts, products, invoices, and payments.
