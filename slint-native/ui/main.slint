@@ -62,6 +62,7 @@ export component MainWindow inherits Window {
     in-out property <string> invoice-contact: "";
     in-out property <string> invoice-items-text: "";
     in-out property <string> return-items-text: "";
+    in-out property <string> return-refund-method: "cash";
     in-out property <int> selected-invoice-id: 0;
     in-out property <int> void-confirmation-id: 0;
     in-out property <string> void-confirmation-message: "";
@@ -86,7 +87,7 @@ export component MainWindow inherits Window {
     callback save-invoice-requested();
     callback invoice-detail-requested(int);
     callback invoice-void-requested(int);
-    callback invoice-return-requested(int, string);
+    callback invoice-return-requested(int, string, string);
     callback save-payment-requested();
     callback save-settings-requested();
 
@@ -253,7 +254,7 @@ export component MainWindow inherits Window {
                                 if root.invoice-detail != "": Rectangle { background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 12px; VerticalLayout { spacing: 6px; Text { text: "جزئیات فاکتور انتخاب‌شده"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; } Text { text: root.invoice-detail; color: #475467; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } Text { text: "برگشت جزئی کالا (فقط فاکتور فروش انتخاب‌شده)"; color: #b54708; font-size: 13px; horizontal-alignment: right; }
                                 TextEdit { text <=> root.return-items-text; height: 72px; }
                                 Text { text: "هر ردیف: کد یا نام دقیق کالا | تعداد برگشتی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
-                                Button { text: "ثبت برگشت جزئی"; clicked => { root.invoice-return-requested(root.selected-invoice-id, root.return-items-text); } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.return-refund-method; placeholder-text: "روش بازپرداخت (cash / کارت / انتقال)"; horizontal-stretch: 1; } Button { text: "ثبت برگشت و بازپرداخت"; clicked => { root.invoice-return-requested(root.selected-invoice-id, root.return-items-text, root.return-refund-method); } } }
                                 HorizontalLayout { spacing: 8px; Button { text: "ابطال فاکتور"; clicked => { root.void-confirmation-id = root.selected-invoice-id; root.void-confirmation-message = "برای تأیید نهایی، دکمهٔ تأیید ابطال را بزنید. این کار موجودی و دریافت اولیه را اصلاح می‌کند."; } } if root.void-confirmation-id == root.selected-invoice-id && root.void-confirmation-id > 0: Button { text: "تأیید ابطال"; clicked => { root.invoice-void-requested(root.selected-invoice-id); root.void-confirmation-id = 0; root.void-confirmation-message = ""; } } } if root.void-confirmation-message != "": Text { text: root.void-confirmation-message; color: #b54708; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } } }
                             }
                         }
