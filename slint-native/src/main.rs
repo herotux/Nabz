@@ -31,6 +31,14 @@ fn open_database() -> Result<Connection, String> {
          CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
          CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
     ).map_err(|e| e.to_string())?;
+    let has_voided: i64 = c.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('invoices') WHERE name='voided'",
+        [], |r| r.get(0)
+    ).map_err(|e| e.to_string())?;
+    if has_voided == 0 {
+        c.execute("ALTER TABLE invoices ADD COLUMN voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1))", [])
+            .map_err(|e| format!("افزودن وضعیت ابطال فاکتور ناموفق بود: {e}"))?;
+    }
     Ok(c)
 }
 
@@ -90,7 +98,7 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     ui.set_inventory_value(SharedString::from(money(q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?)));
     ui.set_contacts_count(q("SELECT COUNT(*) FROM contacts")? as i32);
     ui.set_products_count(q("SELECT COUNT(*) FROM products")? as i32);
-    ui.set_invoices_count(q("SELECT COUNT(*) FROM invoices")? as i32);
+    ui.set_invoices_count(q("SELECT COUNT(*) FROM invoices WHERE voided=0")? as i32);
 
     let mut contact_rows = Vec::new();
     {
@@ -127,17 +135,18 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
 
     let mut invoice_rows = Vec::new();
     {
-        let mut st = c.prepare("SELECT id,number,kind,contact_name,total,paid,invoice_date FROM invoices ORDER BY id DESC LIMIT 500").map_err(|e| e.to_string())?;
+        let mut st = c.prepare("SELECT id,number,kind,contact_name,total,paid,invoice_date,voided FROM invoices ORDER BY id DESC LIMIT 500").map_err(|e| e.to_string())?;
         let rows = st.query_map([], |r| {
             let kind: String = r.get(2)?;
             let total: i64 = r.get(4)?;
             let paid: i64 = r.get(5)?;
+            let voided: i64 = r.get(7)? != 0;
             Ok(InvoiceRow {
                 id: r.get::<_, i64>(0)? as i32,
                 label: format!("فاکتور {} · {}", fmt_number(r.get::<_, i64>(1)?), r.get::<_, String>(3)?).into(),
                 kind: if kind == "purchase" { "خرید".into() } else { "فروش".into() },
                 total: money(total).into(),
-                status: if paid >= total { "تسویه".into() } else { format!("مانده {}", money(total-paid)).into() },
+                status: if voided { "باطل".into() } else if paid >= total { "تسویه".into() } else { format!("مانده {}", money(total-paid)).into() },
                 date: r.get::<_, String>(6)?.into(),
             })
         }).map_err(|e| e.to_string())?;
@@ -360,6 +369,63 @@ fn invoice_details(c: &Connection, invoice_id: i64) -> Result<String, String> {
     Ok(out)
 }
 
+fn void_invoice(c: &mut Connection, invoice_id: i64) -> Result<(), String> {
+    if invoice_id <= 0 { return Err("ابتدا یک فاکتور را انتخاب کنید".into()); }
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    let invoice: Option<(i64,String,Option<i64>,String,i64,i64)> = tx.query_row(
+        "SELECT number,kind,contact_id,contact_name,total,paid FROM invoices WHERE id=?1 AND voided=0",
+        [invoice_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
+    ).optional().map_err(|e| e.to_string())?;
+    let (number,kind,contact_id,contact_name,total,paid)=invoice.ok_or("فاکتور پیدا نشد یا قبلاً باطل شده است")?;
+
+    let initial_receipt: i64 = if kind == "sale" {
+        tx.query_row("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND notes=?1",
+            [format!("دریافت بابت فاکتور فروش #{number}")], |r| r.get(0)).map_err(|e| e.to_string())?
+    } else { 0 };
+    if kind == "sale" && paid != initial_receipt {
+        return Err("این فاکتور پرداخت‌های تخصیص‌یافتهٔ بعدی دارد؛ برای جلوگیری از مغایرت، ابتدا گردش‌های مرتبط را اصلاح کنید".into());
+    }
+    if kind == "purchase" && paid != 0 {
+        return Err("برای این فاکتور خرید پرداخت تخصیص یافته است؛ ابتدا گردش مالی آن را اصلاح کنید".into());
+    }
+    if kind != "sale" && kind != "purchase" { return Err("نوع فاکتور ناشناخته است".into()); }
+
+    let mut st = tx.prepare("SELECT product_id,item_name,quantity FROM invoice_items WHERE invoice_id=?1 ORDER BY id")
+        .map_err(|e| e.to_string())?;
+    let mapped = st.query_map([invoice_id], |r| Ok((r.get::<_,Option<i64>>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?)))
+        .map_err(|e| e.to_string())?;
+    let lines = mapped.collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())?;
+    drop(st);
+    if lines.is_empty() { return Err("فاکتور ردیف کالا ندارد؛ ابطال خودکار ممکن نیست".into()); }
+
+    for (product_id,item_name,qty) in lines {
+        if qty <= 0 { return Err(format!("تعداد نامعتبر برای کالای «{item_name}»؛ ابطال لغو شد")); }
+        if let Some(pid) = product_id {
+            let stock: i64 = tx.query_row("SELECT quantity FROM products WHERE id=?1", [pid], |r| r.get(0))
+                .optional().map_err(|e| e.to_string())?.ok_or(format!("کالای «{item_name}» حذف شده؛ ابطال امن ممکن نیست"))?;
+            if kind == "sale" {
+                let next = stock.checked_add(qty).ok_or("موجودی پس از برگشت بیش از حد بزرگ می‌شود")?;
+                tx.execute("UPDATE products SET quantity=?1 WHERE id=?2", params![next,pid]).map_err(|e| e.to_string())?;
+            } else {
+                if stock < qty {
+                    return Err(format!("موجودی «{item_name}» برای برگشت خرید کافی نیست؛ موجودی فعلی {} و مقدار برگشت {}", stock, qty));
+                }
+                tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2", params![qty,pid]).map_err(|e| e.to_string())?;
+            }
+        } else if kind == "purchase" {
+            return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ ابطال امن ممکن نیست"));
+        }
+    }
+    if initial_receipt > 0 {
+        tx.execute("DELETE FROM payments WHERE kind='receipt' AND notes=?1",
+            [format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e| e.to_string())?;
+    }
+    tx.execute("UPDATE invoices SET voided=1 WHERE id=?1 AND voided=0", [invoice_id]).map_err(|e| e.to_string())?;
+    let _ = (contact_id,contact_name,total);
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn save_payment(c: &mut Connection, kind: &str, contact: &str, amount_text: &str, method: &str, notes: &str) -> Result<(), String> {
     let amount = parse_amount(amount_text)?;
     let contact = contact.trim();
@@ -370,14 +436,14 @@ fn save_payment(c: &mut Connection, kind: &str, contact: &str, amount_text: &str
     if kind == "receipt" && role == "supplier" { return Err("برای دریافت، مشتری انتخاب کنید".into()); }
     if kind == "payment" && role == "customer" { return Err("برای پرداخت، تأمین‌کننده انتخاب کنید".into()); }
     let invoice_kind = if kind == "receipt" { "sale" } else { "purchase" };
-    let invoice_outstanding: i64 = tx.query_row("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2", params![cid,invoice_kind], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let invoice_outstanding: i64 = tx.query_row("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2 AND voided=0", params![cid,invoice_kind], |r| r.get(0)).map_err(|e| e.to_string())?;
     let opening: i64 = tx.query_row("SELECT opening_balance FROM contacts WHERE id=?1", [cid], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0_i64);
     let outstanding = invoice_outstanding.checked_add(opening).ok_or("ماندهٔ حساب بیش از حد بزرگ است")?;
     if amount > outstanding { return Err(format!("مبلغ از ماندهٔ قابل تخصیص بیشتر است: {}", money(outstanding))); }
     tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),?6)", params![kind,cid,contact,amount,method.trim(),notes.trim()]).map_err(|e| e.to_string())?;
     let mut remaining = amount.min(opening);
     if remaining > 0 { tx.execute("UPDATE contacts SET opening_balance=opening_balance-?1 WHERE id=?2", params![remaining,cid]).map_err(|e| e.to_string())?; }
-    let mut st = tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_id=?1 AND kind=?2 AND paid<total ORDER BY invoice_date,id").map_err(|e| e.to_string())?;
+    let mut st = tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_id=?1 AND kind=?2 AND voided=0 AND paid<total ORDER BY invoice_date,id").map_err(|e| e.to_string())?;
     let rows = st.query_map(params![cid,invoice_kind], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e| e.to_string())?;
     let invoices = rows.collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())?;
     drop(st);
@@ -495,7 +561,7 @@ mod tests {
             "PRAGMA foreign_keys=ON;
              CREATE TABLE contacts(id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')));
              CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
-             CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '');
+             CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1)));
              CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL);
              CREATE TABLE payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
              CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -631,6 +697,41 @@ mod tests {
         assert!(details.contains("مبلغ نهایی: ۱۵۰ تومان"));
         assert!(details.contains("مانده: ۱۳۰ تومان"));
         assert!(details.contains("test detail"));
+    }
+
+
+    #[test]
+    fn void_sale_restores_stock_and_removes_its_initial_receipt() {
+        let mut c = test_db();
+        save_invoice(&mut c, "sale", "Ali", "PEN", "2", "50", "0", "30", "cash", "").unwrap();
+        let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
+        void_invoice(&mut c, id).unwrap();
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 10);
+        assert_eq!(scalar(&c, "SELECT voided FROM invoices WHERE id=1"), 1);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM payments WHERE kind='receipt'"), 0);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices WHERE voided=0"), 0);
+    }
+
+    #[test]
+    fn void_purchase_is_rejected_if_stock_was_already_sold() {
+        let mut c = test_db();
+        c.execute("INSERT INTO contacts(name,kind) VALUES('Vendor','supplier')", []).unwrap();
+        save_invoice(&mut c, "purchase", "Vendor", "PEN", "5", "15", "0", "0", "cash", "").unwrap();
+        let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
+        c.execute("UPDATE products SET quantity=2 WHERE code='PEN'", []).unwrap();
+        assert!(void_invoice(&mut c, id).is_err());
+        assert_eq!(scalar(&c, "SELECT voided FROM invoices WHERE id=1"), 0);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 2);
+    }
+
+    #[test]
+    fn void_sale_is_rejected_after_later_receipt_allocation() {
+        let mut c = test_db();
+        save_invoice(&mut c, "sale", "Ali", "PEN", "2", "50", "0", "10", "cash", "").unwrap();
+        save_payment(&mut c, "receipt", "Ali", "20", "cash", "").unwrap();
+        let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
+        assert!(void_invoice(&mut c, id).is_err());
+        assert_eq!(scalar(&c, "SELECT voided FROM invoices WHERE id=1"), 0);
     }
 
     #[test]
