@@ -7,7 +7,7 @@ Updated: 2026-10-29
 - [x] Remove incompatible Window `min-width` / `min-height` constraints when explicit `width` / `height` are set.
 - [x] Move card padding onto layout elements instead of Rectangle.
 - [x] Extend tests for anonymous unpaid sale rejection and receipt overpayment rollback.
-- [ ] Confirm latest Slint CI succeeds after the compile fix.
+- [x] Confirm Slint Native UI CI and Rust tests succeed after the compile fix.
 - [ ] Download and launch the Linux artifact on Manjaro; verify Persian glyph shaping, RTL, and keyboard input.
 
 ## Implemented in the native prototype
@@ -23,15 +23,16 @@ Updated: 2026-10-29
 
 ## Priority 1 — accounting correctness and schema compatibility
 - [ ] Compare every Slint accounting rule with the tested Tauri implementation; port all edge-case tests.
+- [x] Add multi-row invoice tests for line totals, stock updates, malformed rows, and full rollback on insufficient stock.
 - [ ] Test customer/supplier/both opening balances, partial payments, discount, duplicate codes, invalid roles, overpayment, stock rollback, and purchase debts.
 - [ ] Confirm database schema compatibility using a copy of an actual Tauri database; do not test on the only production database.
 - [ ] Add migration/version handling before any schema changes.
 - [ ] Ensure dashboard balances include `customer` and `both` roles and reconcile to invoices/payments.
 
 ## Priority 2 — invoice and inventory workflows
-- [ ] Replace single-line invoice form with a dynamic multi-row invoice editor.
-- [ ] Calculate each line, subtotal, discount, total, paid amount, and remaining balance safely.
-- [ ] Apply all stock movements atomically; roll back the whole invoice on any invalid row or insufficient stock.
+- [x] Replace single-line invoice form with a multi-row text editor (one item per line).
+- [x] Calculate each line, subtotal, invoice discount, total, and paid amount with overflow validation.
+- [x] Apply stock movements in one SQLite transaction; invalid rows and insufficient stock roll back the entire invoice.
 - [ ] Support invoice-level and per-line discounts without double counting.
 - [ ] Add invoice details view and customer walk-in rules.
 - [ ] Add returns/voiding with safe stock and ledger reversal rules.
