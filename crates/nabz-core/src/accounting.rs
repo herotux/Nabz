@@ -545,6 +545,46 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InventoryAdjustment {
+    pub product_id: i64,
+    pub previous_quantity: i64,
+    pub new_quantity: i64,
+    pub delta: i64,
+    pub reason: String,
+    pub created_at: String,
+}
+
+pub fn adjust_inventory(
+    connection: &mut Connection,
+    product_id: i64,
+    new_quantity: i64,
+    reason: &str,
+) -> Result<InventoryAdjustment, String> {
+    let reason = reason.trim();
+    if product_id <= 0 || new_quantity < 0 || reason.chars().count() < 3 {
+        return Err("کالا، موجودی جدید نامنفی و علت حداقل سه‌حرفی الزامی است".into());
+    }
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let (name, previous): (String, i64) = tx.query_row(
+        "SELECT name,quantity FROM products WHERE id=?1",
+        [product_id], |r| Ok((r.get(0)?,r.get(1)?))
+    ).optional().map_err(|e| e.to_string())?.ok_or("کالای انتخاب‌شده پیدا نشد")?;
+    let delta = new_quantity.checked_sub(previous).ok_or("اختلاف موجودی بیش از حد بزرگ است")?;
+    if delta == 0 { return Err("موجودی جدید با موجودی فعلی برابر است؛ تغییری برای ثبت وجود ندارد".into()); }
+    tx.execute("UPDATE products SET quantity=?1 WHERE id=?2 AND quantity=?3",
+        params![new_quantity,product_id,previous]).map_err(|e|e.to_string())?;
+    tx.execute(
+        "INSERT INTO inventory_adjustments(product_id,product_name,previous_quantity,new_quantity,delta,reason)
+         VALUES(?1,?2,?3,?4,?5,?6)",
+        params![product_id,name,previous,new_quantity,delta,reason]
+    ).map_err(|e|e.to_string())?;
+    let created_at:String=tx.query_row(
+        "SELECT created_at FROM inventory_adjustments WHERE id=last_insert_rowid()",[],|r|r.get(0)
+    ).map_err(|e|e.to_string())?;
+    tx.commit().map_err(|e|e.to_string())?;
+    Ok(InventoryAdjustment{product_id,previous_quantity:previous,new_quantity,delta,reason:reason.into(),created_at})
+}
+
 pub struct PaymentInput {
     pub kind: String,
     pub contact_name: String,
@@ -669,6 +709,30 @@ mod tests {
     }
 
 
+
+    #[test]
+    fn inventory_adjustment_updates_stock_and_writes_audit_atomically() {
+        let mut c=database();
+        let result=adjust_inventory(&mut c,1,17,"شمارش دستی انبار").unwrap();
+        assert_eq!((result.previous_quantity,result.new_quantity,result.delta),(10,17,7));
+        let audit:(String,i64,i64,i64,String)=c.query_row(
+            "SELECT product_name,previous_quantity,new_quantity,delta,reason FROM inventory_adjustments WHERE product_id=1",
+            [],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
+        ).unwrap();
+        assert_eq!(audit,("Pen".into(),10,17,7,"شمارش دستی انبار".into()));
+        assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=1",[],|r|r.get::<_,i64>(0)).unwrap(),17);
+    }
+
+    #[test]
+    fn inventory_adjustment_rejects_invalid_input_without_mutation() {
+        let mut c=database();
+        assert!(adjust_inventory(&mut c,1,-1,"شمارش دستی").is_err());
+        assert!(adjust_inventory(&mut c,1,10,"").is_err());
+        assert!(adjust_inventory(&mut c,1,10,"تغییر").is_err());
+        assert!(adjust_inventory(&mut c,999,3,"شمارش دستی").is_err());
+        assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=1",[],|r|r.get::<_,i64>(0)).unwrap(),10);
+        assert_eq!(c.query_row("SELECT COUNT(*) FROM inventory_adjustments",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
 
     #[test]
     fn shared_invoice_service_records_sale_and_decrements_stock_atomically() {
