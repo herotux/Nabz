@@ -30,6 +30,8 @@ jobs:
           sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev libssl-dev pkg-config
       - name: Check native UI
         run: cargo check --manifest-path slint-native/Cargo.toml
+      - name: Run native accounting and migration tests
+        run: cargo test --manifest-path slint-native/Cargo.toml
       - name: Build release binary
         run: cargo build --release --manifest-path slint-native/Cargo.toml
       - name: Upload binary
