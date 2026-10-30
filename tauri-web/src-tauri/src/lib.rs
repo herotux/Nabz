@@ -111,14 +111,12 @@ fn save_payment(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  let mut c=db.0.lock().map_err(|e|e.to_string())?;
  save_payment_with_connection(payload,&mut c)
 }
-fn save_payment_with_connection(payload:Value,c:&mut Connection)->Result<i64,String>{let kind=text(&payload,"kind");let contact=text(&payload,"customer");let amount=num(&payload,"amount");if !["receipt","payment"].contains(&kind.as_str())||contact.is_empty()||amount<=0{return Err("طرف‌حساب و مبلغ مثبت الزامی است".into())}let method=text(&payload,"method");let date=text(&payload,"date");let notes=text(&payload,"notes");let tx=c.transaction().map_err(|e|e.to_string())?;let cid:Option<i64>=tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?;if cid.is_none(){return Err("طرف‌حساب ثبت‌شده‌ای با این نام پیدا نشد؛ ابتدا آن را در بخش طرف‌حساب‌ها ثبت کنید.".into())}let raw_kind:String=tx.query_row("SELECT kind FROM contacts WHERE id=?1",[cid],|r|r.get(0)).map_err(|e|e.to_string())?;let role=normalize_contact_kind(&raw_kind).unwrap_or("customer");if kind=="receipt"&&!["customer","both"].contains(&role){return Err("برای ثبت دریافت، طرف‌حساب باید مشتری یا هر دو باشد.".into())}if kind=="payment"&&!["supplier","both"].contains(&role){return Err("برای ثبت پرداخت، طرف‌حساب باید تأمین‌کننده یا هر دو باشد.".into())}tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),COALESCE(NULLIF(?6,''),date('now','localtime')),?7)",params![kind,cid,contact,amount,method,date,notes]).map_err(|e|e.to_string())?;let id=tx.last_insert_rowid();let invoice_kind=if kind=="receipt"{"sale"}else{"purchase"};let invoice_outstanding:i64=tx.query_row("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2",params![cid,invoice_kind],|r|r.get(0)).map_err(|e|e.to_string())?;
- let opening_balance:i64=tx.query_row("SELECT opening_balance FROM contacts WHERE id=?1",[cid],|r|r.get(0)).map_err(|e|e.to_string())?;
- let opening_available=opening_balance.max(0);
- let outstanding=invoice_outstanding.checked_add(opening_available).ok_or("ماندهٔ طرف‌حساب بیش از حد بزرگ است")?;
- if amount>outstanding{return Err(format!("مبلغ پرداخت از ماندهٔ باز طرف‌حساب بیشتر است؛ ماندهٔ قابل تخصیص {outstanding}"))}
- let mut remaining=amount;
- let opening_applied=remaining.min(opening_available);
- if opening_applied>0{tx.execute("UPDATE contacts SET opening_balance=opening_balance-?1 WHERE id=?2",params![opening_applied,cid]).map_err(|e|e.to_string())?;remaining-=opening_applied;}{let mut st=tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_id=?1 AND kind=?2 AND paid<total ORDER BY invoice_date,id").map_err(|e|e.to_string())?;let rows=st.query_map(params![cid,invoice_kind],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e|e.to_string())?;let invoices=rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;drop(st);for (iid,total,paid) in invoices{if remaining<=0{break}let applied=remaining.min(total-paid);tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2",params![applied,iid]).map_err(|e|e.to_string())?;remaining-=applied;}}tx.commit().map_err(|e|e.to_string())?;Ok(id)}
+fn save_payment_with_connection(payload:Value,c:&mut Connection)->Result<i64,String>{
+ nabz_core::accounting::record_payment(c,&nabz_core::accounting::PaymentInput{
+  kind:text(&payload,"kind"),contact_name:text(&payload,"customer"),amount:num(&payload,"amount"),
+  method:text(&payload,"method"),date:text(&payload,"date"),notes:text(&payload,"notes")
+ })
+}
 
 #[derive(Serialize)]
 struct SalesTrendPoint { date:String, total:i64 }
