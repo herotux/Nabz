@@ -334,6 +334,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     {
+        let weak=ui.as_weak(); let db=db.clone();
+        ui.on_adjust_inventory_requested(move |id| if let Some(ui)=weak.upgrade() {
+            let current=db.borrow().query_row("SELECT quantity FROM products WHERE id=?1",[id as i64],|r|r.get::<_,i64>(0));
+            match current {
+                Ok(quantity)=>{ui.set_adjustment_product_id(id);ui.set_adjustment_new_quantity(quantity.to_string().into());ui.set_adjustment_reason("انبارگردانی".into());set_status(&ui,format!("موجودی فعلی کالا {} است؛ مقدار واقعی جدید و علت را وارد کنید",fmt_number(quantity)));},
+                Err(e)=>set_status(&ui,format!("بارگذاری موجودی ناموفق بود: {e}"))
+            }
+        });
+    }
+    {
+        let weak=ui.as_weak(); let db=db.clone();
+        ui.on_save_inventory_adjustment_requested(move || if let Some(ui)=weak.upgrade() {
+            let result=nabz_core::accounting::adjust_inventory(&mut db.borrow_mut(),ui.get_adjustment_product_id() as i64,&parse_amount(&ui.get_adjustment_new_quantity()).unwrap_or(-1),&ui.get_adjustment_reason());
+            match result {
+                Ok(change)=>{set_status(&ui,format!("موجودی اصلاح شد: {} به {}؛ اختلاف {}؛ علت: {}",fmt_number(change.previous_quantity),fmt_number(change.new_quantity),fmt_number(change.delta),change.reason));ui.set_adjustment_product_id(0);ui.set_adjustment_new_quantity("0".into());ui.set_adjustment_reason("انبارگردانی".into());},
+                Err(e)=>set_status(&ui,format!("اصلاح موجودی انجام نشد: {e}"))
+            }
+            if let Err(e)=refresh_ui(&ui,&db.borrow()){set_status(&ui,format!("خطای تازه‌سازی: {e}"));}
+        });
+    }
+    {
         let weak = ui.as_weak(); let db = db.clone();
         ui.on_save_product_requested(move || if let Some(ui) = weak.upgrade() {
             let result = if ui.get_edit_product_id() > 0 { update_product(&db.borrow(), ui.get_edit_product_id() as i64, &ui.get_product_name(), &ui.get_product_code(), &ui.get_product_barcode(), &ui.get_product_buy_price(), &ui.get_product_sell_price(), &ui.get_product_minimum()) } else { save_product(&db.borrow(), &ui.get_product_name(), &ui.get_product_code(), &ui.get_product_barcode(), &ui.get_product_quantity(), &ui.get_product_buy_price(), &ui.get_product_sell_price(), &ui.get_product_minimum()) };
