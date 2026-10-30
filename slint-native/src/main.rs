@@ -72,6 +72,12 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     let balance = q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?;
     ui.set_customer_balance(SharedString::from(money(balance)));
     ui.set_inventory_value(SharedString::from(money(q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?)));
+    let history = {
+        let mut st=c.prepare("SELECT product_name,previous_quantity,new_quantity,delta,reason,created_at FROM inventory_adjustments ORDER BY id DESC LIMIT 5").map_err(|e|e.to_string())?;
+        let rows=st.query_map([],|r|Ok(format!("{}: {} ← {} ({:+}) · {} · {}",r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?))).map_err(|e|e.to_string())?;
+        rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?.join("\\n")
+    };
+    ui.set_inventory_adjustment_history(if history.is_empty(){"هنوز سابقه‌ای ثبت نشده است.".into()}else{history.into()});
     ui.set_contacts_count(q("SELECT COUNT(*) FROM contacts")? as i32);
     ui.set_products_count(q("SELECT COUNT(*) FROM products")? as i32);
     ui.set_invoices_count(q("SELECT COUNT(*) FROM invoices WHERE voided=0")? as i32);
