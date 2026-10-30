@@ -219,6 +219,31 @@ fn save_contact(c: &Connection, name: &str, kind: &str, phone: &str, balance_tex
     Ok(())
 }
 
+
+fn update_contact(c: &Connection, id: i64, name: &str, phone: &str) -> Result<(), String> {
+    let name = name.trim();
+    if id <= 0 || name.is_empty() { return Err("شناسه و نام طرف‌حساب معتبر نیست".into()); }
+    let exists: i64 = c.query_row("SELECT COUNT(*) FROM contacts WHERE id=?1", [id], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if exists == 0 { return Err("طرف‌حساب موردنظر پیدا نشد".into()); }
+    let duplicate: i64 = c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE AND id<>?2", params![name,id], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if duplicate > 0 { return Err("طرف‌حساب دیگری با این نام وجود دارد".into()); }
+    c.execute("UPDATE contacts SET name=?1,phone=?2 WHERE id=?3", params![name,phone.trim(),id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn update_product(c: &Connection, id: i64, name: &str, code: &str, barcode: &str, buy: &str, sell: &str, minimum: &str) -> Result<(), String> {
+    let name=name.trim(); let code=code.trim();
+    if id <= 0 || name.is_empty() || code.is_empty() { return Err("شناسه، نام و کد کالا معتبر نیست".into()); }
+    let buy=parse_amount(buy)?; let sell=parse_amount(sell)?; let minimum=parse_amount(minimum)?;
+    if buy < 0 || sell < 0 || minimum < 0 { return Err("قیمت‌ها و حداقل موجودی نمی‌توانند منفی باشند".into()); }
+    let exists: i64 = c.query_row("SELECT COUNT(*) FROM products WHERE id=?1", [id], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if exists == 0 { return Err("کالای موردنظر پیدا نشد".into()); }
+    c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,min_quantity=?6 WHERE id=?7",
+        params![name,code,barcode.trim(),buy,sell,minimum,id])
+        .map_err(|e| if e.to_string().contains("UNIQUE") { "کد کالا تکراری است".into() } else { e.to_string() })?;
+    Ok(())
+}
+
 fn save_product(c: &Connection, name: &str, code: &str, barcode: &str, qty: &str, buy: &str, sell: &str, minimum: &str) -> Result<(), String> {
     let name = name.trim();
     let code = code.trim();
@@ -585,9 +610,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak = ui.as_weak(); let db = db.clone();
         ui.on_save_contact_requested(move || if let Some(ui) = weak.upgrade() {
-            let result = save_contact(&db.borrow(), &ui.get_contact_name(), &ui.get_contact_kind(), &ui.get_contact_phone(), &ui.get_contact_balance());
+            let result = if ui.get_edit_contact_id() > 0 { update_contact(&db.borrow(), ui.get_edit_contact_id() as i64, &ui.get_contact_name(), &ui.get_contact_phone()) } else { save_contact(&db.borrow(), &ui.get_contact_name(), &ui.get_contact_kind(), &ui.get_contact_phone(), &ui.get_contact_balance()) };
             match result {
-                Ok(()) => { ui.set_contact_name("".into()); ui.set_contact_phone("".into()); ui.set_contact_balance("0".into()); set_status(&ui, "طرف‌حساب ثبت شد"); }
+                Ok(()) => { ui.set_contact_name("".into()); ui.set_contact_phone("".into()); ui.set_contact_balance("0".into()); ui.set_edit_contact_id(0); set_status(&ui, "اطلاعات طرف‌حساب ذخیره شد"); }
                 Err(e) => set_status(&ui, format!("خطا: {e}")),
             }
             if let Err(e) = refresh_ui(&ui, &db.borrow()) { set_status(&ui, format!("خطای تازه‌سازی: {e}")); }
@@ -596,9 +621,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak = ui.as_weak(); let db = db.clone();
         ui.on_save_product_requested(move || if let Some(ui) = weak.upgrade() {
-            let result = save_product(&db.borrow(), &ui.get_product_name(), &ui.get_product_code(), &ui.get_product_barcode(), &ui.get_product_quantity(), &ui.get_product_buy_price(), &ui.get_product_sell_price(), &ui.get_product_minimum());
+            let result = if ui.get_edit_product_id() > 0 { update_product(&db.borrow(), ui.get_edit_product_id() as i64, &ui.get_product_name(), &ui.get_product_code(), &ui.get_product_barcode(), &ui.get_product_buy_price(), &ui.get_product_sell_price(), &ui.get_product_minimum()) } else { save_product(&db.borrow(), &ui.get_product_name(), &ui.get_product_code(), &ui.get_product_barcode(), &ui.get_product_quantity(), &ui.get_product_buy_price(), &ui.get_product_sell_price(), &ui.get_product_minimum()) };
             match result {
-                Ok(()) => { ui.set_product_name("".into()); ui.set_product_code("".into()); ui.set_product_barcode("".into()); ui.set_product_quantity("0".into()); ui.set_product_buy_price("0".into()); ui.set_product_sell_price("0".into()); ui.set_product_minimum("0".into()); set_status(&ui, "کالا ثبت شد"); }
+                Ok(()) => { ui.set_product_name("".into()); ui.set_product_code("".into()); ui.set_product_barcode("".into()); ui.set_product_quantity("0".into()); ui.set_product_buy_price("0".into()); ui.set_product_sell_price("0".into()); ui.set_product_minimum("0".into()); ui.set_edit_product_id(0); set_status(&ui, "اطلاعات کالا ذخیره شد"); }
                 Err(e) => set_status(&ui, format!("خطا: {e}")),
             }
             if let Err(e) = refresh_ui(&ui, &db.borrow()) { set_status(&ui, format!("خطای تازه‌سازی: {e}")); }
