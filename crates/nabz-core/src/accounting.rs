@@ -125,6 +125,160 @@ pub fn update_product(connection: &Connection, id: i64, input: &ProductInput) ->
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InvoiceLineInput {
+    /// Product name, internal code, or barcode.
+    pub product_lookup: String,
+    pub quantity: i64,
+    pub unit_price: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InvoiceInput {
+    pub kind: String,
+    pub contact_name: String,
+    pub date: String,
+    pub discount: i64,
+    pub paid: i64,
+    pub method: String,
+    pub notes: String,
+    pub lines: Vec<InvoiceLineInput>,
+}
+
+/// Create a sale or purchase, update inventory, and record an immediate sale
+/// receipt atomically. This is the single invoice policy for both frontends.
+pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Result<i64, String> {
+    if !["sale", "purchase"].contains(&input.kind.as_str()) {
+        return Err("نوع فاکتور معتبر نیست".into());
+    }
+    if input.lines.is_empty() {
+        return Err("حداقل یک ردیف کالا وارد کنید".into());
+    }
+    if input.discount < 0 || input.paid < 0 {
+        return Err("تخفیف و مبلغ دریافتی نمی‌توانند منفی باشند".into());
+    }
+
+    let mut subtotal = 0_i64;
+    let mut normalized = Vec::with_capacity(input.lines.len());
+    for (index, line) in input.lines.iter().enumerate() {
+        let lookup = line.product_lookup.trim();
+        if lookup.is_empty() || line.quantity <= 0 || line.unit_price < 0 {
+            return Err(format!("ردیف {}: کالا، تعداد مثبت و قیمت نامنفی الزامی است", index + 1));
+        }
+        let line_total = line.quantity.checked_mul(line.unit_price)
+            .ok_or_else(|| format!("ردیف {}: مبلغ بیش از حد بزرگ است", index + 1))?;
+        subtotal = subtotal.checked_add(line_total).ok_or("جمع فاکتور بیش از حد بزرگ است")?;
+        normalized.push((lookup.to_owned(), line.quantity, line.unit_price, line_total));
+    }
+    if input.discount > subtotal {
+        return Err("تخفیف از جمع فاکتور بیشتر است".into());
+    }
+    let total = subtotal.checked_sub(input.discount).ok_or("مبلغ نهایی نامعتبر است")?;
+    let paid = if input.kind == "sale" { input.paid } else { 0 };
+    if paid > total {
+        return Err("مبلغ دریافتی از مبلغ نهایی بیشتر است".into());
+    }
+
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let contact = input.contact_name.trim();
+    let contact_id: Option<i64> = if contact.is_empty() {
+        None
+    } else {
+        tx.query_row(
+            "SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",
+            [contact], |row| row.get(0)
+        ).optional().map_err(|e| e.to_string())?
+    };
+    if input.kind == "purchase" && contact_id.is_none() {
+        return Err("برای خرید، تأمین‌کنندهٔ ثبت‌شده الزامی است".into());
+    }
+    if input.kind == "sale" && !contact.is_empty() && contact_id.is_none() {
+        return Err("مشتری پیدا نشد؛ ابتدا طرف‌حساب را ثبت کنید".into());
+    }
+    if let Some(id) = contact_id {
+        let role: String = tx.query_row("SELECT kind FROM contacts WHERE id=?1", [id], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        if input.kind == "sale" && role == "supplier" {
+            return Err("برای فاکتور فروش، مشتری انتخاب کنید".into());
+        }
+        if input.kind == "purchase" && role == "customer" {
+            return Err("برای فاکتور خرید، تأمین‌کننده انتخاب کنید".into());
+        }
+    }
+    if input.kind == "sale" && paid < total && contact_id.is_none() {
+        return Err("فروش گذری باید کامل تسویه شود".into());
+    }
+
+    let number: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(number),1000)+1 FROM invoices", [], |row| row.get(0)
+    ).map_err(|e| e.to_string())?;
+    let contact_label = if contact.is_empty() { "مشتری گذری" } else { contact };
+    tx.execute(
+        "INSERT INTO invoices(number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes)
+         VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),date('now','localtime')),?6,?7,?8,?9,?10)",
+        params![number, input.kind, contact_id, contact_label, input.date.trim(), subtotal,
+            input.discount, total, paid, input.notes.trim()],
+    ).map_err(|e| e.to_string())?;
+    let invoice_id = tx.last_insert_rowid();
+
+    for (lookup, quantity, unit_price, line_total) in normalized {
+        let product: Option<(i64, i64, String)> = tx.query_row(
+            "SELECT id,quantity,name FROM products
+             WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
+            [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        ).optional().map_err(|e| e.to_string())?;
+        let (product_id, item_name) = if let Some((id, stock, name)) = product {
+            if input.kind == "sale" {
+                if stock < quantity {
+                    return Err(format!("موجودی «{lookup}» کافی نیست؛ موجودی فعلی: {stock}"));
+                }
+                let changed = tx.execute(
+                    "UPDATE products SET quantity=quantity-?1 WHERE id=?2 AND quantity>=?1",
+                    params![quantity, id],
+                ).map_err(|e| e.to_string())?;
+                if changed != 1 {
+                    return Err(format!("موجودی «{lookup}» کافی نیست"));
+                }
+            } else {
+                tx.execute(
+                    "UPDATE products SET quantity=quantity+?1,buy_price=?2 WHERE id=?3",
+                    params![quantity, unit_price, id],
+                ).map_err(|e| e.to_string())?;
+            }
+            (id, name)
+        } else if input.kind == "purchase" {
+            let code = format!("AUTO-{}", tx.query_row(
+                "SELECT COALESCE(MAX(id),0)+1 FROM products", [], |row| row.get::<_, i64>(0)
+            ).map_err(|e| e.to_string())?);
+            tx.execute(
+                "INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)",
+                params![lookup, code, unit_price, quantity],
+            ).map_err(|e| e.to_string())?;
+            (tx.last_insert_rowid(), lookup)
+        } else {
+            return Err(format!("کالای «{lookup}» در انبار پیدا نشد؛ ابتدا کالا را ثبت کنید"));
+        };
+        tx.execute(
+            "INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total)
+             VALUES(?1,?2,?3,?4,?5,?6)",
+            params![invoice_id, product_id, item_name, quantity, unit_price, line_total],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    if input.kind == "sale" && paid > 0 {
+        tx.execute(
+            "INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes)
+             VALUES('receipt',?1,?2,?3,COALESCE(NULLIF(?4,''),'cash'),
+                    COALESCE(NULLIF(?5,''),date('now','localtime')),?6)",
+            params![contact_id, contact_label, paid, input.method.trim(), input.date.trim(),
+                format!("دریافت بابت فاکتور فروش #{number}")],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(invoice_id)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaymentInput {
     pub kind: String,
     pub contact_name: String,
@@ -248,6 +402,65 @@ mod tests {
         assert!(create_contact(&connection, &input).unwrap_err().contains("باید صفر"));
     }
 
+
+
+    #[test]
+    fn shared_invoice_service_records_sale_and_decrements_stock_atomically() {
+        let mut connection = database();
+        let contact_id = create_contact(&connection, &ContactInput {
+            name: "مشتری فاکتور".into(), kind: "customer".into(),
+            phone: String::new(), opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        let product_id = create_product(&connection, &ProductInput {
+            name: "کالای فاکتور".into(), code: "INV-1".into(), barcode: "991".into(),
+            buy_price: 40, sell_price: 100, quantity: 5, min_quantity: 1,
+        }).unwrap();
+        let invoice_id = create_invoice(&mut connection, &InvoiceInput {
+            kind: "sale".into(), contact_name: "مشتری فاکتور".into(),
+            date: "2026-01-05".into(), discount: 10, paid: 50,
+            method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "INV-1".into(), quantity: 1, unit_price: 100 }],
+        }).unwrap();
+        let (total, paid): (i64, i64) = connection.query_row(
+            "SELECT total,paid FROM invoices WHERE id=?1", [invoice_id],
+            |r| Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        let stock: i64 = connection.query_row(
+            "SELECT quantity FROM products WHERE id=?1", [product_id], |r| r.get(0)
+        ).unwrap();
+        let receipts: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM payments WHERE kind='receipt' AND amount=50", [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!((total, paid, stock, receipts), (90, 50, 4, 1));
+        assert_eq!(contact_id > 0, true);
+    }
+
+    #[test]
+    fn shared_invoice_service_rolls_back_all_lines_when_later_line_has_insufficient_stock() {
+        let mut connection = database();
+        let first = create_product(&connection, &ProductInput {
+            name: "موجود".into(), code: "ROLL-1".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 5, min_quantity: 0,
+        }).unwrap();
+        create_product(&connection, &ProductInput {
+            name: "ناموجود".into(), code: "ROLL-2".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 1, min_quantity: 0,
+        }).unwrap();
+        let input = InvoiceInput {
+            kind: "sale".into(), contact_name: String::new(), date: String::new(),
+            discount: 0, paid: 40, method: "cash".into(), notes: String::new(),
+            lines: vec![
+                InvoiceLineInput { product_lookup: "ROLL-1".into(), quantity: 2, unit_price: 20 },
+                InvoiceLineInput { product_lookup: "ROLL-2".into(), quantity: 2, unit_price: 20 },
+            ],
+        };
+        assert!(create_invoice(&mut connection, &input).is_err());
+        let (stock, invoices): (i64, i64) = connection.query_row(
+            "SELECT quantity,(SELECT COUNT(*) FROM invoices) FROM products WHERE id=?1",
+            [first], |r| Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        assert_eq!((stock, invoices), (5, 0));
+    }
 
     #[test]
     fn shared_payment_service_allocates_opening_balance_then_oldest_invoice() {
