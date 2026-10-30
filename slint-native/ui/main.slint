@@ -85,6 +85,7 @@ export component MainWindow inherits Window {
 
     in-out property <string> settings-store-name: "فروشگاه من";
     in-out property <string> settings-currency: "تومان";
+    in-out property <bool> restore-confirmation: false;
 
     callback refresh-requested();
     callback save-contact-requested();
@@ -98,6 +99,8 @@ export component MainWindow inherits Window {
     callback save-payment-requested();
     callback save-settings-requested();
     callback switch-ui-requested();
+    callback create-backup-requested();
+    callback restore-backup-requested();
 
     VerticalLayout {
         spacing: 0px;
@@ -320,6 +323,21 @@ export component MainWindow inherits Window {
                             LineEdit { text <=> root.settings-currency; placeholder-text: "واحد پول"; }
                             Button { text: "ذخیرهٔ تنظیمات"; clicked => { root.save-settings-requested(); } }
                             Text { text: "تنظیمات این نسخه در SQLite ذخیره می‌شوند."; color: #667085; font-size: 13px; horizontal-alignment: right; }
+                            Rectangle { height: 1px; background: #e4e7ec; }
+                            Text { text: "پشتیبان کامل پایگاه داده"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: "تمام جدول‌ها، فاکتورها، برگشت‌ها، پرداخت‌ها و تنظیمات در یک فایل SQLite ذخیره می‌شوند."; color: #667085; font-size: 12px; wrap: word-wrap; horizontal-alignment: right; }
+                            Button { text: "ساخت نسخهٔ پشتیبان"; clicked => { root.create-backup-requested(); } }
+                            Button {
+                                text: root.restore-confirmation ? "برای تأیید، دوباره کلیک کن" : "بازیابی آخرین نسخهٔ پشتیبان";
+                                clicked => {
+                                    if root.restore-confirmation {
+                                        root.restore-confirmation = false;
+                                        root.restore-backup-requested();
+                                    } else {
+                                        root.restore-confirmation = true;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
