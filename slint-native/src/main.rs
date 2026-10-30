@@ -346,7 +346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let weak=ui.as_weak(); let db=db.clone();
         ui.on_save_inventory_adjustment_requested(move || if let Some(ui)=weak.upgrade() {
-            let result=nabz_core::accounting::adjust_inventory(&mut db.borrow_mut(),ui.get_adjustment_product_id() as i64,&parse_amount(&ui.get_adjustment_new_quantity()).unwrap_or(-1),&ui.get_adjustment_reason());
+            let result=nabz_core::accounting::adjust_inventory(&mut db.borrow_mut(),ui.get_adjustment_product_id() as i64,parse_amount(&ui.get_adjustment_new_quantity()).unwrap_or(-1),&ui.get_adjustment_reason());
             match result {
                 Ok(change)=>{set_status(&ui,format!("موجودی اصلاح شد: {} به {}؛ اختلاف {}؛ علت: {}",fmt_number(change.previous_quantity),fmt_number(change.new_quantity),fmt_number(change.delta),change.reason));ui.set_adjustment_product_id(0);ui.set_adjustment_new_quantity("0".into());ui.set_adjustment_reason("انبارگردانی".into());},
                 Err(e)=>set_status(&ui,format!("اصلاح موجودی انجام نشد: {e}"))
