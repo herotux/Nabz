@@ -480,9 +480,11 @@ mod tests {
         let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
         let stock:i64=connection.query_row("SELECT quantity FROM products WHERE code='OLD-1'",[],|r|r.get(0)).unwrap();
         let tables:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('purchase_returns','purchase_return_items','purchase_refunds')",[],|r|r.get(0)).unwrap();
-        assert_eq!(version,2);
+        assert_eq!(version,3);
         assert_eq!(stock,7);
         assert_eq!(tables,3);
+        let audit_table:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='inventory_adjustments'",[],|r|r.get(0)).unwrap();
+        assert_eq!(audit_table,1);
     }
 
     #[test]
