@@ -450,6 +450,22 @@ mod tests {
     }
 
     #[test]
+    fn version_one_database_migrates_purchase_return_tables_without_data_loss() {
+        let connection=Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute("INSERT INTO products(name,code,quantity) VALUES('موجودی قدیمی','OLD-1',7)",[]).unwrap();
+        connection.pragma_update(None,"user_version",1).unwrap();
+        connection.execute_batch("DROP TABLE purchase_refunds; DROP TABLE purchase_return_items; DROP TABLE purchase_returns;").unwrap();
+        initialize(&connection).unwrap();
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let stock:i64=connection.query_row("SELECT quantity FROM products WHERE code='OLD-1'",[],|r|r.get(0)).unwrap();
+        let tables:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('purchase_returns','purchase_return_items','purchase_refunds')",[],|r|r.get(0)).unwrap();
+        assert_eq!(version,2);
+        assert_eq!(stock,7);
+        assert_eq!(tables,3);
+    }
+
+    #[test]
     fn fresh_database_gets_shared_schema_and_version() {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
