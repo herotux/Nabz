@@ -630,6 +630,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     {
+        let weak=ui.as_weak(); let db=db.clone();
+        ui.on_edit_contact_requested(move |id| if let Some(ui)=weak.upgrade() {
+            let result=db.borrow().query_row("SELECT name,phone FROM contacts WHERE id=?1",[id as i64],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)));
+            match result { Ok((name,phone)) => { ui.set_edit_contact_id(id); ui.set_contact_name(name.into()); ui.set_contact_phone(phone.into()); set_status(&ui,"طرف‌حساب برای ویرایش بارگذاری شد؛ نوع و ماندهٔ اولیه حفظ می‌شوند"); }, Err(e)=>set_status(&ui,format!("خطا در بارگذاری طرف‌حساب: {e}")) }
+        });
+    }
+    {
+        let weak=ui.as_weak(); let db=db.clone();
+        ui.on_edit_product_requested(move |id| if let Some(ui)=weak.upgrade() {
+            let result=db.borrow().query_row("SELECT name,code,barcode,buy_price,sell_price,min_quantity,quantity FROM products WHERE id=?1",[id as i64],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?,r.get::<_,i64>(5)?,r.get::<_,i64>(6)?)));
+            match result { Ok((name,code,barcode,buy,sell,min,qty)) => { ui.set_edit_product_id(id); ui.set_product_name(name.into()); ui.set_product_code(code.into()); ui.set_product_barcode(barcode.into()); ui.set_product_buy_price(buy.to_string().into()); ui.set_product_sell_price(sell.to_string().into()); ui.set_product_minimum(min.to_string().into()); ui.set_product_quantity(qty.to_string().into()); set_status(&ui,"کالا برای ویرایش بارگذاری شد؛ موجودی فعلی حفظ می‌شود"); }, Err(e)=>set_status(&ui,format!("خطا در بارگذاری کالا: {e}")) }
+        });
+    }
+    {
         let weak = ui.as_weak(); let db = db.clone();
         ui.on_save_invoice_requested(move || if let Some(ui) = weak.upgrade() {
             let result = save_invoice_multi(&mut db.borrow_mut(), &ui.get_invoice_kind(), &ui.get_invoice_contact(), &ui.get_invoice_items_text(), &ui.get_invoice_discount(), &ui.get_invoice_paid(), &ui.get_invoice_method(), &ui.get_invoice_notes());
