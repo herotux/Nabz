@@ -10,6 +10,7 @@ on:
   pull_request:
     paths:
       - "slint-native/**"
+      - "crates/nabz-core/**"
       - ".github/workflows/slint-native-ci.yml"
   workflow_dispatch:
 
@@ -24,22 +25,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: slint-native
+          workspaces: |
+            slint-native
+            crates/nabz-core
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev libssl-dev pkg-config
-      - name: Check native UI
-        run: cargo check --manifest-path slint-native/Cargo.toml
       - name: Test shared core schema and migrations
         run: cargo test --manifest-path crates/nabz-core/Cargo.toml
+      - name: Check native UI
+        run: cargo check --manifest-path slint-native/Cargo.toml
       - name: Run native accounting and migration tests
         run: cargo test --manifest-path slint-native/Cargo.toml
       - name: Build release binary
         run: cargo build --release --manifest-path slint-native/Cargo.toml
+      - name: Verify executable
+        run: test -s slint-native/target/release/nabz-slint
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: nabz-slint-linux-x86_64
           path: slint-native/target/release/nabz-slint
           if-no-files-found: error
+          retention-days: 14
