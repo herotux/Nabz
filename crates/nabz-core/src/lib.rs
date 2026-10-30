@@ -3,6 +3,8 @@
 //! Both Tauri and Slint open the same per-user database. Keep schema creation
 //! and migrations here so a UI switch never creates a second accounting ledger.
 
+pub mod accounting;
+
 use rusqlite::{backup::Backup, Connection, OpenFlags};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::path::{Path, PathBuf};
