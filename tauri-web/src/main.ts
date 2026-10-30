@@ -104,8 +104,8 @@ document.querySelectorAll<HTMLButtonElement>('[data-adjust-stock]').forEach(b=>b
  if(reason===null||reason.trim().length<3){notify('ثبت علت معتبر الزامی است.');return;}
  if(!confirm('موجودی «'+name+'» از '+money(current)+' به '+money(next)+' تغییر کند؟ این تغییر در سابقه انبار ثبت می‌شود.'))return;
  try{
-  const result=await invoke<{previous_quantity:number;new_quantity:number;delta:number}>('adjust_inventory',{productId:id,newQuantity:next,reason});
-  notify('موجودی اصلاح شد: '+money(result.previous_quantity)+' ← '+money(result.new_quantity)+'؛ تغییر '+(result.delta>0?'+':'')+money(result.delta));
+  const result=await invoke<[number,number,number]>('adjust_inventory',{productId:id,newQuantity:next,reason});
+  notify('موجودی اصلاح شد: '+money(result[0])+' ← '+money(result[1])+'؛ تغییر '+(result[2]>0?'+':'')+money(result[2]));
   render();
  }catch(e){notify('اصلاح موجودی انجام نشد: '+e);}
 }));
