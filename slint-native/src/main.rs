@@ -285,7 +285,9 @@ fn return_sale_items(c: &mut Connection, invoice_id: i64, rows_text: &str, refun
             quantity: parse_amount(parts[1])?,
         });
     }
-    nabz_core::accounting::return_sale_items(c, invoice_id, &lines, refund_method)
+    let kind:String=c.query_row("SELECT kind FROM invoices WHERE id=?1 AND voided=0",[invoice_id],|r|r.get(0)).map_err(|e|e.to_string())?;
+    if kind=="purchase" { nabz_core::accounting::return_purchase_items(c,invoice_id,&lines,refund_method) }
+    else { nabz_core::accounting::return_sale_items(c,invoice_id,&lines,refund_method) }
 }
 
 fn void_invoice(c: &mut Connection, invoice_id: i64) -> Result<(), String> {
