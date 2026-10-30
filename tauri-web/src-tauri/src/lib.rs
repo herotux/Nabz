@@ -306,6 +306,10 @@ mod accounting_tests {
   assert!(validate_backup(&missing_fields).is_err());
   let empty=json!({"format":"nabz-backup-v1","contacts":[],"products":[],"invoices":[],"invoice_items":[],"payments":[],"settings":[]});
   assert!(validate_backup(&empty).is_ok());
+  let bad_adjustment=json!({"format":"nabz-backup-v1","contacts":[],"products":[],"invoices":[],"invoice_items":[],"payments":[],"settings":[],"inventory_adjustments":[{"id":1,"product_id":1,"product_name":"Pen","previous_quantity":4,"new_quantity":4,"delta":0,"reason":"انبارگردانی","created_at":"2026-10-31"}]});
+  assert!(validate_backup(&bad_adjustment).is_err());
+  let old_backup_without_audit=json!({"format":"nabz-backup-v1","contacts":[],"products":[],"invoices":[],"invoice_items":[],"payments":[],"settings":[]});
+  assert!(validate_backup(&old_backup_without_audit).is_ok());
   let wrong_kind=json!({"format":"nabz-backup-v1","contacts":[],"products":[],"invoices":[],"invoice_items":[],"payments":[{"id":1,"kind":"cash","contact_id":null,"contact_name":"A","amount":5,"method":"cash","payment_date":"2026-10-28","notes":""}],"settings":[]});
   assert!(validate_backup(&wrong_kind).is_err());
  }
