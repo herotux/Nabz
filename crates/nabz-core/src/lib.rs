@@ -186,9 +186,14 @@ pub fn restore_database_from(connection: &mut Connection, source_path: impl AsRe
         .map_err(|e| format!("فایل پشتیبان باز نشد: {e}"))?;
     validate_restore_source(&source)?;
 
-    let safety_dir = database_path().parent()
-        .ok_or("مسیر پایگاه داده معتبر نیست")?
-        .join("backups");
+    let canonical_db = database_path();
+    let safety_dir = if canonical_db.exists() {
+        canonical_db.parent().ok_or("مسیر پایگاه داده معتبر نیست")?.join("backups")
+    } else {
+        // In-memory and isolated tests must never write into a developer's real
+        // Nabz data directory.
+        std::env::temp_dir().join("nabz-pre-restore-backups")
+    };
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?.as_nanos();
     let safety_path = safety_dir.join(format!("pre-restore-{stamp}.sqlite3"));
@@ -524,6 +529,32 @@ mod tests {
 
         drop(target);
         drop(source);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn restore_rejects_unrelated_sqlite_file_without_changing_live_data() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "nabz-invalid-restore-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let invalid_path = root.join("not-nabz.sqlite3");
+        let invalid = Connection::open(&invalid_path).unwrap();
+        invalid.execute("CREATE TABLE unrelated(value TEXT)", []).unwrap();
+        drop(invalid);
+
+        let mut live = Connection::open_in_memory().unwrap();
+        initialize(&live).unwrap();
+        live.execute("INSERT INTO contacts(name,kind) VALUES('Keep me','customer')", []).unwrap();
+
+        let error = restore_database_from(&mut live, &invalid_path).unwrap_err();
+        let name: String = live.query_row("SELECT name FROM contacts LIMIT 1", [], |r| r.get(0)).unwrap();
+        assert!(error.contains("پایگاه دادهٔ معتبر نبض نیست"));
+        assert_eq!(name, "Keep me");
+
+        drop(live);
         std::fs::remove_dir_all(root).unwrap();
     }
 
