@@ -117,6 +117,29 @@ fn save_payment_with_connection(payload:Value,c:&mut Connection)->Result<i64,Str
  })
 }
 
+fn return_sale_items_with_connection(invoice_id:i64,payload:Value,c:&mut Connection)->Result<(i64,i64),String>{
+ let raw=payload.get("items").or_else(||payload.get("lines"))
+  .and_then(Value::as_array).ok_or("فهرست اقلام برگشتی معتبر نیست")?;
+ let mut lines=Vec::with_capacity(raw.len());
+ for (index,item) in raw.iter().enumerate(){
+  let lookup=item.get("item").or_else(||item.get("product_lookup"))
+   .and_then(Value::as_str).unwrap_or("").trim().to_owned();
+  let quantity=item.get("qty").or_else(||item.get("quantity"))
+   .and_then(Value::as_i64).or_else(||item.get("qty").and_then(Value::as_str).and_then(|s|s.parse().ok())).unwrap_or(0);
+  if lookup.is_empty() || quantity<=0 {
+   return Err(format!("ردیف {}: کالا و تعداد برگشتی مثبت الزامی است",index+1));
+  }
+  lines.push(nabz_core::accounting::ReturnLineInput{product_lookup:lookup,quantity});
+ }
+ nabz_core::accounting::return_sale_items(c,invoice_id,&lines,&text(&payload,"refund_method"))
+}
+
+#[tauri::command]
+fn return_sale_items(invoice_id:i64,payload:Value,db:State<'_,Db>)->Result<(i64,i64),String>{
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ return_sale_items_with_connection(invoice_id,payload,&mut c)
+}
+
 #[derive(Serialize)]
 struct SalesTrendPoint { date:String, total:i64 }
 #[tauri::command]
@@ -219,7 +242,7 @@ fn switch_to_slint(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,save_setting,get_settings,sales_trend,switch_to_slint,create_database_backup,restore_latest_database_backup]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,return_sale_items,save_setting,get_settings,sales_trend,switch_to_slint,create_database_backup,restore_latest_database_backup]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
@@ -270,6 +293,32 @@ mod accounting_tests {
   assert_eq!(scalar(&c,"SELECT paid FROM invoices WHERE kind='sale'"),50);
   assert_eq!(scalar(&c,"SELECT SUM(amount) FROM payments WHERE kind='receipt'"),50);
   assert_eq!(scalar(&c,"SELECT total-paid FROM invoices WHERE kind='sale'"),50);
+ }
+
+ #[test]
+ fn tauri_return_command_adapter_restores_stock_and_records_cash_refund() {
+  let mut c=database();
+  save_invoice_with_connection(sale("Ali","paid",0,2,50,0),&mut c).unwrap();
+  let invoice_id=scalar(&c,"SELECT id FROM invoices LIMIT 1");
+  let result=return_sale_items_with_connection(invoice_id,json!({
+   "items":[{"item":"PEN","qty":1}],"refund_method":"cash"
+  }),&mut c).unwrap();
+  assert_eq!(result,(50,50));
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),9);
+  assert_eq!(scalar(&c,"SELECT total FROM invoices WHERE id=1"),50);
+  assert_eq!(scalar(&c,"SELECT amount FROM sales_refunds WHERE invoice_id=1"),50);
+ }
+
+ #[test]
+ fn tauri_return_command_adapter_rejects_invalid_lines_without_mutation() {
+  let mut c=database();
+  save_invoice_with_connection(sale("Ali","credit",0,2,50,0),&mut c).unwrap();
+  let invoice_id=scalar(&c,"SELECT id FROM invoices LIMIT 1");
+  assert!(return_sale_items_with_connection(invoice_id,json!({
+   "items":[{"item":"PEN","qty":3}]
+  }),&mut c).is_err());
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),8);
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM sales_returns"),0);
  }
 
  #[test]
