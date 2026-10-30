@@ -52,12 +52,7 @@ fn fmt_number(value: i64) -> String {
 fn money(value: i64) -> String { format!("{} تومان", fmt_number(value)) }
 
 fn normalize_kind(raw: &str) -> Result<&'static str, String> {
-    match raw.trim() {
-        "customer" | "مشتری" => Ok("customer"),
-        "supplier" | "تأمین‌کننده" | "تامین‌کننده" => Ok("supplier"),
-        "both" | "هر دو" | "مشتری و تأمین‌کننده" => Ok("both"),
-        _ => Err("نوع طرف‌حساب معتبر نیست".into())
-    }
+    nabz_core::normalize_contact_kind(raw).ok_or_else(|| "نوع طرف‌حساب معتبر نیست".into())
 }
 
 fn normalize_invoice_search(input: &str) -> String {
