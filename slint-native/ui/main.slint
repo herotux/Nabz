@@ -63,6 +63,7 @@ export component MainWindow inherits Window {
     in-out property <int> adjustment-product-id: 0;
     in-out property <string> adjustment-new-quantity: "0";
     in-out property <string> adjustment-reason: "انبارگردانی";
+    in-out property <string> inventory-adjustment-history: "هنوز سابقه‌ای ثبت نشده است.";
 
     in-out property <string> invoice-kind: "sale";
     in-out property <string> invoice-search: "";
@@ -238,6 +239,7 @@ export component MainWindow inherits Window {
                                     Button { text: "ثبت اصلاح موجودی"; enabled: root.adjustment-product-id > 0; clicked => { root.save-inventory-adjustment-requested(); } }
                                 }
                                 Text { text: "موجودی قبل و بعد، اختلاف و علت تغییر به‌صورت دائمی در سابقه ثبت می‌شود."; color: #667085; font-size: 12px; horizontal-alignment: right; }
+                                Text { text: root.inventory-adjustment-history; color: #475467; font-size: 12px; horizontal-alignment: right; wrap: word-wrap; }
                             }
                         }
                         Rectangle {
