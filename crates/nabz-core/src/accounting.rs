@@ -654,6 +654,68 @@ mod tests {
     }
 
     #[test]
+    fn shared_return_service_restores_stock_and_reduces_invoice_atomically() {
+        let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "مشتری برگشت".into(), kind: "customer".into(),
+            phone: String::new(), opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        let product_id = create_product(&connection, &ProductInput {
+            name: "کالای برگشتی".into(), code: "RET-1".into(), barcode: "RET123".into(),
+            buy_price: 40, sell_price: 100, quantity: 10, min_quantity: 0,
+        }).unwrap();
+        let invoice_id = create_invoice(&mut connection, &InvoiceInput {
+            kind: "sale".into(), contact_name: "مشتری برگشت".into(), date: "2026-10-30".into(),
+            discount: 20, paid: 0, method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "RET-1".into(), quantity: 3, unit_price: 100 }],
+        }).unwrap();
+        let result = return_sale_items(&mut connection, invoice_id, &[ReturnLineInput {
+            product_lookup: "RET123".into(), quantity: 1,
+        }], "cash").unwrap();
+        let (stock, total, returned): (i64, i64, i64) = connection.query_row(
+            "SELECT p.quantity,i.total,(SELECT COALESCE(SUM(quantity),0) FROM sales_return_items WHERE invoice_item_id=1)
+             FROM products p JOIN invoices i ON i.id=?1 WHERE p.id=?2",
+            params![invoice_id, product_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        ).unwrap();
+        assert_eq!(result, (93, 0));
+        assert_eq!((stock, total, returned), (8, 180, 1));
+        let over_return = return_sale_items(&mut connection, invoice_id, &[ReturnLineInput {
+            product_lookup: "RET-1".into(), quantity: 3,
+        }], "cash");
+        assert!(over_return.is_err());
+        let stock_after: i64 = connection.query_row(
+            "SELECT quantity FROM products WHERE id=?1", [product_id], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(stock_after, 8);
+    }
+
+    #[test]
+    fn shared_void_service_preserves_invoice_audit_and_restores_sale_stock() {
+        let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "مشتری ابطال".into(), kind: "customer".into(),
+            phone: String::new(), opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        let product_id = create_product(&connection, &ProductInput {
+            name: "کالای ابطال".into(), code: "VOID-1".into(), barcode: String::new(),
+            buy_price: 30, sell_price: 60, quantity: 5, min_quantity: 0,
+        }).unwrap();
+        let invoice_id = create_invoice(&mut connection, &InvoiceInput {
+            kind: "sale".into(), contact_name: "مشتری ابطال".into(), date: String::new(),
+            discount: 0, paid: 0, method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "VOID-1".into(), quantity: 2, unit_price: 60 }],
+        }).unwrap();
+        void_invoice(&mut connection, invoice_id).unwrap();
+        let (stock, voided, items): (i64, i64, i64) = connection.query_row(
+            "SELECT p.quantity,i.voided,(SELECT COUNT(*) FROM invoice_items WHERE invoice_id=i.id)
+             FROM products p JOIN invoices i ON i.id=?1 WHERE p.id=?2",
+            params![invoice_id, product_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        ).unwrap();
+        assert_eq!((stock, voided, items), (5, 1, 1));
+        assert!(void_invoice(&mut connection, invoice_id).is_err());
+    }
+
+    #[test]
     fn shared_payment_service_allocates_opening_balance_then_oldest_invoice() {
         let mut connection = database();
         let contact = ContactInput {
