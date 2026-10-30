@@ -656,7 +656,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak = ui.as_weak();
         ui.on_switch_ui_requested(move || {
             match nabz_core::launch_frontend(nabz_core::Frontend::Tauri) {
-                Ok(_child) => std::process::exit(0),
+                Ok(_child) => {
+                    if let Err(error) = slint::quit_event_loop() {
+                        if let Some(ui) = weak.upgrade() {
+                            set_status(&ui, format!("رابط مقصد اجرا شد؛ بستن رابط فعلی ناموفق بود: {error}"));
+                        }
+                    }
+                }
                 Err(error) => {
                     if let Some(ui) = weak.upgrade() {
                         set_status(&ui, error);
