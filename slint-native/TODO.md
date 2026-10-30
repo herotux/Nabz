@@ -49,7 +49,7 @@ Updated: 2026-10-30
 ## Priority 3 — record management
 - [x] Add database-backed search/filter for contacts (name/phone/type), products (name/code/barcode), and payments (contact/method/notes/date).
 - [x] Add invoice search by number, contact, and notes; filter all/sales/purchases/voided invoices.
-- [ ] Add edit/delete flows with confirmations and accounting-safe restrictions.
+- [x] Add edit flows for contacts and products with duplicate validation; preserve contact role/opening balance and product stock during edits.\n- [ ] Add audited soft-delete/archive flows; hard deletion must remain blocked for records referenced by invoices, invoice items, or payments.
 - [ ] Add barcode lookup and USB HID scanner workflow.
 - [ ] Add keyboard-first navigation and clear validation errors.
 
