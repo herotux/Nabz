@@ -1,0 +1,9 @@
+[package]
+name = "nabz-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared accounting database and business foundation for Nabz frontends"
+license = "MIT"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
