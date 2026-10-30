@@ -92,18 +92,24 @@ pub fn backup_database_to(connection: &Connection, destination: impl AsRef<Path>
     if let Some(parent) = destination.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("ساخت پوشهٔ پشتیبان ناموفق بود: {e}"))?;
     }
-    let mut output = Connection::open(destination)
-        .map_err(|e| format!("ساخت فایل پشتیبان ناموفق بود: {e}"))?;
-    let backup = Backup::new(connection, &mut output).map_err(|e| e.to_string())?;
-    backup.run_to_completion(128, Duration::from_millis(10), None)
-        .map_err(|e| format!("تهیهٔ نسخهٔ پشتیبان ناموفق بود: {e}"))?;
-    drop(backup);
-    let integrity: String = output.query_row("PRAGMA integrity_check", [], |row| row.get(0))
-        .map_err(|e| e.to_string())?;
-    if integrity != "ok" {
-        return Err(format!("اعتبارسنجی نسخهٔ پشتیبان ناموفق بود: {integrity}"));
+    let result = (|| -> Result<(), String> {
+        let mut output = Connection::open(destination)
+            .map_err(|e| format!("ساخت فایل پشتیبان ناموفق بود: {e}"))?;
+        let backup = Backup::new(connection, &mut output).map_err(|e| e.to_string())?;
+        backup.run_to_completion(128, Duration::from_millis(10), None)
+            .map_err(|e| format!("تهیهٔ نسخهٔ پشتیبان ناموفق بود: {e}"))?;
+        drop(backup);
+        let integrity: String = output.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        if integrity != "ok" {
+            return Err(format!("اعتبارسنجی نسخهٔ پشتیبان ناموفق بود: {integrity}"));
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(destination);
     }
-    Ok(())
+    result
 }
 
 /// Store a timestamped full-database backup in the shared Nabz data directory.
