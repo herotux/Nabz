@@ -487,36 +487,10 @@ fn void_invoice(c: &mut Connection, invoice_id: i64) -> Result<(), String> {
 }
 
 fn save_payment(c: &mut Connection, kind: &str, contact: &str, amount_text: &str, method: &str, notes: &str) -> Result<(), String> {
-    let amount = parse_amount(amount_text)?;
-    let contact = contact.trim();
-    if !["receipt","payment"].contains(&kind) || contact.is_empty() || amount <= 0 { return Err("طرف‌حساب و مبلغ مثبت الزامی است".into()); }
-    let tx = c.transaction().map_err(|e| e.to_string())?;
-    let cid: i64 = tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1", [contact], |r| r.get(0)).optional().map_err(|e| e.to_string())?.ok_or("طرف‌حساب ثبت‌شده‌ای با این نام پیدا نشد")?;
-    let role: String = tx.query_row("SELECT kind FROM contacts WHERE id=?1", [cid], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if kind == "receipt" && role == "supplier" { return Err("برای دریافت، مشتری انتخاب کنید".into()); }
-    if kind == "payment" && role == "customer" { return Err("برای پرداخت، تأمین‌کننده انتخاب کنید".into()); }
-    let invoice_kind = if kind == "receipt" { "sale" } else { "purchase" };
-    let invoice_outstanding: i64 = tx.query_row("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2 AND voided=0", params![cid,invoice_kind], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let opening: i64 = tx.query_row("SELECT opening_balance FROM contacts WHERE id=?1", [cid], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0_i64);
-    let outstanding = invoice_outstanding.checked_add(opening).ok_or("ماندهٔ حساب بیش از حد بزرگ است")?;
-    if amount > outstanding { return Err(format!("مبلغ از ماندهٔ قابل تخصیص بیشتر است: {}", money(outstanding))); }
-    tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),?6)", params![kind,cid,contact,amount,method.trim(),notes.trim()]).map_err(|e| e.to_string())?;
-    let mut remaining = amount.min(opening);
-    if remaining > 0 { tx.execute("UPDATE contacts SET opening_balance=opening_balance-?1 WHERE id=?2", params![remaining,cid]).map_err(|e| e.to_string())?; }
-    let mut st = tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_id=?1 AND kind=?2 AND voided=0 AND paid<total ORDER BY invoice_date,id").map_err(|e| e.to_string())?;
-    let rows = st.query_map(params![cid,invoice_kind], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e| e.to_string())?;
-    let invoices = rows.collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())?;
-    drop(st);
-    for (id,total,paid) in invoices {
-        if remaining >= amount { break; }
-        let applied = (amount - remaining).min(total-paid);
-        if applied > 0 {
-            tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2", params![applied,id]).map_err(|e| e.to_string())?;
-            remaining += applied;
-        }
-    }
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+    nabz_core::accounting::record_payment(c, &nabz_core::accounting::PaymentInput {
+        kind: kind.to_owned(), contact_name: contact.to_owned(), amount: parse_amount(amount_text)?,
+        method: method.to_owned(), date: String::new(), notes: notes.to_owned(),
+    }).map(|_| ())
 }
 
 fn set_status(ui: &MainWindow, message: impl Into<SharedString>) {
