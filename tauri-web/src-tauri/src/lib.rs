@@ -14,14 +14,7 @@ struct ProductRecord { id:i64, name:String, code:String, quantity:i64, buy_price
 
 fn text(v:&Value,k:&str)->String { v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned() }
 fn num(v:&Value,k:&str)->i64 { v.get(k).and_then(|x|x.as_i64().or_else(||x.as_str().and_then(|s|s.replace(',',"").replace('٬',"").parse().ok()))).unwrap_or(0) }
-fn normalize_contact_kind(raw:&str)->Option<&'static str>{
- match raw.trim().to_lowercase().as_str(){
-  ""|"customer"|"مشتری"=>Some("customer"),
-  "supplier"|"vendor"|"تامین‌کننده"|"تأمین‌کننده"|"تامین کننده"|"تأمین کننده"=>Some("supplier"),
-  "both"|"customer_supplier"|"مشتری و تامین‌کننده"|"مشتری و تأمین‌کننده"|"مشتری و تامین کننده"|"مشتری و تأمین کننده"=>Some("both"),
-  _=>None
- }
-}
+fn normalize_contact_kind(raw:&str)->Option<&'static str>{ nabz_core::normalize_contact_kind(raw) }
 fn init(c:&Connection)->Result<(),String>{ nabz_core::initialize(c) }
 #[tauri::command] fn app_version()-> &'static str { env!("CARGO_PKG_VERSION") }
 #[tauri::command] fn db_status(db:State<'_,Db>)->Result<String,String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.query_row("PRAGMA database_list",[],|r|r.get(2)).map_err(|e|e.to_string())}
