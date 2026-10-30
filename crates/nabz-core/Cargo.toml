@@ -6,4 +6,4 @@ description = "Shared accounting database and business foundation for Nabz front
 license = "MIT"
 
 [dependencies]
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
