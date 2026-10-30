@@ -4,6 +4,11 @@ use std::{cell::RefCell, rc::Rc};
 
 slint::include_modules!();
 
+#[cfg(test)]
+fn migrate_database(c: &mut Connection) -> Result<(), String> {
+    nabz_core::initialize(c)
+}
+
 fn open_database() -> Result<Connection, String> {
     nabz_core::open_database()
 }
