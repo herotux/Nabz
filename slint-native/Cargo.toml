@@ -9,6 +9,7 @@ build = "build.rs"
 [dependencies]
 slint = "1.18.1"
 rusqlite = { version = "0.32", features = ["bundled"] }
+nabz-core = { path = "../crates/nabz-core" }
 
 [build-dependencies]
 slint-build = "1.18.1"
