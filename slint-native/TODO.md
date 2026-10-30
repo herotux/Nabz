@@ -2,6 +2,17 @@
 
 Updated: 2026-10-30
 
+## Shared product architecture
+- [x] Create a dedicated shared Rust core crate for database initialization and migrations.
+- [x] Make Tauri and Slint depend on the shared core crate.
+- [x] Align both Linux frontends on the same application data directory and database filename.
+- [ ] Move all accounting operations, validation, and read models from both frontends into `nabz-core`.
+- [ ] Add cross-frontend integration tests that write through one frontend/core API and read through the other.
+- [ ] Add a user-facing UI switch / preferred-UI setting without copying or relocating the database.
+- [ ] Add backup-before-migration and safe restore verification.
+- [ ] Define and test simultaneous-launch / write-conflict behavior.
+- [ ] Build and publish independently installable Tauri and Slint artifacts; uninstalling either must preserve shared data.
+
 ## Current CI / blocking issues
 - [x] Inspect the failed Slint Native UI CI run.
 - [x] Remove incompatible Window `min-width` / `min-height` constraints when explicit `width` / `height` are set.
@@ -68,6 +79,9 @@ Updated: 2026-10-30
 - [ ] Update the main README and release workflow only after native UI and accounting checks pass.
 
 ## Guardrails
+- Treat Nabz as one product with two independently distributable UIs, not two accounting implementations.
+- Keep the canonical database path and all schema migrations in `nabz-core`.
+- Do not claim business logic is fully shared until both frontends call shared core operations rather than duplicate SQL.
 - Keep `tauri-web-prototype` and `main` unchanged during the migration.
 - Never claim a workflow passed until the exact current commit has a green run.
 - Do not use a real accounting database for tests; use an isolated copy and keep a backup.
