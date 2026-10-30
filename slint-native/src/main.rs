@@ -158,51 +158,34 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
 }
 
 fn save_contact(c: &Connection, name: &str, kind: &str, phone: &str, balance_text: &str) -> Result<(), String> {
-    let name = name.trim();
-    if name.is_empty() { return Err("نام طرف‌حساب الزامی است".into()); }
     let kind = normalize_kind(kind)?;
     let balance = parse_amount(balance_text)?;
-    let count: i64 = c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE", [name], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if count > 0 { return Err("طرف‌حسابی با این نام قبلاً ثبت شده است".into()); }
-    if kind == "both" && balance != 0 { return Err("برای طرف‌حساب دوگانه، ماندهٔ اولیه فعلاً باید صفر باشد".into()); }
-    c.execute("INSERT INTO contacts(name,kind,phone,opening_balance) VALUES(?1,?2,?3,?4)", params![name, kind, phone.trim(), balance]).map_err(|e| e.to_string())?;
-    Ok(())
+    nabz_core::accounting::create_contact(c, &nabz_core::accounting::ContactInput {
+        name: name.to_owned(), kind: kind.to_owned(), phone: phone.to_owned(),
+        opening_balance: balance, notes: String::new(),
+    }).map(|_| ())
 }
 
 
 fn update_contact(c: &Connection, id: i64, name: &str, phone: &str) -> Result<(), String> {
-    let name = name.trim();
-    if id <= 0 || name.is_empty() { return Err("شناسه و نام طرف‌حساب معتبر نیست".into()); }
-    let exists: i64 = c.query_row("SELECT COUNT(*) FROM contacts WHERE id=?1", [id], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if exists == 0 { return Err("طرف‌حساب موردنظر پیدا نشد".into()); }
-    let duplicate: i64 = c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE AND id<>?2", params![name,id], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if duplicate > 0 { return Err("طرف‌حساب دیگری با این نام وجود دارد".into()); }
-    c.execute("UPDATE contacts SET name=?1,phone=?2 WHERE id=?3", params![name,phone.trim(),id]).map_err(|e| e.to_string())?;
-    Ok(())
+    nabz_core::accounting::update_contact(c, id, name, phone)
 }
 
 fn update_product(c: &Connection, id: i64, name: &str, code: &str, barcode: &str, buy: &str, sell: &str, minimum: &str) -> Result<(), String> {
-    let name=name.trim(); let code=code.trim();
-    if id <= 0 || name.is_empty() || code.is_empty() { return Err("شناسه، نام و کد کالا معتبر نیست".into()); }
-    let buy=parse_amount(buy)?; let sell=parse_amount(sell)?; let minimum=parse_amount(minimum)?;
-    if buy < 0 || sell < 0 || minimum < 0 { return Err("قیمت‌ها و حداقل موجودی نمی‌توانند منفی باشند".into()); }
-    let exists: i64 = c.query_row("SELECT COUNT(*) FROM products WHERE id=?1", [id], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if exists == 0 { return Err("کالای موردنظر پیدا نشد".into()); }
-    c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,min_quantity=?6 WHERE id=?7",
-        params![name,code,barcode.trim(),buy,sell,minimum,id])
-        .map_err(|e| if e.to_string().contains("UNIQUE") { "کد کالا تکراری است".into() } else { e.to_string() })?;
-    Ok(())
+    let input = nabz_core::accounting::ProductInput {
+        name: name.to_owned(), code: code.to_owned(), barcode: barcode.to_owned(),
+        buy_price: parse_amount(buy)?, sell_price: parse_amount(sell)?, quantity: 0,
+        min_quantity: parse_amount(minimum)?,
+    };
+    nabz_core::accounting::update_product(c, id, &input)
 }
 
 fn save_product(c: &Connection, name: &str, code: &str, barcode: &str, qty: &str, buy: &str, sell: &str, minimum: &str) -> Result<(), String> {
-    let name = name.trim();
-    let code = code.trim();
-    if name.is_empty() || code.is_empty() { return Err("نام و کد کالا الزامی است".into()); }
-    let qty = parse_amount(qty)?; let buy = parse_amount(buy)?; let sell = parse_amount(sell)?; let minimum = parse_amount(minimum)?;
-    if qty < 0 || buy < 0 || sell < 0 || minimum < 0 { return Err("موجودی و قیمت‌ها نمی‌توانند منفی باشند".into()); }
-    c.execute("INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![name, code, barcode.trim(), buy, sell, qty, minimum])
-        .map_err(|e| if e.to_string().contains("UNIQUE") { "کد کالا تکراری است".into() } else { e.to_string() })?;
-    Ok(())
+    nabz_core::accounting::create_product(c, &nabz_core::accounting::ProductInput {
+        name: name.to_owned(), code: code.to_owned(), barcode: barcode.to_owned(),
+        quantity: parse_amount(qty)?, buy_price: parse_amount(buy)?, sell_price: parse_amount(sell)?,
+        min_quantity: parse_amount(minimum)?,
+    }).map(|_| ())
 }
 
 fn save_invoice(c: &mut Connection, kind: &str, contact: &str, item: &str, qty_text: &str, price_text: &str, discount_text: &str, paid_text: &str, method: &str, notes: &str) -> Result<(), String> {
