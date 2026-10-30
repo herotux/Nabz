@@ -264,6 +264,47 @@ mod tests {
     }
 
     #[test]
+    fn two_frontends_opening_the_canonical_file_share_one_ledger() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "nabz-shared-core-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let db_path = root.join(DATABASE_FILE);
+
+        let first_frontend = open_database_at(&db_path).unwrap();
+        first_frontend.execute(
+            "INSERT INTO contacts(name,kind) VALUES('Shared customer','customer')",
+            [],
+        ).unwrap();
+
+        // A second frontend process opens the same canonical file and sees
+        // the exact same record; it does not initialize a parallel ledger.
+        let second_frontend = open_database_at(&db_path).unwrap();
+        let count: i64 = second_frontend.query_row(
+            "SELECT COUNT(*) FROM contacts WHERE name='Shared customer'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(count, 1);
+
+        second_frontend.execute(
+            "INSERT INTO products(name,code) VALUES('Shared item','SHARED-1')",
+            [],
+        ).unwrap();
+        let product_count: i64 = first_frontend.query_row(
+            "SELECT COUNT(*) FROM products WHERE code='SHARED-1'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(product_count, 1);
+
+        drop(second_frontend);
+        drop(first_frontend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn rejects_a_database_from_a_newer_schema_without_mutating_it() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES('keep');").unwrap();
