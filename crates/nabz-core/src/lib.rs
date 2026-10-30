@@ -12,7 +12,7 @@ use std::process::{Child, Command};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz.webprototype";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// Normalize Persian and English contact roles consistently across frontends.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -431,6 +431,26 @@ fn migrate(connection: &Connection) -> Result<(), String> {
              );"
         ).map_err(|e|e.to_string())?;
         tx.pragma_update(None,"user_version",2).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;
+    }
+
+    if version < 3 {
+        let tx=connection.unchecked_transaction().map_err(|e|e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS inventory_adjustments(
+               id INTEGER PRIMARY KEY,
+               product_id INTEGER NOT NULL REFERENCES products(id),
+               product_name TEXT NOT NULL,
+               previous_quantity INTEGER NOT NULL CHECK(previous_quantity>=0),
+               new_quantity INTEGER NOT NULL CHECK(new_quantity>=0),
+               delta INTEGER NOT NULL CHECK(delta<>0),
+               reason TEXT NOT NULL CHECK(length(trim(reason))>=3),
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_inventory_adjustments_product_date
+               ON inventory_adjustments(product_id,created_at DESC);"
+        ).map_err(|e|e.to_string())?;
+        tx.pragma_update(None,"user_version",3).map_err(|e|e.to_string())?;
         tx.commit().map_err(|e|e.to_string())?;
     }
 
