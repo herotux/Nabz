@@ -15,12 +15,35 @@ fn database_path() -> PathBuf {
     data_home.join("com.herotux.nabz.webprototype").join("nabz.sqlite3")
 }
 
+fn migrate_database(c: &mut Connection) -> Result<(), String> {
+    let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if version < 1 {
+        let tx = c.transaction().map_err(|e| e.to_string())?;
+        let has_voided: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('invoices') WHERE name='voided'",
+            [], |r| r.get(0)
+        ).map_err(|e| e.to_string())?;
+        if has_voided == 0 {
+            tx.execute("ALTER TABLE invoices ADD COLUMN voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1))", [])
+                .map_err(|e| format!("افزودن وضعیت ابطال فاکتور ناموفق بود: {e}"))?;
+        }
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT '');
+             CREATE TABLE IF NOT EXISTS sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0));
+             CREATE TABLE IF NOT EXISTS sales_refunds(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_id INTEGER NOT NULL REFERENCES sales_returns(id),refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',notes TEXT NOT NULL DEFAULT '');"
+        ).map_err(|e| e.to_string())?;
+        tx.pragma_update(None, "user_version", 1).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 fn open_database() -> Result<Connection, String> {
     let path = database_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("ساخت پوشهٔ داده ناموفق بود: {e}"))?;
     }
-    let c = Connection::open(&path).map_err(|e| format!("بازکردن پایگاه داده ناموفق بود ({}): {e}", path.display()))?;
+    let mut c = Connection::open(&path).map_err(|e| format!("بازکردن پایگاه داده ناموفق بود ({}): {e}", path.display()))?;
     c.execute_batch(
         "PRAGMA foreign_keys=ON;
          PRAGMA journal_mode=WAL;
@@ -31,15 +54,7 @@ fn open_database() -> Result<Connection, String> {
          CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
          CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
     ).map_err(|e| e.to_string())?;
-    let has_voided: i64 = c.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('invoices') WHERE name='voided'",
-        [], |r| r.get(0)
-    ).map_err(|e| e.to_string())?;
-    if has_voided == 0 {
-        c.execute("ALTER TABLE invoices ADD COLUMN voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1))", [])
-            .map_err(|e| format!("افزودن وضعیت ابطال فاکتور ناموفق بود: {e}"))?;
-    }
-    c.execute_batch("CREATE TABLE IF NOT EXISTS sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT ''); CREATE TABLE IF NOT EXISTS sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0)); CREATE TABLE IF NOT EXISTS sales_refunds(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_id INTEGER NOT NULL REFERENCES sales_returns(id),refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',notes TEXT NOT NULL DEFAULT '');").map_err(|e|e.to_string())?;
+    migrate_database(&mut c)?;
     Ok(c)
 }
 
@@ -905,6 +920,25 @@ mod tests {
         let c = test_db();
         assert!(save_contact(&c, "Ali", "customer", "", "0").is_err());
         assert!(save_product(&c, "Another pen", "PEN", "", "1", "1", "2", "0").is_err());
+    }
+
+    #[test]
+    fn schema_migration_adds_returns_and_voided_atomically_and_is_idempotent() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '');
+             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE);
+             CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),item_name TEXT NOT NULL);"
+        ).unwrap();
+        c.execute("INSERT INTO invoices(id,number,kind,contact_name,subtotal,total) VALUES(1,1,'sale','Legacy',100,100)", []).unwrap();
+        migrate_database(&mut c).unwrap();
+        assert_eq!(scalar(&c, "SELECT voided FROM invoices WHERE id=1"), 0);
+        assert_eq!(scalar(&c, "PRAGMA user_version"), 1);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('sales_returns','sales_return_items','sales_refunds')"), 3);
+        migrate_database(&mut c).unwrap();
+        assert_eq!(scalar(&c, "PRAGMA user_version"), 1);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 1);
     }
 
     #[test]
