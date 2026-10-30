@@ -12,6 +12,7 @@ on:
   pull_request:
     paths:
       - "tauri-web/**"
+      - "crates/nabz-core/**"
       - ".github/workflows/tauri-web-ci.yml"
   workflow_dispatch:
 
