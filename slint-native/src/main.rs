@@ -128,8 +128,8 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
 
     let mut contact_rows = Vec::new();
     {
-        let mut st = c.prepare("SELECT id,name,kind,phone,opening_balance FROM contacts ORDER BY id DESC").map_err(|e| e.to_string())?;
-        let rows = st.query_map([], |r| Ok(ContactRow {
+        let mut st = c.prepare("SELECT id,name,kind,phone,opening_balance FROM contacts WHERE (?1='' OR name LIKE '%'||?1||'%' OR phone LIKE '%'||?1||'%' OR kind LIKE '%'||?1||'%') ORDER BY id DESC LIMIT 500").map_err(|e| e.to_string())?;
+        let rows = st.query_map([ui.get_contact_search().trim()], |r| Ok(ContactRow {
             id: r.get::<_, i64>(0)? as i32,
             name: r.get::<_, String>(1)?.into(),
             kind: match r.get::<_, String>(2)?.as_str() { "supplier" => "تأمین‌کننده", "both" => "هر دو", _ => "مشتری" }.into(),
@@ -142,8 +142,8 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
 
     let mut product_rows = Vec::new();
     {
-        let mut st = c.prepare("SELECT id,name,code,quantity,sell_price,min_quantity FROM products ORDER BY id DESC").map_err(|e| e.to_string())?;
-        let rows = st.query_map([], |r| {
+        let mut st = c.prepare("SELECT id,name,code,quantity,sell_price,min_quantity FROM products WHERE (?1='' OR name LIKE '%'||?1||'%' OR code LIKE '%'||?1||'%' OR barcode LIKE '%'||?1||'%') ORDER BY id DESC LIMIT 500").map_err(|e| e.to_string())?;
+        let rows = st.query_map([ui.get_product_search().trim()], |r| {
             let quantity: i64 = r.get(3)?;
             let min: i64 = r.get(5)?;
             Ok(ProductRow {
@@ -184,8 +184,8 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
 
     let mut payment_rows = Vec::new();
     {
-        let mut st = c.prepare("SELECT id,contact_name,kind,amount,method,payment_date FROM payments ORDER BY id DESC LIMIT 500").map_err(|e| e.to_string())?;
-        let rows = st.query_map([], |r| {
+        let mut st = c.prepare("SELECT id,contact_name,kind,amount,method,payment_date FROM payments WHERE (?1='' OR contact_name LIKE '%'||?1||'%' OR method LIKE '%'||?1||'%' OR notes LIKE '%'||?1||'%' OR payment_date LIKE '%'||?1||'%') ORDER BY id DESC LIMIT 500").map_err(|e| e.to_string())?;
+        let rows = st.query_map([ui.get_payment_search().trim()], |r| {
             let kind: String = r.get(2)?;
             Ok(PaymentRow {
                 id: r.get::<_, i64>(0)? as i32,
