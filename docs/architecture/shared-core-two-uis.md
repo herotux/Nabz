@@ -6,7 +6,7 @@ two separate accounting applications.
 ## Components
 
 - `crates/nabz-core`: canonical SQLite schema and migrations, database identity,
-  safe frontend launcher, and complete SQLite backup/restore primitives.
+  safe frontend launcher, SQLite backup/restore primitives, and shared accounting services.
 - `tauri-web`: independently buildable Tauri frontend.
 - `slint-native`: independently buildable native Slint frontend.
 
@@ -59,7 +59,10 @@ and refunds that were absent from the earlier JSON export format.
 
 Automatic backups are written to the shared data directory's `backups/` folder as
 timestamped `nabz-*.sqlite3` files. Before restore, the source is checked with
-`PRAGMA integrity_check`, schema version validation, and `foreign_key_check`.
+`PRAGMA integrity_check`, schema version validation, required Nabz tables, and
+`foreign_key_check`. A separate verified pre-restore snapshot is created first;
+if replacement or post-restore migration fails, the core attempts to restore that
+snapshot. The safety snapshot is retained after a successful restore as well.
 Tauri asks for confirmation; Slint requires a second click before restoring the
 latest automatic backup.
 
@@ -78,10 +81,13 @@ feature and is not claimed here.
 
 ## Remaining architectural work
 
-The database, schema versioning, launch handoff, and complete backup/restore are
-shared. However, the accounting command implementations are not yet fully extracted:
-Tauri and Slint still contain duplicated business operations and query logic. That
-work is required before calling the entire business layer a single shared service.
+The database, schema versioning, launch handoff, and backup/restore are shared.
+`crates/nabz-core/src/accounting.rs` now owns the common create/update rules for
+contacts and products, plus transactional receipt/payment allocation (opening
+balance first, then oldest non-voided invoices). Both Tauri and Slint call these
+same operations. Invoice creation/returns, archive/delete policy, reports, dashboard
+queries, and remaining business workflows are still partly implemented in the UI
+crates and must be migrated before the full business layer can be called shared.
 
 CI is the compile/package verification gate. A successful GitHub commit or a queued
 workflow is not proof of a successful build. Manjaro installation and real-database
