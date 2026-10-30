@@ -225,7 +225,8 @@ fn validate_backup(data:&Value)->Result<(),String>{
  if data.get("inventory_adjustments").is_some_and(|v|!v.is_array()){return Err("ساختار سابقهٔ اصلاح موجودی در پشتیبان معتبر نیست".into())}
  let arrays=["contacts","products","invoices","invoice_items","payments","settings","inventory_adjustments"];
  for k in arrays {
-  for (i,x) in data[k].as_array().unwrap().iter().enumerate(){
+  let Some(records)=data.get(k).and_then(Value::as_array) else { if k=="inventory_adjustments" { continue; } else { return Err(format!("ساختار پشتیبان ناقص است: {k}")); } };
+  for (i,x) in records.iter().enumerate(){
    let bad=match k {
     "contacts"=>!(backup_has_int(x,"id")&&backup_has_string(x,"name")&&!x["name"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"kind")&&backup_has_string(x,"phone")&&backup_has_int(x,"opening_balance")&&backup_has_string(x,"notes")&&backup_has_string(x,"created_at")),
     "products"=>!(backup_has_int(x,"id")&&backup_has_string(x,"name")&&!x["name"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"code")&&!x["code"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"barcode")&&backup_has_int(x,"buy_price")&&backup_has_int(x,"sell_price")&&backup_has_int(x,"quantity")&&backup_has_int(x,"min_quantity")&&x["buy_price"].as_i64().unwrap_or(-1)>=0&&x["sell_price"].as_i64().unwrap_or(-1)>=0&&x["quantity"].as_i64().unwrap_or(-1)>=0&&x["min_quantity"].as_i64().unwrap_or(-1)>=0),
