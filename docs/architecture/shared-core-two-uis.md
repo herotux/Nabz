@@ -82,12 +82,13 @@ feature and is not claimed here.
 ## Remaining architectural work
 
 The database, schema versioning, launch handoff, and backup/restore are shared.
-`crates/nabz-core/src/accounting.rs` now owns the common create/update rules for
-contacts and products, plus transactional receipt/payment allocation (opening
-balance first, then oldest non-voided invoices). Both Tauri and Slint call these
-same operations. Invoice creation/returns, archive/delete policy, reports, dashboard
-queries, and remaining business workflows are still partly implemented in the UI
-crates and must be migrated before the full business layer can be called shared.
+`crates/nabz-core/src/accounting.rs` now owns common create/update rules for
+contacts and products, transactional receipt/payment allocation (opening balance
+first, then oldest non-voided invoices), and transactional sale/purchase invoice
+creation with inventory updates and immediate sale receipts. Both Tauri and Slint
+call these same operations. Returns/voiding, archive/delete policy, reports,
+dashboard queries, and remaining business workflows are still partly implemented
+in the UI crates and must be migrated before the full business layer can be called shared.
 
 CI is the compile/package verification gate. A successful GitHub commit or a queued
 workflow is not proof of a successful build. Manjaro installation and real-database
