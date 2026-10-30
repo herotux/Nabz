@@ -231,7 +231,7 @@ export component MainWindow inherits Window {
                             background: #ffffff; border-color: #d0d5dd; border-width: 1px; border-radius: 10px; padding: 10px;
                             VerticalLayout {
                                 spacing: 7px;
-                                Text { text: root.adjustment-product-id > 0 ? "اصلاح موجودی کالا #" + root.adjustment-product-id : "اصلاح موجودی انبار"; color: #101828; font-size: 15px; font-weight: 600; horizontal-alignment: right; }
+                                Text { text: "اصلاح موجودی انبار"; color: #101828; font-size: 15px; font-weight: 600; horizontal-alignment: right; }
                                 HorizontalLayout { spacing: 8px;
                                     LineEdit { text <=> root.adjustment-new-quantity; placeholder-text: "موجودی واقعی جدید"; }
                                     LineEdit { text <=> root.adjustment-reason; placeholder-text: "علت تغییر (مثلاً انبارگردانی)"; horizontal-stretch: 1; }
