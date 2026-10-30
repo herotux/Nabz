@@ -5,6 +5,7 @@ on:
     branches: [feature/slint-native-ui, feature/shared-core-ui-switching]
     paths:
       - "slint-native/**"
+      - "crates/nabz-core/**"
       - ".github/workflows/slint-native-ci.yml"
   pull_request:
     paths:
