@@ -1,61 +1,11 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
-use std::{cell::RefCell, env, fs, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 slint::include_modules!();
 
-fn database_path() -> PathBuf {
-    if let Some(path) = env::var_os("NABZ_DB_PATH") {
-        return PathBuf::from(path);
-    }
-    let data_home = env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    data_home.join("com.herotux.nabz.webprototype").join("nabz.sqlite3")
-}
-
-fn migrate_database(c: &mut Connection) -> Result<(), String> {
-    let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if version < 1 {
-        let tx = c.transaction().map_err(|e| e.to_string())?;
-        let has_voided: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('invoices') WHERE name='voided'",
-            [], |r| r.get(0)
-        ).map_err(|e| e.to_string())?;
-        if has_voided == 0 {
-            tx.execute("ALTER TABLE invoices ADD COLUMN voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1))", [])
-                .map_err(|e| format!("افزودن وضعیت ابطال فاکتور ناموفق بود: {e}"))?;
-        }
-        tx.execute_batch(
-            "CREATE TABLE IF NOT EXISTS sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT '');
-             CREATE TABLE IF NOT EXISTS sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0));
-             CREATE TABLE IF NOT EXISTS sales_refunds(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_id INTEGER NOT NULL REFERENCES sales_returns(id),refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',notes TEXT NOT NULL DEFAULT '');"
-        ).map_err(|e| e.to_string())?;
-        tx.pragma_update(None, "user_version", 1).map_err(|e| e.to_string())?;
-        tx.commit().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
 fn open_database() -> Result<Connection, String> {
-    let path = database_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("ساخت پوشهٔ داده ناموفق بود: {e}"))?;
-    }
-    let mut c = Connection::open(&path).map_err(|e| format!("بازکردن پایگاه داده ناموفق بود ({}): {e}", path.display()))?;
-    c.execute_batch(
-        "PRAGMA foreign_keys=ON;
-         PRAGMA journal_mode=WAL;
-         CREATE TABLE IF NOT EXISTS contacts(id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')));
-         CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
-         CREATE TABLE IF NOT EXISTS invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '');
-         CREATE TABLE IF NOT EXISTS invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL);
-         CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
-         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
-    ).map_err(|e| e.to_string())?;
-    migrate_database(&mut c)?;
-    Ok(c)
+    nabz_core::open_database()
 }
 
 fn digits(input: &str) -> String {
