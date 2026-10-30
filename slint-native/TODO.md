@@ -1,6 +1,6 @@
 # Nabz Slint migration — TODO
 
-Updated: 2026-10-29
+Updated: 2026-10-30
 
 ## Current CI / blocking issues
 - [x] Inspect the failed Slint Native UI CI run.
@@ -9,7 +9,8 @@ Updated: 2026-10-29
 - [x] Extend tests for anonymous unpaid sale rejection and receipt overpayment rollback.
 - [x] Confirm Slint Native UI CI and Rust tests succeed after the compile fix.
 - [ ] Download and launch the Linux artifact on Manjaro; verify Persian glyph shaping, RTL, and keyboard input.
-- [ ] Validate the latest cash-refund commit in Rust tests, Slint CI, and Linux installer workflow before downloading an artifact.
+- [x] Validate the versioned SQLite migration commit in root Rust tests and Windows build.
+- [ ] Validate the versioned SQLite migration commit in Slint-specific tests and Linux build.
 
 ## Implemented in the native prototype
 - [x] Native Slint window, Persian dashboard and section navigation.
@@ -27,7 +28,7 @@ Updated: 2026-10-29
 - [x] Add multi-row invoice tests for line totals, stock updates, malformed rows, and full rollback on insufficient stock.
 - [ ] Test customer/supplier/both opening balances, partial payments, discount, duplicate codes, invalid roles, overpayment, stock rollback, and purchase debts.
 - [ ] Confirm database schema compatibility using a copy of an actual Tauri database; do not test on the only production database.
-- [ ] Add migration/version handling before any schema changes.
+- [x] Add migration/version handling before schema changes (SQLite `user_version`, transactional v1 migration, idempotency test).
 - [ ] Ensure dashboard balances include `customer` and `both` roles and reconcile to invoices/payments.
 
 ## Priority 2 — invoice and inventory workflows
