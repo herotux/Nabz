@@ -3,7 +3,8 @@
 //! Both Tauri and Slint open the same per-user database. Keep schema creation
 //! and migrations here so a UI switch never creates a second accounting ledger.
 
-use rusqlite::Connection;
+use rusqlite::{backup::Backup, Connection, OpenFlags};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
@@ -82,6 +83,90 @@ pub fn launch_frontend(frontend: Frontend) -> Result<Child, String> {
     Command::new(executable)
         .spawn()
         .map_err(|e| format!("رابط درخواستی نصب نیست یا در PATH پیدا نشد ({executable}): {e}"))
+}
+
+/// Create a complete SQLite snapshot. The SQLite backup API includes every
+/// table, index, trigger and schema migration (including future accounting tables).
+pub fn backup_database_to(connection: &Connection, destination: impl AsRef<Path>) -> Result<(), String> {
+    let destination = destination.as_ref();
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("ساخت پوشهٔ پشتیبان ناموفق بود: {e}"))?;
+    }
+    let mut output = Connection::open(destination)
+        .map_err(|e| format!("ساخت فایل پشتیبان ناموفق بود: {e}"))?;
+    let backup = Backup::new(connection, &mut output).map_err(|e| e.to_string())?;
+    backup.run_to_completion(128, Duration::from_millis(10), None)
+        .map_err(|e| format!("تهیهٔ نسخهٔ پشتیبان ناموفق بود: {e}"))?;
+    let integrity: String = output.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    if integrity != "ok" {
+        return Err(format!("اعتبارسنجی نسخهٔ پشتیبان ناموفق بود: {integrity}"));
+    }
+    Ok(())
+}
+
+/// Store a timestamped full-database backup in the shared Nabz data directory.
+pub fn create_automatic_backup(connection: &Connection) -> Result<PathBuf, String> {
+    let directory = database_path().parent()
+        .ok_or("مسیر پایگاه داده معتبر نیست")?
+        .join("backups");
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?.as_nanos();
+    let path = directory.join(format!("nabz-{stamp}.sqlite3"));
+    backup_database_to(connection, &path)?;
+    Ok(path)
+}
+
+/// Return the newest timestamped SQLite backup in the shared data directory.
+pub fn latest_backup_path() -> Result<PathBuf, String> {
+    let directory = database_path().parent()
+        .ok_or("مسیر پایگاه داده معتبر نیست")?
+        .join("backups");
+    let mut candidates = std::fs::read_dir(&directory)
+        .map_err(|e| format!("پوشهٔ پشتیبان پیدا نشد: {e}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "sqlite3"))
+        .collect::<Vec<_>>();
+    candidates.sort();
+    candidates.pop().ok_or_else(|| "هیچ نسخهٔ پشتیبانی برای بازیابی وجود ندارد".into())
+}
+
+/// Restore a full database snapshot into the already-open shared connection.
+/// The source is validated before SQLite's backup API replaces the live database.
+pub fn restore_database_from(connection: &mut Connection, source_path: impl AsRef<Path>) -> Result<(), String> {
+    let source_path = source_path.as_ref();
+    let source = Connection::open_with_flags(source_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("فایل پشتیبان باز نشد: {e}"))?;
+    let integrity: String = source.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|e| format!("فایل پشتیبان معتبر نیست: {e}"))?;
+    if integrity != "ok" {
+        return Err(format!("فایل پشتیبان خراب است: {integrity}"));
+    }
+    let version: i64 = source.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    if version > SCHEMA_VERSION {
+        return Err(format!("نسخهٔ پشتیبان ({version}) از نسخهٔ پشتیبانی‌شدهٔ برنامه ({SCHEMA_VERSION}) جدیدتر است."));
+    }
+    let foreign_key_errors: i64 = source.query_row(
+        "SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| row.get(0)
+    ).map_err(|e| e.to_string())?;
+    if foreign_key_errors != 0 {
+        return Err("فایل پشتیبان دارای ارجاع‌های ناسازگار است و بازیابی متوقف شد".into());
+    }
+
+    let backup = Backup::new(&source, connection).map_err(|e| e.to_string())?;
+    backup.run_to_completion(128, Duration::from_millis(10), None)
+        .map_err(|e| format!("بازیابی پایگاه داده ناموفق بود: {e}"))?;
+    initialize(connection)?;
+    Ok(())
+}
+
+/// Restore the newest automatic backup.
+pub fn restore_latest_backup(connection: &mut Connection) -> Result<PathBuf, String> {
+    let path = latest_backup_path()?;
+    restore_database_from(connection, &path)?;
+    Ok(path)
 }
 
 /// Open the canonical per-user database shared by all Nabz frontends.
@@ -334,6 +419,50 @@ mod tests {
 
         drop(second_frontend);
         drop(first_frontend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn full_database_backup_and_restore_preserve_every_accounting_table() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "nabz-backup-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let backup_path = root.join("complete.sqlite3");
+
+        let source = Connection::open_in_memory().unwrap();
+        initialize(&source).unwrap();
+        source.execute("INSERT INTO contacts(name,kind) VALUES('Backup customer','customer')", []).unwrap();
+        source.execute("INSERT INTO products(name,code) VALUES('Backup item','BACKUP-1')", []).unwrap();
+        source.execute("INSERT INTO invoices(number,kind,contact_name,subtotal,total) VALUES(1001,'sale','Backup customer',50,50)", []).unwrap();
+        source.execute("INSERT INTO invoice_items(invoice_id,item_name,quantity,unit_price,line_total) VALUES(1,'Backup item',1,50,50)", []).unwrap();
+        source.execute("INSERT INTO sales_returns(invoice_id,amount) VALUES(1,10)", []).unwrap();
+        source.execute("INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(1,1,1,'Backup item',1,10,10)", []).unwrap();
+        source.execute("INSERT INTO sales_refunds(invoice_id,return_id,amount) VALUES(1,1,10)", []).unwrap();
+        source.execute("INSERT INTO payments(kind,contact_name,amount) VALUES('receipt','Backup customer',40)", []).unwrap();
+        source.execute("INSERT INTO settings(key,value) VALUES('store_name','Backup shop')", []).unwrap();
+
+        backup_database_to(&source, &backup_path).unwrap();
+
+        let mut target = Connection::open_in_memory().unwrap();
+        initialize(&target).unwrap();
+        target.execute("INSERT INTO contacts(name,kind) VALUES('Old data','customer')", []).unwrap();
+        restore_database_from(&mut target, &backup_path).unwrap();
+
+        let contacts: i64 = target.query_row("SELECT COUNT(*) FROM contacts", [], |r| r.get(0)).unwrap();
+        let returns: i64 = target.query_row("SELECT COUNT(*) FROM sales_returns", [], |r| r.get(0)).unwrap();
+        let return_items: i64 = target.query_row("SELECT COUNT(*) FROM sales_return_items", [], |r| r.get(0)).unwrap();
+        let refunds: i64 = target.query_row("SELECT COUNT(*) FROM sales_refunds", [], |r| r.get(0)).unwrap();
+        let settings: String = target.query_row("SELECT value FROM settings WHERE key='store_name'", [], |r| r.get(0)).unwrap();
+        assert_eq!(contacts, 1);
+        assert_eq!(returns, 1);
+        assert_eq!(return_items, 1);
+        assert_eq!(refunds, 1);
+        assert_eq!(settings, "Backup shop");
+
+        drop(target);
+        drop(source);
         std::fs::remove_dir_all(root).unwrap();
     }
 
