@@ -59,11 +59,10 @@ pub fn update_contact(connection: &Connection, id: i64, name: &str, phone: &str)
     if id <= 0 || name.is_empty() {
         return Err("شناسه و نام طرف‌حساب معتبر نیست".into());
     }
-    let changed = connection.execute(
-        "UPDATE contacts SET name=?1,phone=?2 WHERE id=?3",
-        params![name, phone.trim(), id],
+    let exists: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM contacts WHERE id=?1", [id], |row| row.get(0)
     ).map_err(|e| e.to_string())?;
-    if changed == 0 {
+    if exists == 0 {
         return Err("طرف‌حساب موردنظر پیدا نشد".into());
     }
     let duplicate: i64 = connection.query_row(
@@ -74,6 +73,10 @@ pub fn update_contact(connection: &Connection, id: i64, name: &str, phone: &str)
     if duplicate > 0 {
         return Err("طرف‌حساب دیگری با این نام وجود دارد".into());
     }
+    connection.execute(
+        "UPDATE contacts SET name=?1,phone=?2 WHERE id=?3",
+        params![name, phone.trim(), id],
+    ).map_err(|e| e.to_string())?;
     Ok(())
 }
 
