@@ -124,6 +124,92 @@ pub fn update_product(connection: &Connection, id: i64, input: &ProductInput) ->
     Ok(())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PaymentInput {
+    pub kind: String,
+    pub contact_name: String,
+    pub amount: i64,
+    pub method: String,
+    pub date: String,
+    pub notes: String,
+}
+
+/// Record a receipt/payment and allocate it to opening balance then oldest
+/// outstanding invoices in one transaction. Both UIs use this exact policy.
+pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Result<i64, String> {
+    if !["receipt", "payment"].contains(&input.kind.as_str())
+        || input.contact_name.trim().is_empty() || input.amount <= 0 {
+        return Err("طرف‌حساب و مبلغ مثبت الزامی است".into());
+    }
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let contact_name = input.contact_name.trim();
+    let contact_id: i64 = tx.query_row(
+        "SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",
+        [contact_name], |row| row.get(0)
+    ).map_err(|e| e.to_string())?;
+    let role: String = tx.query_row(
+        "SELECT kind FROM contacts WHERE id=?1", [contact_id], |row| row.get(0)
+    ).map_err(|e| e.to_string())?;
+    if input.kind == "receipt" && role == "supplier" {
+        return Err("برای دریافت، مشتری انتخاب کنید".into());
+    }
+    if input.kind == "payment" && role == "customer" {
+        return Err("برای پرداخت، تأمین‌کننده انتخاب کنید".into());
+    }
+
+    let invoice_kind = if input.kind == "receipt" { "sale" } else { "purchase" };
+    let invoice_outstanding: i64 = tx.query_row(
+        "SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2 AND voided=0",
+        params![contact_id, invoice_kind], |row| row.get(0)
+    ).map_err(|e| e.to_string())?;
+    let opening: i64 = tx.query_row(
+        "SELECT opening_balance FROM contacts WHERE id=?1", [contact_id], |row| row.get(0)
+    ).map_err(|e| e.to_string())?.max(0);
+    let outstanding = invoice_outstanding.checked_add(opening)
+        .ok_or("ماندهٔ حساب بیش از حد بزرگ است")?;
+    if input.amount > outstanding {
+        return Err(format!("مبلغ از ماندهٔ قابل تخصیص بیشتر است: {outstanding}"));
+    }
+
+    tx.execute(
+        "INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes)
+         VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),COALESCE(NULLIF(?6,''),date('now','localtime')),?7)",
+        params![input.kind, contact_id, contact_name, input.amount, input.method.trim(), input.date.trim(), input.notes.trim()],
+    ).map_err(|e| e.to_string())?;
+    let payment_id = tx.last_insert_rowid();
+
+    let mut remaining = input.amount;
+    let opening_applied = remaining.min(opening);
+    if opening_applied > 0 {
+        tx.execute("UPDATE contacts SET opening_balance=opening_balance-?1 WHERE id=?2",
+            params![opening_applied, contact_id]).map_err(|e| e.to_string())?;
+        remaining -= opening_applied;
+    }
+
+    let invoices = {
+        let mut statement = tx.prepare(
+            "SELECT id,total,paid FROM invoices
+             WHERE contact_id=?1 AND kind=?2 AND voided=0 AND paid<total
+             ORDER BY invoice_date,id"
+        ).map_err(|e| e.to_string())?;
+        let rows = statement.query_map(params![contact_id, invoice_kind], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+        }).map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
+    for (invoice_id, total, paid) in invoices {
+        if remaining == 0 { break; }
+        let applied = remaining.min(total - paid);
+        if applied > 0 {
+            tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2",
+                params![applied, invoice_id]).map_err(|e| e.to_string())?;
+            remaining -= applied;
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(payment_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,6 +246,61 @@ mod tests {
             phone: String::new(), opening_balance: 10, notes: String::new(),
         };
         assert!(create_contact(&connection, &input).unwrap_err().contains("باید صفر"));
+    }
+
+
+    #[test]
+    fn shared_payment_service_allocates_opening_balance_then_oldest_invoice() {
+        let mut connection = database();
+        let contact = ContactInput {
+            name: "مشتری پرداخت".into(), kind: "customer".into(),
+            phone: String::new(), opening_balance: 30, notes: String::new(),
+        };
+        let contact_id = create_contact(&connection, &contact).unwrap();
+        connection.execute(
+            "INSERT INTO invoices(number,kind,contact_id,contact_name,invoice_date,subtotal,total,paid)
+             VALUES(1,'sale',?1,'مشتری پرداخت','2026-01-01',100,100,0)",
+            [contact_id],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO invoices(number,kind,contact_id,contact_name,invoice_date,subtotal,total,paid)
+             VALUES(2,'sale',?1,'مشتری پرداخت','2026-01-02',100,100,0)",
+            [contact_id],
+        ).unwrap();
+        let payment = PaymentInput {
+            kind: "receipt".into(), contact_name: "مشتری پرداخت".into(),
+            amount: 80, method: "cash".into(), date: "2026-01-03".into(), notes: String::new(),
+        };
+        record_payment(&mut connection, &payment).unwrap();
+        let opening: i64 = connection.query_row(
+            "SELECT opening_balance FROM contacts WHERE id=?1", [contact_id], |r| r.get(0)
+        ).unwrap();
+        let paid: Vec<i64> = {
+            let mut s = connection.prepare("SELECT paid FROM invoices ORDER BY id").unwrap();
+            s.query_map([], |r| r.get(0)).unwrap().collect::<Result<_,_>>().unwrap()
+        };
+        assert_eq!(opening, 0);
+        assert_eq!(paid, vec![50, 0]);
+    }
+
+    #[test]
+    fn shared_payment_service_rejects_overpayment_without_partial_mutation() {
+        let mut connection = database();
+        let contact = ContactInput {
+            name: "مشتری بدون بدهی".into(), kind: "customer".into(),
+            phone: String::new(), opening_balance: 10, notes: String::new(),
+        };
+        create_contact(&connection, &contact).unwrap();
+        let payment = PaymentInput {
+            kind: "receipt".into(), contact_name: "مشتری بدون بدهی".into(),
+            amount: 11, method: "cash".into(), date: String::new(), notes: String::new(),
+        };
+        assert!(record_payment(&mut connection, &payment).unwrap_err().contains("بیشتر"));
+        let (balance, payments): (i64, i64) = connection.query_row(
+            "SELECT opening_balance,(SELECT COUNT(*) FROM payments) FROM contacts WHERE name='مشتری بدون بدهی'",
+            [], |r| Ok((r.get(0)?, r.get(1)?))
+        ).unwrap();
+        assert_eq!((balance, payments), (10, 0));
     }
 
     #[test]
