@@ -23,7 +23,11 @@ fn init(c:&Connection)->Result<(),String>{ nabz_core::initialize(c) }
 #[tauri::command] fn list_products(db:State<'_,Db>)->Result<Vec<ProductRecord>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT id,name,code,quantity,buy_price,sell_price,min_quantity FROM products ORDER BY id DESC").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(ProductRecord{id:r.get(0)?,name:r.get(1)?,code:r.get(2)?,quantity:r.get(3)?,buy_price:r.get(4)?,sell_price:r.get(5)?,min_quantity:r.get(6)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 #[tauri::command]
 fn delete_record(kind:String,id:i64,db:State<'_,Db>)->Result<(),String>{
- let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ if kind=="invoices" {
+  return nabz_core::accounting::void_invoice(&mut c,id);
+ }
+ let tx=c.transaction().map_err(|e|e.to_string())?;
  match kind.as_str(){
   "contacts"=>{let n:i64=tx.query_row("SELECT (SELECT COUNT(*) FROM invoices WHERE contact_id=?1)+(SELECT COUNT(*) FROM payments WHERE contact_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;if n>0{return Err("این طرف‌حساب سابقه فاکتور یا دریافت/پرداخت دارد و حذف نمی‌شود.".into())}tx.execute("DELETE FROM contacts WHERE id=?1",[id]).map_err(|e|e.to_string())?;},
   "products"=>{let n:i64=tx.query_row("SELECT COUNT(*) FROM invoice_items WHERE product_id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;if n>0{return Err("این کالا در فاکتور ثبت شده و برای حفظ سابقه حذف نمی‌شود.".into())}tx.execute("DELETE FROM products WHERE id=?1",[id]).map_err(|e|e.to_string())?;},
