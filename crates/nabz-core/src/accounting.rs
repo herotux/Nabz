@@ -1,7 +1,7 @@
 //! Shared accounting write operations used by the Tauri and Slint frontends.
 //! Keep validation and persistence rules here; UI layers only parse user input.
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContactInput {
