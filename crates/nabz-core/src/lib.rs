@@ -97,6 +97,7 @@ pub fn backup_database_to(connection: &Connection, destination: impl AsRef<Path>
     let backup = Backup::new(connection, &mut output).map_err(|e| e.to_string())?;
     backup.run_to_completion(128, Duration::from_millis(10), None)
         .map_err(|e| format!("تهیهٔ نسخهٔ پشتیبان ناموفق بود: {e}"))?;
+    drop(backup);
     let integrity: String = output.query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .map_err(|e| e.to_string())?;
     if integrity != "ok" {
@@ -158,6 +159,7 @@ pub fn restore_database_from(connection: &mut Connection, source_path: impl AsRe
     let backup = Backup::new(&source, connection).map_err(|e| e.to_string())?;
     backup.run_to_completion(128, Duration::from_millis(10), None)
         .map_err(|e| format!("بازیابی پایگاه داده ناموفق بود: {e}"))?;
+    drop(backup);
     initialize(connection)?;
     Ok(())
 }
