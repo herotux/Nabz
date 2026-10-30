@@ -10,6 +10,19 @@ pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz.webprototype";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
 pub const SCHEMA_VERSION: i64 = 1;
 
+/// Normalize Persian and English contact roles consistently across frontends.
+pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_lowercase().as_str() {
+        "" | "customer" | "مشتری" => Some("customer"),
+        "supplier" | "vendor" | "تامین‌کننده" | "تأمین‌کننده"
+        | "تامین کننده" | "تأمین کننده" => Some("supplier"),
+        "both" | "customer_supplier" | "هر دو"
+        | "مشتری و تامین‌کننده" | "مشتری و تأمین‌کننده"
+        | "مشتری و تامین کننده" | "مشتری و تأمین کننده" => Some("both"),
+        _ => None,
+    }
+}
+
 /// Resolve the canonical database path. NABZ_DB_PATH is retained as an
 /// explicit override for portable installs, tests, and administrators.
 pub fn database_path() -> PathBuf {
@@ -196,6 +209,14 @@ fn migrate(connection: &Connection) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contact_roles_are_normalized_consistently() {
+        assert_eq!(normalize_contact_kind("مشتری"), Some("customer"));
+        assert_eq!(normalize_contact_kind("تأمین‌کننده"), Some("supplier"));
+        assert_eq!(normalize_contact_kind("هر دو"), Some("both"));
+        assert_eq!(normalize_contact_kind("unknown"), None);
+    }
 
     #[test]
     fn fresh_database_gets_shared_schema_and_version() {
