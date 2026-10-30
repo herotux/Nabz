@@ -1,18 +1,18 @@
 # Nabz architecture: one product, two interchangeable UIs
 
-Nabz is one accounting product with two independently installable frontends. It is
-not two separate accounting applications.
+Nabz is one accounting product with two independently buildable frontends. It is not
+two separate accounting applications.
 
 ## Components
 
-- `crates/nabz-core`: canonical SQLite schema, schema migrations, shared persistence
-  foundation, and (as the refactor progresses) accounting/business operations.
+- `crates/nabz-core`: canonical SQLite schema and migrations, database identity,
+  safe frontend launcher, and complete SQLite backup/restore primitives.
 - `tauri-web`: independently buildable Tauri frontend.
 - `slint-native`: independently buildable native Slint frontend.
 
-Both frontends must use the same core crate and the same per-user database. A user
-may install either frontend or both, switch between them, and continue working with
-the same contacts, products, invoices, payments, returns, and settings.
+Both frontends use the same core crate and the same per-user database. Installing,
+removing, or switching a frontend must never create or delete a second accounting
+ledger.
 
 ## Database identity
 
@@ -28,34 +28,62 @@ When `XDG_DATA_HOME` is not set:
 ~/.local/share/com.herotux.nabz.webprototype/nabz.sqlite3
 ```
 
-This preserves the Slint prototype's existing Linux data directory and matches the
-Tauri bundle identifier's application data directory. `NABZ_DB_PATH` remains an
-explicit override for portable deployments and tests. Both frontends must not
-silently create a second default database.
+On Windows, `%APPDATA%/com.herotux.nabz.webprototype/nabz.sqlite3` is preferred to
+match Tauri's Roaming AppData directory. On macOS the path is under
+`~/Library/Application Support/com.herotux.nabz.webprototype/nabz.sqlite3`.
+`NABZ_DB_PATH` remains an explicit override for portable deployments and tests.
 
-## Switching and safe use
+The shared initializer checks `PRAGMA user_version` before any schema DDL. An older
+frontend refuses a newer database without first modifying it. SQLite foreign keys
+and WAL mode are enabled by the common initializer.
 
-- Switching UI is not a data conversion: both frontends open the same database.
-- Keep schema migrations exclusively in `nabz-core`.
-- A frontend must refuse to open a database with a newer unsupported schema version.
-- SQLite foreign keys and WAL mode are enabled by the shared initializer.
-- Before shipping UI switching, add a backup/restore flow and a safe single-writer
-  policy for simultaneous launches. SQLite serializes writes, but application-level
-  workflows still need conflict handling and user feedback.
-- Do not delete the shared data directory when uninstalling either frontend.
+## Switching between UIs
+
+- Tauri's Settings page offers a switch to the native Slint frontend.
+- Slint's header offers a switch to Tauri.
+- The target executable is searched beside the current executable first, then via
+  `PATH`. The current UI exits only after the other executable starts successfully.
+- The target frontend must already be installed. If it is missing, the current UI
+  stays open and reports the launch error.
+- The switch is a process handoff, not a data conversion. Both binaries open the
+  same SQLite file. Users should not run two frontends concurrently for normal
+  accounting work.
+
+Expected Linux executable names are `nabz-tauri` and `nabz-slint`.
+
+## Backup and restore
+
+The core uses SQLite's online backup API rather than copying only the main database
+file. This includes every table, index, and schema object, including sales returns
+and refunds that were absent from the earlier JSON export format.
+
+Automatic backups are written to the shared data directory's `backups/` folder as
+timestamped `nabz-*.sqlite3` files. Before restore, the source is checked with
+`PRAGMA integrity_check`, schema version validation, and `foreign_key_check`.
+Tauri asks for confirmation; Slint requires a second click before restoring the
+latest automatic backup.
+
+These controls restore the latest automatically generated snapshot. A user-facing
+file picker for importing an arbitrary backup from another computer is a separate
+feature and is not claimed here.
 
 ## Independent distribution
 
-Build and publish separate artifacts for Tauri and Slint. Their installers and
-binaries may be installed or removed independently; the shared user data directory
-must remain untouched. Keep separate CI jobs so a failure in one UI does not block
-developers from building the other, while requiring both to pass before a combined
-release is declared ready.
+- Tauri CI builds its AppImage and Debian packages.
+- Slint CI builds the native executable and packages a standalone amd64 Debian
+  installer. Both artifacts are uploaded separately.
+- Removing either frontend must not remove the shared data directory.
+- The Slint Debian package currently targets amd64; Raspberry Pi and other
+  architectures need their own matching build artifacts.
 
-## Refactor status
+## Remaining architectural work
 
-The initial shared persistence layer now owns the common base schema and v1 migration.
-The frontends still contain duplicated accounting queries and business operations.
-Those must be moved into `nabz-core` incrementally before claiming that all business
-logic is shared. Preserve frontend command/callback contracts while extracting the
-operations, and verify both frontends against the same copied test database.
+The database, schema versioning, launch handoff, and complete backup/restore are
+shared. However, the accounting command implementations are not yet fully extracted:
+Tauri and Slint still contain duplicated business operations and query logic. That
+work is required before calling the entire business layer a single shared service.
+
+CI is the compile/package verification gate. A successful GitHub commit or a queued
+workflow is not proof of a successful build. Manjaro installation and real-database
+cross-frontend acceptance testing must also be completed before declaring a release
+ready.
