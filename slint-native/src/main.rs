@@ -652,6 +652,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let weak = ui.as_weak();
+        ui.on_switch_ui_requested(move || {
+            match nabz_core::launch_frontend(nabz_core::Frontend::Tauri) {
+                Ok(_child) => std::process::exit(0),
+                Err(error) => {
+                    if let Some(ui) = weak.upgrade() {
+                        set_status(&ui, error);
+                    }
+                }
+            }
+        });
+    }
+
     ui.run()?;
     Ok(())
 }
