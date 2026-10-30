@@ -59,53 +59,48 @@ fn save_invoice(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  save_invoice_with_connection(payload,&mut c)
 }
 fn save_invoice_with_connection(payload:Value,c:&mut Connection)->Result<i64,String>{
- let kind=text(&payload,"kind"); let contact=text(&payload,"customer");
- if !["sale","purchase"].contains(&kind.as_str()){return Err("نوع فاکتور نامعتبر است".into())}
- if kind=="purchase"&&contact.is_empty(){return Err("انتخاب تأمین‌کننده برای فاکتور خرید الزامی است".into())}
- let mut items:Vec<(String,i64,i64)>=Vec::new();
- if let Some(arr)=payload.get("items").and_then(Value::as_array){
-  for x in arr {let name=x.get("item").and_then(Value::as_str).unwrap_or("").trim().to_owned();let q=x.get("qty").and_then(Value::as_i64).unwrap_or(0);let p=x.get("price").and_then(Value::as_i64).unwrap_or(0);if !name.is_empty(){items.push((name,q,p));}}
- } else {
-  for i in 1..=5 {let suffix=if i==1{String::new()}else{i.to_string()};let name=text(&payload,&format!("item{suffix}"));let q=num(&payload,&format!("qty{suffix}"));let p=num(&payload,&format!("price{suffix}"));if !name.is_empty(){items.push((name,q,p));}}
+ let kind=text(&payload,"kind");
+ let mut lines:Vec<nabz_core::accounting::InvoiceLineInput>=Vec::new();
+ if let Some(items)=payload.get("items").and_then(Value::as_array){
+  for item in items {
+   let lookup=item.get("item").and_then(Value::as_str).unwrap_or("").trim().to_owned();
+   if !lookup.is_empty(){
+    let quantity=item.get("qty").and_then(Value::as_i64).unwrap_or(0);
+    let unit_price=item.get("price").and_then(Value::as_i64).unwrap_or(0);
+    lines.push(nabz_core::accounting::InvoiceLineInput{product_lookup:lookup,quantity,unit_price});
+   }
+  }
+ }else{
+  for index in 1..=5{
+   let suffix=if index==1{String::new()}else{index.to_string()};
+   let lookup=text(&payload,&format!("item{suffix}"));
+   if !lookup.is_empty(){
+    lines.push(nabz_core::accounting::InvoiceLineInput{
+     product_lookup:lookup,quantity:num(&payload,&format!("qty{suffix}")),
+     unit_price:num(&payload,&format!("price{suffix}"))
+    });
+   }
+  }
  }
- if items.is_empty(){return Err("حداقل یک ردیف کالا یا خدمت وارد کنید".into())}
- if items.iter().any(|(_,q,p)|*q<=0||*p<0){return Err("تعداد هر ردیف باید مثبت و قیمت‌ها نامنفی باشند".into())}
- let subtotal=items.iter().try_fold(0i64,|sum,(_,q,p)|q.checked_mul(*p).and_then(|v|sum.checked_add(v))).ok_or("مبلغ فاکتور بیش از حد بزرگ است")?;
- let discount=num(&payload,"discount");if discount<0||discount>subtotal{return Err("تخفیف باید بین صفر و مبلغ کل باشد".into())}
- let total=subtotal-discount;let tx=c.transaction().map_err(|e|e.to_string())?;
- let cid:Option<i64>=if contact.is_empty(){None}else{tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?};
- if kind=="purchase"&&cid.is_none(){return Err("تأمین‌کننده ثبت‌شده‌ای با این نام پیدا نشد؛ ابتدا آن را در بخش طرف‌حساب‌ها ثبت کنید.".into())}
- if kind=="sale"&&!contact.is_empty()&&cid.is_none(){return Err("مشتری واردشده در فهرست طرف‌حساب‌ها پیدا نشد؛ نام را انتخاب کنید یا برای فروش گذری فیلد مشتری را خالی بگذارید.".into())}
- if let Some(contact_id)=cid{let raw_kind:String=tx.query_row("SELECT kind FROM contacts WHERE id=?1",[contact_id],|r|r.get(0)).map_err(|e|e.to_string())?;let role=normalize_contact_kind(&raw_kind).unwrap_or("customer");if kind=="sale"&&!["customer","both"].contains(&role){return Err("برای فاکتور فروش، طرف‌حساب باید از نوع مشتری یا هر دو باشد.".into())}if kind=="purchase"&&!["supplier","both"].contains(&role){return Err("برای فاکتور خرید، طرف‌حساب باید از نوع تأمین‌کننده یا هر دو باشد.".into())}}
- let payment_status=if kind=="sale"{let s=text(&payload,"payment_status");if s.is_empty(){"credit".to_string()}else{s}}else{"credit".to_string()};
- if !["paid","partial","credit"].contains(&payment_status.as_str()){return Err("وضعیت پرداخت نامعتبر است".into())}
+ let discount=num(&payload,"discount");
+ let subtotal=lines.iter().try_fold(0_i64,|sum,line|{
+  line.quantity.checked_mul(line.unit_price).and_then(|value|sum.checked_add(value))
+ }).ok_or("مبلغ فاکتور بیش از حد بزرگ است")?;
+ let total=subtotal.checked_sub(discount).ok_or("تخفیف از جمع فاکتور بیشتر است")?;
+ let payment_status=if kind=="sale"{let value=text(&payload,"payment_status");if value.is_empty(){"credit".to_owned()}else{value}}else{"credit".to_owned()};
+ if !["paid","partial","credit"].contains(&payment_status.as_str()){
+  return Err("وضعیت پرداخت نامعتبر است".into());
+ }
  let paid=if kind=="sale"{match payment_status.as_str(){"paid"=>total,"partial"=>num(&payload,"paid_amount"),_=>0}}else{0};
- if paid<0||paid>total{return Err("مبلغ دریافتی باید بین صفر و مبلغ نهایی فاکتور باشد".into())}
- if kind=="sale"&&paid<total&&cid.is_none(){return Err("برای فروش نسیه یا پرداخت ناقص، مشتری ثبت‌شده انتخاب کنید؛ فروش گذری باید تسویه کامل باشد.".into())}
- if kind=="sale"&&payment_status=="partial"&&(paid<=0||paid>=total){return Err("مبلغ دریافت‌شده در پرداخت جزئی باید بیشتر از صفر و کمتر از مبلغ فاکتور باشد".into())}
- let mut resolved:Vec<(Option<i64>,String,i64,i64,i64)>=Vec::new();
- for (name,qty,price) in items {
-  let found:Option<(i64,i64)>=tx.query_row("SELECT id,quantity FROM products WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",[&name],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
-  let pid=if let Some((pid,stock))=found {
-   if kind=="sale" {if stock<qty{return Err(format!("موجودی «{name}» کافی نیست؛ موجودی فعلی {stock}"))}tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2",params![qty,pid]).map_err(|e|e.to_string())?;}
-   else {tx.execute("UPDATE products SET quantity=quantity+?1,buy_price=?2 WHERE id=?3",params![qty,price,pid]).map_err(|e|e.to_string())?;}
-   Some(pid)
-  } else if kind=="purchase" {
-   let code=format!("AUTO-{}",tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM products",[],|r|r.get::<_,i64>(0)).map_err(|e|e.to_string())?);
-   tx.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)",params![name,code,price,qty]).map_err(|e|e.to_string())?;
-   Some(tx.last_insert_rowid())
-  } else {None};
-  let line=qty.checked_mul(price).ok_or("مبلغ ردیف بیش از حد بزرگ است")?;
-  resolved.push((pid,name,qty,price,line));
+ if payment_status=="partial"&&(paid<=0||paid>=total){
+  return Err("مبلغ دریافت‌شده در پرداخت جزئی باید بیشتر از صفر و کمتر از مبلغ فاکتور باشد".into());
  }
- let number:i64=tx.query_row("SELECT COALESCE(MAX(number),1000)+1 FROM invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?;
- let contact_name=if contact.is_empty(){"مشتری گذری"}else{contact.as_str()};
- tx.execute("INSERT INTO invoices(number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),date('now','localtime')),?6,?7,?8,?9,?10)",params![number,kind,cid,contact_name,text(&payload,"date"),subtotal,discount,total,paid,text(&payload,"notes")]).map_err(|e|e.to_string())?;
- let id=tx.last_insert_rowid();
- for (pid,name,q,p,line) in resolved {tx.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(?1,?2,?3,?4,?5,?6)",params![id,pid,name,q,p,line]).map_err(|e|e.to_string())?;}
- if kind=="sale"&&paid>0 {let method=text(&payload,"method");tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES('receipt',?1,?2,?3,COALESCE(NULLIF(?4,''),'cash'),COALESCE(NULLIF(?5,''),date('now','localtime')),?6)",params![cid,contact_name,paid,method,text(&payload,"date"),format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e|e.to_string())?;}
- tx.commit().map_err(|e|e.to_string())?;Ok(id)
+ nabz_core::accounting::create_invoice(c,&nabz_core::accounting::InvoiceInput{
+  kind,contact_name:text(&payload,"customer"),date:text(&payload,"date"),
+  discount,paid,method:text(&payload,"method"),notes:text(&payload,"notes"),lines
+ })
 }
+
 #[tauri::command]
 fn save_payment(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  let mut c=db.0.lock().map_err(|e|e.to_string())?;
