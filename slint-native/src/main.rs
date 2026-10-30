@@ -666,6 +666,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let weak = ui.as_weak();
+        let db = db.clone();
+        ui.on_create_backup_requested(move || if let Some(ui) = weak.upgrade() {
+            match nabz_core::create_automatic_backup(&db.borrow()) {
+                Ok(path) => set_status(&ui, format!("پشتیبان کامل ذخیره شد: {}", path.display())),
+                Err(error) => set_status(&ui, format!("ساخت پشتیبان ناموفق بود: {error}")),
+            }
+        });
+    }
+    {
+        let weak = ui.as_weak();
+        let db = db.clone();
+        ui.on_restore_backup_requested(move || if let Some(ui) = weak.upgrade() {
+            match nabz_core::restore_latest_backup(&mut db.borrow_mut()) {
+                Ok(path) => {
+                    set_status(&ui, format!("بازیابی کامل شد: {}", path.display()));
+                    if let Err(error) = refresh_ui(&ui, &db.borrow()) {
+                        set_status(&ui, format!("بازیابی انجام شد؛ تازه‌سازی ناموفق بود: {error}"));
+                    }
+                }
+                Err(error) => set_status(&ui, format!("بازیابی ناموفق بود: {error}")),
+            }
+        });
+    }
+
     ui.run()?;
     Ok(())
 }
