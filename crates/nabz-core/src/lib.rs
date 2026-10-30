@@ -17,15 +17,24 @@ pub fn database_path() -> PathBuf {
         return PathBuf::from(path);
     }
 
+    #[cfg(target_os = "windows")]
+    let data_home = std::env::var_os("LOCALAPPDATA")
+        .or_else(|| std::env::var_os("APPDATA"))
+        .map(PathBuf::from);
+
+    #[cfg(target_os = "macos")]
+    let data_home = std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join("Library/Application Support"));
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .map(|home| PathBuf::from(home).join(".local/share"))
-        })
-        .unwrap_or_else(|| PathBuf::from("."));
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")));
 
-    data_home.join(APP_DATA_DIRECTORY).join(DATABASE_FILE)
+    data_home
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(APP_DATA_DIRECTORY)
+        .join(DATABASE_FILE)
 }
 
 /// Open the canonical per-user database shared by all Nabz frontends.
