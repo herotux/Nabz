@@ -394,6 +394,79 @@ pub fn return_sale_items(
     Ok((credit, refund))
 }
 
+/// Return purchased goods to a supplier, reduce the purchase invoice and
+/// receive any amount already paid above the revised invoice total.
+/// Inventory, invoice totals and the supplier-refund audit record are atomic.
+pub fn return_purchase_items(
+    connection: &mut Connection,
+    invoice_id: i64,
+    lines: &[ReturnLineInput],
+    refund_method: &str,
+) -> Result<(i64, i64), String> {
+    if invoice_id <= 0 || lines.is_empty() {
+        return Err("ابتدا فاکتور خرید و حداقل یک ردیف مرجوعی را انتخاب کنید".into());
+    }
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let invoice: (String, i64, i64, i64, i64) = tx.query_row(
+        "SELECT kind,subtotal,discount,total,paid FROM invoices WHERE id=?1 AND voided=0",
+        [invoice_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
+    ).optional().map_err(|e| e.to_string())?.ok_or("فاکتور پیدا نشد یا باطل شده است")?;
+    if invoice.0 != "purchase" { return Err("مرجوعی فقط برای فاکتور خرید مجاز است".into()); }
+
+    let mut seen = std::collections::HashSet::new();
+    let mut normalized = Vec::new();
+    let mut gross_return = 0_i64;
+    for (index, line) in lines.iter().enumerate() {
+        let lookup = line.product_lookup.trim();
+        if lookup.is_empty() || line.quantity <= 0 {
+            return Err(format!("ردیف {}: کالا و تعداد مرجوعی مثبت الزامی است", index + 1));
+        }
+        if !seen.insert(lookup.to_lowercase()) {
+            return Err(format!("کالای «{lookup}» را فقط یک بار در فهرست مرجوعی وارد کنید"));
+        }
+        let matches = {
+            let mut st = tx.prepare(
+                "SELECT ii.id,ii.product_id,ii.quantity,ii.unit_price,ii.item_name
+                 FROM invoice_items ii JOIN products p ON p.id=ii.product_id
+                 WHERE ii.invoice_id=?1 AND (ii.item_name=?2 COLLATE NOCASE OR p.code=?2 OR p.barcode=?2)
+                 ORDER BY ii.id"
+            ).map_err(|e| e.to_string())?;
+            st.query_map(params![invoice_id,lookup],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?)))
+                .map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+        };
+        if matches.len()!=1 { return Err(format!("کالای «{lookup}» در این فاکتور یکتا نیست یا پیدا نشد؛ از کد یکتا استفاده کنید")); }
+        let (item_id,product_id,original_qty,unit_price,item_name)=matches.into_iter().next().expect("one match");
+        if product_id<=0 { return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ مرجوعی ممکن نیست")); }
+        let already:i64=tx.query_row("SELECT COALESCE(SUM(quantity),0) FROM purchase_return_items WHERE invoice_item_id=?1",[item_id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        let remaining=original_qty.checked_sub(already).ok_or("سابقهٔ مرجوعی نامعتبر است")?;
+        if line.quantity>remaining { return Err(format!("برای «{item_name}» فقط {} عدد قابل مرجوعی است",remaining)); }
+        let amount=line.quantity.checked_mul(unit_price).ok_or("مبلغ مرجوعی بیش از حد بزرگ است")?;
+        gross_return=gross_return.checked_add(amount).ok_or("جمع مرجوعی بیش از حد بزرگ است")?;
+        normalized.push((item_id,product_id,line.quantity,unit_price,item_name,amount));
+    }
+    if invoice.1<=0 || gross_return>invoice.1 { return Err("مبلغ ردیف‌های مرجوعی از جمع اولیهٔ فاکتور بیشتر است".into()); }
+    let credit=gross_return.checked_mul(invoice.3).ok_or("محاسبهٔ مبلغ مرجوعی بیش از حد بزرگ است")?/invoice.1;
+    if credit<=0 { return Err("مبلغ خالص مرجوعی صفر است؛ مقدار را بررسی کنید".into()); }
+    let new_subtotal=invoice.1-gross_return;
+    let new_total=invoice.3.checked_sub(credit).ok_or("مبلغ نهایی نامعتبر است")?;
+    let supplier_refund=invoice.4.saturating_sub(new_total).max(0);
+    let new_discount=new_subtotal-new_total;
+    tx.execute("INSERT INTO purchase_returns(invoice_id,amount,notes) VALUES(?1,?2,?3)",params![invoice_id,credit,format!("مرجوعی فاکتور خرید #{invoice_id}")]).map_err(|e|e.to_string())?;
+    let return_id=tx.last_insert_rowid();
+    if supplier_refund>0 {
+        let method=if refund_method.trim().is_empty(){"cash"}else{refund_method.trim()};
+        tx.execute("INSERT INTO purchase_refunds(invoice_id,return_id,amount,method,notes) VALUES(?1,?2,?3,?4,?5)",params![invoice_id,return_id,supplier_refund,method,format!("دریافت وجه بابت مرجوعی خرید #{invoice_id}")]).map_err(|e|e.to_string())?;
+    }
+    for (item_id,product_id,quantity,unit_price,item_name,amount) in normalized {
+        let changed=tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2 AND quantity>=?1",params![quantity,product_id]).map_err(|e|e.to_string())?;
+        if changed==0 { return Err(format!("موجودی «{item_name}» برای مرجوعی کافی نیست؛ موجودی انبار تغییر نکرد")); }
+        tx.execute("INSERT INTO purchase_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![return_id,item_id,product_id,item_name,quantity,unit_price,amount]).map_err(|e|e.to_string())?;
+    }
+    tx.execute("UPDATE invoices SET subtotal=?1,discount=?2,total=?3,paid=MIN(paid,?3) WHERE id=?4",params![new_subtotal,new_discount,new_total,invoice_id]).map_err(|e|e.to_string())?;
+    tx.commit().map_err(|e|e.to_string())?;
+    Ok((credit,supplier_refund))
+}
+
 /// Void an invoice only when linked returns and subsequent allocations cannot
 /// be made inconsistent. Keep the invoice as an audit record.
 pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), String> {
@@ -405,11 +478,13 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
     ).optional().map_err(|e| e.to_string())?;
     let (number, kind, _total, paid) = invoice.ok_or("فاکتور پیدا نشد یا قبلاً باطل شده است")?;
 
-    let returns: i64 = tx.query_row(
-        "SELECT COUNT(*) FROM sales_returns WHERE invoice_id=?1", [invoice_id], |r| r.get(0)
-    ).map_err(|e| e.to_string())?;
+    let returns: i64 = if kind == "sale" {
+        tx.query_row("SELECT COUNT(*) FROM sales_returns WHERE invoice_id=?1", [invoice_id], |r| r.get(0))
+    } else {
+        tx.query_row("SELECT COUNT(*) FROM purchase_returns WHERE invoice_id=?1", [invoice_id], |r| r.get(0))
+    }.map_err(|e| e.to_string())?;
     if returns > 0 {
-        return Err("این فاکتور سابقهٔ برگشت کالا/بازپرداخت دارد؛ ابطال مستقیم مجاز نیست".into());
+        return Err("این فاکتور سابقهٔ برگشت/مرجوعی یا بازپرداخت دارد؛ ابطال مستقیم مجاز نیست".into());
     }
     let initial_receipt: i64 = if kind == "sale" {
         tx.query_row(
@@ -713,6 +788,30 @@ mod tests {
         ).unwrap();
         assert_eq!((stock, voided, items), (5, 1, 1));
         assert!(void_invoice(&mut connection, invoice_id).is_err());
+    }
+
+    #[test]
+    fn purchase_return_reduces_stock_and_invoice_and_records_supplier_refund() {
+        let mut connection=database();
+        create_contact(&connection,&ContactInput{name:"تأمین‌کننده مرجوعی".into(),kind:"supplier".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        create_product(&connection,&ProductInput{name:"کالای خرید".into(),code:"BUY-RET".into(),barcode:String::new(),buy_price:10,sell_price:20,quantity:0,min_quantity:0}).unwrap();
+        let invoice_id=create_invoice(&mut connection,&InvoiceInput{kind:"purchase".into(),contact_name:"تأمین‌کننده مرجوعی".into(),date:String::new(),discount:0,paid:100,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"BUY-RET".into(),quantity:5,unit_price:20}]}).unwrap();
+        let result=return_purchase_items(&mut connection,invoice_id,&[ReturnLineInput{product_lookup:"BUY-RET".into(),quantity:2}],"cash").unwrap();
+        assert_eq!(result,(40,0));
+        let (stock,total,paid,returned):(i64,i64,i64,i64)=connection.query_row("SELECT p.quantity,i.total,i.paid,(SELECT SUM(quantity) FROM purchase_return_items pri JOIN purchase_returns pr ON pr.id=pri.return_id WHERE pr.invoice_id=i.id) FROM products p JOIN invoices i ON i.id=?1 WHERE p.code='BUY-RET'",[invoice_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+        assert_eq!((stock,total,paid,returned),(3,60,60,2));
+        assert!(void_invoice(&mut connection,invoice_id).is_err());
+    }
+
+    #[test]
+    fn purchase_return_rejects_over_return_without_stock_or_invoice_mutation() {
+        let mut connection=database();
+        create_contact(&connection,&ContactInput{name:"تأمین‌کننده دوم".into(),kind:"supplier".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        create_product(&connection,&ProductInput{name:"قلم خرید".into(),code:"BUY-OVER".into(),barcode:String::new(),buy_price:10,sell_price:20,quantity:0,min_quantity:0}).unwrap();
+        let invoice_id=create_invoice(&mut connection,&InvoiceInput{kind:"purchase".into(),contact_name:"تأمین‌کننده دوم".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"BUY-OVER".into(),quantity:2,unit_price:20}]}).unwrap();
+        assert!(return_purchase_items(&mut connection,invoice_id,&[ReturnLineInput{product_lookup:"BUY-OVER".into(),quantity:3}],"cash").is_err());
+        let (stock,total,returns):(i64,i64,i64)=connection.query_row("SELECT p.quantity,i.total,(SELECT COUNT(*) FROM purchase_returns WHERE invoice_id=i.id) FROM products p JOIN invoices i ON i.id=?1 WHERE p.code='BUY-OVER'",[invoice_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+        assert_eq!((stock,total,returns),(2,40,0));
     }
 
     #[test]
