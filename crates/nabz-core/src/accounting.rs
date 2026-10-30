@@ -489,8 +489,9 @@ mod tests {
             "SELECT opening_balance FROM contacts WHERE id=?1", [contact_id], |r| r.get(0)
         ).unwrap();
         let paid: Vec<i64> = {
-            let mut s = connection.prepare("SELECT paid FROM invoices ORDER BY id").unwrap();
-            s.query_map([], |r| r.get(0)).unwrap().collect::<Result<_,_>>().unwrap()
+            let mut statement = connection.prepare("SELECT paid FROM invoices ORDER BY id").unwrap();
+            let rows = statement.query_map([], |r| r.get(0)).unwrap();
+            rows.collect::<Result<_,_>>().unwrap()
         };
         assert_eq!(opening, 0);
         assert_eq!(paid, vec![50, 0]);
