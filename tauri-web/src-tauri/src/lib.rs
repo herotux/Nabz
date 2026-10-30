@@ -37,9 +37,10 @@ fn delete_record(kind:String,id:i64,db:State<'_,Db>)->Result<(),String>{
  tx.commit().map_err(|e|e.to_string())?;Ok(())
 }
 #[tauri::command]
-fn adjust_inventory(product_id:i64,new_quantity:i64,reason:String,db:State<'_,Db>)->Result<nabz_core::accounting::InventoryAdjustment,String>{
+fn adjust_inventory(product_id:i64,new_quantity:i64,reason:String,db:State<'_,Db>)->Result<(i64,i64,i64),String>{
  let mut c=db.0.lock().map_err(|e|e.to_string())?;
- nabz_core::accounting::adjust_inventory(&mut c,product_id,new_quantity,&reason)
+ let result=nabz_core::accounting::adjust_inventory(&mut c,product_id,new_quantity,&reason)?;
+ Ok((result.previous_quantity,result.new_quantity,result.delta))
 }
 #[derive(Serialize)]
 struct InventoryAdjustmentRecord { id:i64,product_id:i64,product_name:String,previous_quantity:i64,new_quantity:i64,delta:i64,reason:String,created_at:String }
