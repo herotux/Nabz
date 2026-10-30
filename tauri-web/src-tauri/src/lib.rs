@@ -194,13 +194,27 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
 #[tauri::command]
+fn create_database_backup(db: State<'_, Db>) -> Result<String, String> {
+    let connection = db.0.lock().map_err(|e| e.to_string())?;
+    let path = nabz_core::create_automatic_backup(&connection)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn restore_latest_database_backup(db: State<'_, Db>) -> Result<String, String> {
+    let mut connection = db.0.lock().map_err(|e| e.to_string())?;
+    let path = nabz_core::restore_latest_backup(&mut connection)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 fn switch_to_slint(app: tauri::AppHandle) -> Result<(), String> {
     nabz_core::launch_frontend(nabz_core::Frontend::Slint)?;
     app.exit(0);
     Ok(())
 }
 
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,save_setting,get_settings,sales_trend,switch_to_slint]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,save_setting,get_settings,sales_trend,switch_to_slint,create_database_backup,restore_latest_database_backup]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
