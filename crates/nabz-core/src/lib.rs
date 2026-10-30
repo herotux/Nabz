@@ -486,6 +486,20 @@ mod tests {
     }
 
     #[test]
+    fn version_two_database_migrates_inventory_adjustment_history() {
+        let connection=Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute("INSERT INTO products(name,code,quantity) VALUES('کالای موجود','STOCK-2',4)",[]).unwrap();
+        connection.execute_batch("DROP TABLE inventory_adjustments; DROP INDEX IF EXISTS idx_inventory_adjustments_product_date;").unwrap();
+        connection.pragma_update(None,"user_version",2).unwrap();
+        initialize(&connection).unwrap();
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let count:i64=connection.query_row("SELECT COUNT(*) FROM inventory_adjustments",[],|r|r.get(0)).unwrap();
+        let stock:i64=connection.query_row("SELECT quantity FROM products WHERE code='STOCK-2'",[],|r|r.get(0)).unwrap();
+        assert_eq!((version,count,stock),(3,0,4));
+    }
+
+    #[test]
     fn fresh_database_gets_shared_schema_and_version() {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
