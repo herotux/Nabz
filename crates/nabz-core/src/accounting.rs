@@ -278,6 +278,197 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
     Ok(invoice_id)
 }
 
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReturnLineInput {
+    pub product_lookup: String,
+    pub quantity: i64,
+}
+
+/// Process a partial sale return, restore stock, and create any cash refund
+/// atomically. The calculation and validation are shared by both UIs.
+pub fn return_sale_items(
+    connection: &mut Connection,
+    invoice_id: i64,
+    lines: &[ReturnLineInput],
+    refund_method: &str,
+) -> Result<(i64, i64), String> {
+    if invoice_id <= 0 || lines.is_empty() {
+        return Err("ابتدا فاکتور فروش و حداقل یک ردیف برگشت را انتخاب کنید".into());
+    }
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let invoice: (String, i64, i64, i64, i64) = tx.query_row(
+        "SELECT kind,subtotal,discount,total,paid FROM invoices WHERE id=?1 AND voided=0",
+        [invoice_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+    ).optional().map_err(|e| e.to_string())?
+        .ok_or("فاکتور پیدا نشد یا باطل شده است")?;
+    if invoice.0 != "sale" {
+        return Err("برگشت جزئی فقط برای فاکتور فروش مجاز است".into());
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    let mut normalized = Vec::new();
+    let mut gross_return = 0_i64;
+    for (index, line) in lines.iter().enumerate() {
+        let lookup = line.product_lookup.trim();
+        if lookup.is_empty() || line.quantity <= 0 {
+            return Err(format!("ردیف {}: کالا و تعداد برگشتی مثبت الزامی است", index + 1));
+        }
+        if !seen.insert(lookup.to_lowercase()) {
+            return Err(format!("کالای «{lookup}» را فقط یک بار در فهرست برگشت وارد کنید"));
+        }
+        let matches = {
+            let mut statement = tx.prepare(
+                "SELECT ii.id,ii.product_id,ii.quantity,ii.unit_price,ii.item_name
+                 FROM invoice_items ii JOIN products p ON p.id=ii.product_id
+                 WHERE ii.invoice_id=?1 AND
+                 (ii.item_name=?2 COLLATE NOCASE OR p.code=?2 OR p.barcode=?2)
+                 ORDER BY ii.id"
+            ).map_err(|e| e.to_string())?;
+            statement.query_map(params![invoice_id, lookup], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                    r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?))
+            }).map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        };
+        if matches.len() != 1 {
+            return Err(format!("کالای «{lookup}» در این فاکتور یکتا نیست یا پیدا نشد؛ از کد یکتا استفاده کنید"));
+        }
+        let (item_id, product_id, original_qty, unit_price, item_name) =
+            matches.into_iter().next().expect("one match");
+        if product_id <= 0 {
+            return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ برگشت ممکن نیست"));
+        }
+        let already: i64 = tx.query_row(
+            "SELECT COALESCE(SUM(quantity),0) FROM sales_return_items WHERE invoice_item_id=?1",
+            [item_id], |r| r.get(0)
+        ).map_err(|e| e.to_string())?;
+        let remaining = original_qty.checked_sub(already).ok_or("سابقهٔ برگشت نامعتبر است")?;
+        if line.quantity > remaining {
+            return Err(format!("برای «{item_name}» فقط {} عدد قابل برگشت است", remaining));
+        }
+        let amount = line.quantity.checked_mul(unit_price).ok_or("مبلغ برگشت بیش از حد بزرگ است")?;
+        gross_return = gross_return.checked_add(amount).ok_or("جمع برگشت بیش از حد بزرگ است")?;
+        normalized.push((item_id, product_id, line.quantity, unit_price, item_name, amount));
+    }
+
+    if invoice.1 <= 0 || gross_return > invoice.1 {
+        return Err("مبلغ ردیف‌های برگشتی از جمع اولیهٔ فاکتور بیشتر است".into());
+    }
+    let credit = gross_return.checked_mul(invoice.3).ok_or("محاسبهٔ مبلغ برگشت بیش از حد بزرگ است")? / invoice.1;
+    if credit <= 0 {
+        return Err("مبلغ خالص برگشت صفر است؛ مقدار برگشت را بررسی کنید".into());
+    }
+    let new_subtotal = invoice.1 - gross_return;
+    let new_total = invoice.3.checked_sub(credit).ok_or("مبلغ نهایی نامعتبر است")?;
+    let refund = invoice.4.saturating_sub(new_total).max(0);
+    let new_discount = new_subtotal - new_total;
+    tx.execute(
+        "INSERT INTO sales_returns(invoice_id,amount,notes) VALUES(?1,?2,?3)",
+        params![invoice_id, credit, format!("برگشت جزئی فاکتور #{invoice_id}")],
+    ).map_err(|e| e.to_string())?;
+    let return_id = tx.last_insert_rowid();
+    if refund > 0 {
+        let method = if refund_method.trim().is_empty() { "cash" } else { refund_method.trim() };
+        tx.execute(
+            "INSERT INTO sales_refunds(invoice_id,return_id,amount,method,notes)
+             VALUES(?1,?2,?3,?4,?5)",
+            params![invoice_id, return_id, refund, method, format!("بازپرداخت بابت برگشت فاکتور #{invoice_id}")],
+        ).map_err(|e| e.to_string())?;
+    }
+    for (item_id, product_id, quantity, unit_price, item_name, amount) in normalized {
+        tx.execute("UPDATE products SET quantity=quantity+?1 WHERE id=?2",
+            params![quantity, product_id]).map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
+             VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![return_id, item_id, product_id, item_name, quantity, unit_price, amount],
+        ).map_err(|e| e.to_string())?;
+    }
+    tx.execute(
+        "UPDATE invoices SET subtotal=?1,discount=?2,total=?3,paid=MIN(paid,?3) WHERE id=?4",
+        params![new_subtotal, new_discount, new_total, invoice_id],
+    ).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok((credit, refund))
+}
+
+/// Void an invoice only when linked returns and subsequent allocations cannot
+/// be made inconsistent. Keep the invoice as an audit record.
+pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), String> {
+    if invoice_id <= 0 { return Err("ابتدا یک فاکتور را انتخاب کنید".into()); }
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let invoice: Option<(i64, String, i64, i64)> = tx.query_row(
+        "SELECT number,kind,total,paid FROM invoices WHERE id=?1 AND voided=0",
+        [invoice_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+    ).optional().map_err(|e| e.to_string())?;
+    let (number, kind, _total, paid) = invoice.ok_or("فاکتور پیدا نشد یا قبلاً باطل شده است")?;
+
+    let returns: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM sales_returns WHERE invoice_id=?1", [invoice_id], |r| r.get(0)
+    ).map_err(|e| e.to_string())?;
+    if returns > 0 {
+        return Err("این فاکتور سابقهٔ برگشت کالا/بازپرداخت دارد؛ ابطال مستقیم مجاز نیست".into());
+    }
+    let initial_receipt: i64 = if kind == "sale" {
+        tx.query_row(
+            "SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND notes=?1",
+            [format!("دریافت بابت فاکتور فروش #{number}")], |r| r.get(0)
+        ).map_err(|e| e.to_string())?
+    } else { 0 };
+    if kind == "sale" && paid != initial_receipt {
+        return Err("این فاکتور پرداخت‌های تخصیص‌یافتهٔ بعدی دارد؛ ابتدا گردش‌های مرتبط را اصلاح کنید".into());
+    }
+    if kind == "purchase" && paid != 0 {
+        return Err("برای این فاکتور خرید پرداخت تخصیص یافته است؛ ابتدا گردش مالی آن را اصلاح کنید".into());
+    }
+    if kind != "sale" && kind != "purchase" {
+        return Err("نوع فاکتور ناشناخته است".into());
+    }
+
+    let items = {
+        let mut statement = tx.prepare(
+            "SELECT product_id,item_name,quantity FROM invoice_items WHERE invoice_id=?1 ORDER BY id"
+        ).map_err(|e| e.to_string())?;
+        statement.query_map([invoice_id], |r| Ok((
+            r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?
+        ))).map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
+    if items.is_empty() { return Err("فاکتور ردیف کالا ندارد؛ ابطال خودکار ممکن نیست".into()); }
+    for (product_id, item_name, quantity) in items {
+        if quantity <= 0 { return Err(format!("تعداد نامعتبر برای کالای «{item_name}»؛ ابطال لغو شد")); }
+        if let Some(product_id) = product_id {
+            let stock: i64 = tx.query_row(
+                "SELECT quantity FROM products WHERE id=?1", [product_id], |r| r.get(0)
+            ).optional().map_err(|e| e.to_string())?
+                .ok_or(format!("کالای «{item_name}» حذف شده؛ ابطال امن ممکن نیست"))?;
+            if kind == "sale" {
+                let next = stock.checked_add(quantity).ok_or("موجودی پس از برگشت بیش از حد بزرگ می‌شود")?;
+                tx.execute("UPDATE products SET quantity=?1 WHERE id=?2", params![next, product_id])
+                    .map_err(|e| e.to_string())?;
+            } else {
+                if stock < quantity {
+                    return Err(format!("موجودی «{item_name}» برای برگشت خرید کافی نیست؛ موجودی فعلی {} و مقدار برگشت {}", stock, quantity));
+                }
+                tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2", params![quantity, product_id])
+                    .map_err(|e| e.to_string())?;
+            }
+        } else if kind == "purchase" {
+            return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ ابطال امن ممکن نیست"));
+        }
+    }
+    if initial_receipt > 0 {
+        tx.execute("DELETE FROM payments WHERE kind='receipt' AND notes=?1",
+            [format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e| e.to_string())?;
+    }
+    tx.execute("UPDATE invoices SET voided=1 WHERE id=?1 AND voided=0", [invoice_id])
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaymentInput {
     pub kind: String,
