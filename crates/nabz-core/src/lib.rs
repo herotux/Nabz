@@ -30,9 +30,10 @@ pub fn database_path() -> PathBuf {
         return PathBuf::from(path);
     }
 
+    // Match Tauri's Windows AppDataDir (RoamingAppData) to avoid split databases.
     #[cfg(target_os = "windows")]
-    let data_home = std::env::var_os("LOCALAPPDATA")
-        .or_else(|| std::env::var_os("APPDATA"))
+    let data_home = std::env::var_os("APPDATA")
+        .or_else(|| std::env::var_os("LOCALAPPDATA"))
         .map(PathBuf::from);
 
     #[cfg(target_os = "macos")]
@@ -71,6 +72,16 @@ pub fn open_database_at(path: impl AsRef<Path>) -> Result<Connection, String> {
 
 /// Initialize the common schema and apply every outstanding migration.
 pub fn initialize(connection: &Connection) -> Result<(), String> {
+    // Reject newer schemas before any DDL/DML can mutate a database.
+    let current_version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    if current_version > SCHEMA_VERSION {
+        return Err(format!(
+            "نسخهٔ پایگاه داده ({current_version}) از نسخهٔ پشتیبانی‌شدهٔ این برنامه ({SCHEMA_VERSION}) جدیدتر است."
+        ));
+    }
+
     connection
         .execute_batch(
             "PRAGMA foreign_keys=ON;
@@ -253,9 +264,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_database_from_a_newer_schema() {
+    fn rejects_a_database_from_a_newer_schema_without_mutating_it() {
         let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES('keep');").unwrap();
         connection.pragma_update(None, "user_version", SCHEMA_VERSION + 1).unwrap();
         assert!(initialize(&connection).unwrap_err().contains("جدیدتر"));
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let contacts_table: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='contacts'", [], |r| r.get(0)
+        ).unwrap();
+        let value: String = connection.query_row("SELECT value FROM future_data", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, SCHEMA_VERSION + 1);
+        assert_eq!(contacts_table, 0);
+        assert_eq!(value, "keep");
     }
 }
