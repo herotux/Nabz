@@ -5,6 +5,7 @@
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz.webprototype";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
@@ -49,6 +50,38 @@ pub fn database_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join(APP_DATA_DIRECTORY)
         .join(DATABASE_FILE)
+}
+
+/// Identifies one of the independently installed Nabz frontends.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Frontend {
+    Tauri,
+    Slint,
+}
+
+/// Start another installed frontend from the current installation directory or PATH.
+/// The caller should close its own window only after this function succeeds.
+pub fn launch_frontend(frontend: Frontend) -> Result<Child, String> {
+    let executable = match frontend {
+        Frontend::Tauri => if cfg!(windows) { "nabz-tauri.exe" } else { "nabz-tauri" },
+        Frontend::Slint => if cfg!(windows) { "nabz-slint.exe" } else { "nabz-slint" },
+    };
+
+    if let Some(directory) = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+    {
+        let sibling = directory.join(executable);
+        if sibling.is_file() {
+            return Command::new(sibling)
+                .spawn()
+                .map_err(|e| format!("اجرای رابط دیگر ناموفق بود: {e}"));
+        }
+    }
+
+    Command::new(executable)
+        .spawn()
+        .map_err(|e| format!("رابط درخواستی نصب نیست یا در PATH پیدا نشد ({executable}): {e}"))
 }
 
 /// Open the canonical per-user database shared by all Nabz frontends.
