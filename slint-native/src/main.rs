@@ -75,7 +75,7 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     let history = {
         let mut st=c.prepare("SELECT product_name,previous_quantity,new_quantity,delta,reason,created_at FROM inventory_adjustments ORDER BY id DESC LIMIT 5").map_err(|e|e.to_string())?;
         let rows=st.query_map([],|r|Ok(format!("{}: {} ← {} ({:+}) · {} · {}",r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?))).map_err(|e|e.to_string())?;
-        rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?.join("\\n")
+        rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?.join("\n")
     };
     ui.set_inventory_adjustment_history(if history.is_empty(){"هنوز سابقه‌ای ثبت نشده است.".into()}else{history.into()});
     ui.set_contacts_count(q("SELECT COUNT(*) FROM contacts")? as i32);
