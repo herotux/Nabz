@@ -139,34 +139,87 @@ pub fn latest_backup_path() -> Result<PathBuf, String> {
     candidates.pop().ok_or_else(|| "هیچ نسخهٔ پشتیبانی برای بازیابی وجود ندارد".into())
 }
 
-/// Restore a full database snapshot into the already-open shared connection.
-/// The source is validated before SQLite's backup API replaces the live database.
-pub fn restore_database_from(connection: &mut Connection, source_path: impl AsRef<Path>) -> Result<(), String> {
-    let source_path = source_path.as_ref();
-    let source = Connection::open_with_flags(source_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| format!("فایل پشتیبان باز نشد: {e}"))?;
+/// Validate the minimum schema contract before a snapshot is allowed to replace live data.
+fn validate_restore_source(source: &Connection) -> Result<(), String> {
     let integrity: String = source.query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .map_err(|e| format!("فایل پشتیبان معتبر نیست: {e}"))?;
     if integrity != "ok" {
         return Err(format!("فایل پشتیبان خراب است: {integrity}"));
     }
+
     let version: i64 = source.query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|e| e.to_string())?;
     if version > SCHEMA_VERSION {
         return Err(format!("نسخهٔ پشتیبان ({version}) از نسخهٔ پشتیبانی‌شدهٔ برنامه ({SCHEMA_VERSION}) جدیدتر است."));
     }
+
+    // A valid SQLite file is not necessarily a Nabz database. Reject unrelated
+    // or incomplete files before touching the active ledger.
+    for table in ["contacts", "products", "invoices", "invoice_items", "payments", "settings"] {
+        let exists: i64 = source.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+            [table], |row| row.get(0)
+        ).map_err(|e| e.to_string())?;
+        if exists != 1 {
+            return Err(format!("فایل انتخاب‌شده پایگاه دادهٔ معتبر نبض نیست؛ جدول «{table}» وجود ندارد."));
+        }
+    }
+
     let foreign_key_errors: i64 = source.query_row(
         "SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| row.get(0)
     ).map_err(|e| e.to_string())?;
     if foreign_key_errors != 0 {
         return Err("فایل پشتیبان دارای ارجاع‌های ناسازگار است و بازیابی متوقف شد".into());
     }
+    Ok(())
+}
 
-    let backup = Backup::new(&source, connection).map_err(|e| e.to_string())?;
-    backup.run_to_completion(128, Duration::from_millis(10), None)
-        .map_err(|e| format!("بازیابی پایگاه داده ناموفق بود: {e}"))?;
-    drop(backup);
-    initialize(connection)?;
+/// Restore a full database snapshot into the already-open shared connection.
+///
+/// A verified emergency snapshot is created before the live ledger is changed.
+/// If SQLite replacement or post-restore migration fails, the emergency
+/// snapshot is restored before returning an error. The safety snapshot is kept
+/// after success so the user can recover the pre-restore state manually.
+pub fn restore_database_from(connection: &mut Connection, source_path: impl AsRef<Path>) -> Result<(), String> {
+    let source_path = source_path.as_ref();
+    let source = Connection::open_with_flags(source_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("فایل پشتیبان باز نشد: {e}"))?;
+    validate_restore_source(&source)?;
+
+    let safety_dir = database_path().parent()
+        .ok_or("مسیر پایگاه داده معتبر نیست")?
+        .join("backups");
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?.as_nanos();
+    let safety_path = safety_dir.join(format!("pre-restore-{stamp}.sqlite3"));
+    backup_database_to(connection, &safety_path)
+        .map_err(|e| format!("ساخت نسخهٔ ایمنی پیش از بازیابی ناموفق بود؛ دیتابیس فعلی تغییر نکرد: {e}"))?;
+
+    let restore_result = (|| -> Result<(), String> {
+        let backup = Backup::new(&source, connection).map_err(|e| e.to_string())?;
+        backup.run_to_completion(128, Duration::from_millis(10), None)
+            .map_err(|e| format!("بازیابی پایگاه داده ناموفق بود: {e}"))?;
+        drop(backup);
+        initialize(connection)?;
+        Ok(())
+    })();
+
+    if let Err(restore_error) = restore_result {
+        let safety = Connection::open_with_flags(&safety_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| format!("{restore_error}; بازکردن نسخهٔ ایمنی برای بازگشت ناموفق بود: {e}. فایل ایمنی: {}", safety_path.display()))?;
+        let rollback = Backup::new(&safety, connection)
+            .and_then(|backup| backup.run_to_completion(128, Duration::from_millis(10), None));
+        if let Err(rollback_error) = rollback {
+            return Err(format!("{restore_error}; بازگردانی نسخهٔ ایمنی نیز ناموفق بود: {rollback_error}. فایل ایمنی را نگه دارید: {}", safety_path.display()));
+        }
+        drop(safety);
+        let rollback_validation = initialize(connection);
+        if let Err(validation_error) = rollback_validation {
+            return Err(format!("{restore_error}; دادهٔ قبلی بازیابی شد اما بررسی نهایی خطا داد: {validation_error}. فایل ایمنی: {}", safety_path.display()));
+        }
+        return Err(format!("{restore_error}; دیتابیس قبلی بازیابی شد. نسخهٔ ایمنی: {}", safety_path.display()));
+    }
+
     Ok(())
 }
 
