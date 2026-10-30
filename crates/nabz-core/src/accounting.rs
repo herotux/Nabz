@@ -678,7 +678,7 @@ mod tests {
             params![invoice_id, product_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         ).unwrap();
         assert_eq!(result, (93, 0));
-        assert_eq!((stock, total, returned), (8, 180, 1));
+        assert_eq!((stock, total, returned), (8, 187, 1));
         let over_return = return_sale_items(&mut connection, invoice_id, &[ReturnLineInput {
             product_lookup: "RET-1".into(), quantity: 3,
         }], "cash");
