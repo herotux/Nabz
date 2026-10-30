@@ -328,6 +328,26 @@ mod accounting_tests {
  }
 
  #[test]
+ fn tauri_purchase_return_adapter_reduces_supplier_invoice_and_stock() {
+  let mut c=database();
+  c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Vendor','supplier',0)",[]).unwrap();
+  let invoice_id=nabz_core::accounting::create_invoice(&mut c,&nabz_core::accounting::InvoiceInput{
+   kind:"purchase".into(),contact_name:"Vendor".into(),date:"2026-10-28".into(),discount:0,paid:0,
+   method:"cash".into(),notes:String::new(),lines:vec![nabz_core::accounting::InvoiceLineInput{product_lookup:"PEN".into(),quantity:4,unit_price:20}]
+  }).unwrap();
+  nabz_core::accounting::record_payment(&mut c,&nabz_core::accounting::PaymentInput{
+   kind:"payment".into(),contact_name:"Vendor".into(),amount:80,method:"cash".into(),date:"2026-10-28".into(),notes:String::new()
+  }).unwrap();
+  let result=return_purchase_items_with_connection(invoice_id,json!({
+   "items":[{"item":"PEN","qty":1}],"refund_method":"cash"
+  }),&mut c).unwrap();
+  assert_eq!(result,(20,20));
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),13);
+  assert_eq!(scalar(&c,"SELECT total FROM invoices WHERE id=1"),60);
+  assert_eq!(scalar(&c,"SELECT amount FROM purchase_refunds WHERE invoice_id=1"),20);
+ }
+
+ #[test]
  fn tauri_return_command_adapter_rejects_invalid_lines_without_mutation() {
   let mut c=database();
   save_invoice_with_connection(sale("Ali","credit",0,2,50,0),&mut c).unwrap();
