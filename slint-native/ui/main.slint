@@ -45,7 +45,9 @@ export component MainWindow inherits Window {
     in-out property <string> product-search: "";
     in-out property <string> payment-search: "";
 
-    in-out property <int> edit-contact-id: 0;\n    in-out property <int> edit-product-id: 0;\n    in-out property <string> contact-name: "";
+    in-out property <int> edit-contact-id: 0;
+    in-out property <int> edit-product-id: 0;
+    in-out property <string> contact-name: "";
     in-out property <string> contact-kind: "customer";
     in-out property <string> contact-phone: "";
     in-out property <string> contact-balance: "0";
@@ -85,7 +87,9 @@ export component MainWindow inherits Window {
     in-out property <string> settings-currency: "تومان";
 
     callback refresh-requested();
-    callback save-contact-requested();\n    callback edit-contact-requested(int);\n    callback edit-product-requested(int);
+    callback save-contact-requested();
+    callback edit-contact-requested(int);
+    callback edit-product-requested(int);
     callback save-product-requested();
     callback save-invoice-requested();
     callback invoice-detail-requested(int);
