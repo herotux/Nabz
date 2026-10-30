@@ -906,4 +906,56 @@ mod tests {
         assert!(save_contact(&c, "Ali", "customer", "", "0").is_err());
         assert!(save_product(&c, "Another pen", "PEN", "", "1", "1", "2", "0").is_err());
     }
+
+    #[test]
+    fn customer_opening_balance_is_reduced_before_invoice_allocations() {
+        let mut c = test_db();
+        save_contact(&c, "Opening customer", "customer", "", "100").unwrap();
+        save_payment(&mut c, "receipt", "Opening customer", "40", "cash", "").unwrap();
+        assert_eq!(scalar(&c, "SELECT opening_balance FROM contacts WHERE name='Opening customer'"), 60);
+        assert_eq!(scalar(&c, "SELECT amount FROM payments WHERE contact_name='Opening customer'"), 40);
+    }
+
+    #[test]
+    fn supplier_opening_balance_is_reduced_by_payment() {
+        let mut c = test_db();
+        save_contact(&c, "Opening supplier", "supplier", "", "250").unwrap();
+        save_payment(&mut c, "payment", "Opening supplier", "75", "bank", "").unwrap();
+        assert_eq!(scalar(&c, "SELECT opening_balance FROM contacts WHERE name='Opening supplier'"), 175);
+        assert_eq!(scalar(&c, "SELECT amount FROM payments WHERE kind='payment'"), 75);
+    }
+
+    #[test]
+    fn both_role_contact_is_allowed_with_zero_opening_balance() {
+        let c = test_db();
+        save_contact(&c, "Dual role", "both", "", "0").unwrap();
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM contacts WHERE name='Dual role' AND kind='both'"), 1);
+        assert!(save_contact(&c, "Dual role with balance", "both", "", "10").is_err());
+    }
+
+    #[test]
+    fn receipt_and_payment_reject_opposite_contact_roles_without_writes() {
+        let mut c = test_db();
+        c.execute("INSERT INTO contacts(name,kind) VALUES('Vendor','supplier')", []).unwrap();
+        assert!(save_payment(&mut c, "receipt", "Vendor", "1", "cash", "").is_err());
+        assert!(save_payment(&mut c, "payment", "Ali", "1", "cash", "").is_err());
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM payments"), 0);
+    }
+
+    #[test]
+    fn invoice_discount_cannot_exceed_subtotal_and_rolls_back_stock() {
+        let mut c = test_db();
+        assert!(save_invoice(&mut c, "sale", "Ali", "PEN", "2", "50", "101", "0", "cash", "").is_err());
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 0);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 10);
+    }
+
+    #[test]
+    fn multi_row_invoice_rejects_integer_overflow_without_side_effects() {
+        let mut c = test_db();
+        assert!(save_invoice_multi(&mut c, "sale", "Ali", "PEN | 9223372036854775807 | 2", "0", "0", "cash", "").is_err());
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 0);
+        assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 10);
+    }
+
 }
