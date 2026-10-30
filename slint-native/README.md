@@ -1,47 +1,74 @@
 # Nabz — Slint native UI migration
 
-This branch is based on `tauri-web-prototype`. The Tauri implementation and the legacy egui app remain unchanged while the native Slint frontend is migrated and tested.
+This branch is based on `tauri-web-prototype`. The Tauri implementation and legacy egui app remain unchanged during this migration. The native application is still a prototype and must not be treated as production-ready until the remaining accounting, backup, printing, and device-validation work is complete.
 
-## Run on Linux
+## Build and run
 
-Install Rust stable and the development packages required by Slint/Winit. On Debian/Ubuntu CI these include `libxcb-shape0-dev`, `libxcb-xfixes0-dev`, `libxkbcommon-dev`, `libfontconfig1-dev`, `libssl-dev`, and `pkg-config`.
+Install Rust stable and the Linux development packages required by Slint/Winit. On Debian/Ubuntu CI these currently include:
+
+```bash
+sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev libssl-dev pkg-config
+```
+
+Run from the repository root:
 
 ```bash
 cargo run --manifest-path slint-native/Cargo.toml
 ```
 
-Release binary:
+Build the release binary:
 
 ```bash
 cargo build --release --manifest-path slint-native/Cargo.toml
 ./slint-native/target/release/nabz-slint
 ```
 
-## Database compatibility
+## Database location and safety
 
-By default the app uses the Tauri prototype's SQLite location:
-`$XDG_DATA_HOME/com.herotux.nabz.webprototype/nabz.sqlite3`, falling back to `$HOME/.local/share/com.herotux.nabz.webprototype/nabz.sqlite3`. Set `NABZ_DB_PATH=/absolute/path/to/nabz.sqlite3` to override it.
+By default the app opens the Tauri prototype's SQLite location:
 
-**Important:** close the Tauri app before testing against the same database. Keep a backup before testing with real accounting data.
+- `$XDG_DATA_HOME/com.herotux.nabz.webprototype/nabz.sqlite3`
+- or `$HOME/.local/share/com.herotux.nabz.webprototype/nabz.sqlite3`
 
-## Implemented in this migration step
+Override it with `NABZ_DB_PATH=/absolute/path/to/nabz.sqlite3`.
 
-- Native Slint window and Persian RTL-aligned dashboard.
-- Live summary values read from SQLite.
-- Contact registration and list (name, role, phone, opening balance).
-- Product registration and list (code, barcode, stock, buy/sell price, minimum stock).
-- Single-line sale/purchase invoices with transactional stock changes and receipt creation for paid sales.
-- Receipt/payment entry with customer/supplier role checks, opening-balance reduction, and FIFO allocation to open invoices.
-- Live invoice and payment lists.
-- Store-name/currency settings persisted in SQLite.
-- Persian and Arabic numeral parsing for amounts, validation messages, and basic unit tests.
+**Important:** the native app currently creates/ensures its own tables and adds the invoice void flag when opening the database. A complete, versioned migration system and verified compatibility against a copy of a real Tauri database are still outstanding. Do not point this prototype at the only copy of a live accounting database. Close the Tauri app before testing against a database copy, and keep an independent backup.
 
-## Not yet migrated / not yet accepted for production
+For an isolated smoke test:
 
-- Editing/deleting records from the native UI.
-- Multi-line invoices, returns, prepayments, advanced cost accounting, barcode scanner integration, label printing, A4/A5/thermal printer testing.
-- Backup/restore UI and complete settings coverage.
-- Verified keyboard navigation, Jalali date entry, font/glyph shaping and RTL behavior on Manjaro.
+```bash
+mkdir -p /tmp/nabz-slint-test
+NABZ_DB_PATH=/tmp/nabz-slint-test/nabz.sqlite3 cargo run --manifest-path slint-native/Cargo.toml
+```
+
+## Implemented in the native prototype
+
+- Native Slint window, Persian dashboard, and section navigation.
+- Dashboard summaries and record lists backed by SQLite.
+- Contact and product creation/listing, including role, opening balance, barcode field, stock, and prices.
+- Multi-row sale and purchase invoices with transactional stock updates, discount, paid amount, and rollback on invalid rows or insufficient stock.
+- Receipt/payment registration with contact-role checks, opening-balance reduction, and FIFO allocation to outstanding invoices.
+- Invoice details, search by number/contact/notes, kind and void-status filters.
+- Invoice voiding with stock reversal and restrictions after later allocations or returns.
+- Partial sales returns with stock restoration, return history, proportional invoice-discount adjustment, over-return protection, and refund tracking.
+- Store-name and currency settings persisted in SQLite.
+- Persian/Arabic digit parsing and a growing set of accounting unit tests.
+
+## Known gaps — not production-ready
+
+- Versioned SQLite migrations and compatibility tests against a sanitized copy of an actual Tauri database.
+- Complete accounting reconciliation and edge-case coverage, including multi-stage returns and date-sensitive refund reporting.
+- Search/filter for contacts, products, and payments; safe edit/delete workflows.
+- Barcode generation, USB HID scanner workflow, and label printing.
+- Backup/restore with integrity validation and atomic replacement.
+- A4/A5 and thermal invoice printing.
+- Complete store profile, numbering, currency, and Jalali date settings.
+- Verified Persian glyph shaping, true RTL behavior, keyboard navigation, and accessibility on Manjaro.
+- Linux AppImage and Debian packages; the current Linux CI artifact is a raw x86_64 executable.
 - Real-device performance measurements and Raspberry Pi smoke testing.
 
-The Slint CI workflow checks compilation and uploads a Linux x86_64 binary artifact. A green CI run does not replace testing on the target Manjaro laptop.
+## CI
+
+The Slint workflow checks the Linux build and uploads a raw x86_64 binary. The Windows workflow builds a Windows executable, portable archive, and installer. Green CI confirms only the checks actually run; it does not replace testing on Manjaro, physical printers, barcode scanners, or Raspberry Pi hardware.
+
+See [TODO.md](TODO.md) for the migration checklist and release gates.
