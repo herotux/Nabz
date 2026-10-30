@@ -47,7 +47,7 @@ Updated: 2026-10-30
 - [ ] Test multi-stage returns with discounts, prior receipt allocations, and refunds on different dates.
 
 ## Priority 3 — record management
-- [ ] Add search/filter for contacts, products, and payments.
+- [x] Add database-backed search/filter for contacts (name/phone/type), products (name/code/barcode), and payments (contact/method/notes/date).
 - [x] Add invoice search by number, contact, and notes; filter all/sales/purchases/voided invoices.
 - [ ] Add edit/delete flows with confirmations and accounting-safe restrictions.
 - [ ] Add barcode lookup and USB HID scanner workflow.
