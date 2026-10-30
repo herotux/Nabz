@@ -12,7 +12,7 @@ use std::process::{Child, Command};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz.webprototype";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Normalize Persian and English contact roles consistently across frontends.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -398,6 +398,40 @@ fn migrate(connection: &Connection) -> Result<(), String> {
 
         tx.pragma_update(None, "user_version", 1).map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 2 {
+        let tx=connection.unchecked_transaction().map_err(|e|e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS purchase_returns(
+               id INTEGER PRIMARY KEY,
+               invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+               return_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE IF NOT EXISTS purchase_return_items(
+               id INTEGER PRIMARY KEY,
+               return_id INTEGER NOT NULL REFERENCES purchase_returns(id),
+               invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),
+               product_id INTEGER NOT NULL REFERENCES products(id),
+               item_name TEXT NOT NULL,
+               quantity INTEGER NOT NULL CHECK(quantity>0),
+               unit_price INTEGER NOT NULL,
+               amount INTEGER NOT NULL CHECK(amount>0)
+             );
+             CREATE TABLE IF NOT EXISTS purchase_refunds(
+               id INTEGER PRIMARY KEY,
+               invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+               return_id INTEGER NOT NULL REFERENCES purchase_returns(id),
+               refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               method TEXT NOT NULL DEFAULT 'cash',
+               notes TEXT NOT NULL DEFAULT ''
+             );"
+        ).map_err(|e|e.to_string())?;
+        tx.pragma_update(None,"user_version",2).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;
     }
 
     Ok(())
