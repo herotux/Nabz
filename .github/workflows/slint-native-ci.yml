@@ -2,7 +2,7 @@ name: Slint native UI CI
 
 on:
   push:
-    branches: [feature/slint-native-ui, feature/shared-core-ui-switching]
+    branches: [feature/slint-native-ui]
     paths:
       - "slint-native/**"
       - "crates/nabz-core/**"
@@ -16,6 +16,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: nabz-slint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   linux:

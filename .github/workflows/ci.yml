@@ -1,11 +1,34 @@
-name: Rust tests
+name: Legacy root Rust tests
 on:
   push:
+    branches: [main, feature/slint-native-ui]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "crates/**"
+      - "assets/**"
+      - "scripts/**"
+      - ".github/workflows/ci.yml"
   pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "crates/**"
+      - "assets/**"
+      - "scripts/**"
+      - "slint-native/**"
+      - "tauri-web/**"
+      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: nabz-legacy-rust-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

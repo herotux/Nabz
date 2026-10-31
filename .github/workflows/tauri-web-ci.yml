@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - tauri-web-prototype
-      - feature/shared-core-ui-switching
     paths:
       - "tauri-web/**"
       - "crates/nabz-core/**"

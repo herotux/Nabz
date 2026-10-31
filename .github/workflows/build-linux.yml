@@ -1,9 +1,8 @@
-name: Build Linux installers
+name: Legacy egui Linux installers (main and tags)
 on:
   push:
     branches: [main]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 permissions:
