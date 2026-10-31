@@ -99,6 +99,12 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     ui.set_inventory_report_movements(if movement_text.is_empty() {
         "هنوز گردش انباری ثبت نشده است.".into()
     } else { movement_text.into() });
+    let profit = nabz_core::accounting::profit_loss_report(c, "", "")?;
+    ui.set_profit_loss_summary(format!(
+        "فروش خالص: {} | بهای تمام‌شده: {} | سود ناخالص: {} | هزینه‌ها: {} | سود خالص: {} | فروش‌های بدون بهای ثبت‌شده: {}",
+        money(profit.net_sales), money(profit.cost_of_goods_sold), money(profit.gross_profit),
+        money(profit.expenses), money(profit.net_profit), money(profit.uncosted_sales)
+    ).into());
     ui.set_contacts_count(q("SELECT COUNT(*) FROM contacts")? as i32);
     ui.set_products_count(q("SELECT COUNT(*) FROM products")? as i32);
     ui.set_invoices_count(q("SELECT COUNT(*) FROM invoices WHERE voided=0")? as i32);
@@ -526,7 +532,7 @@ mod tests {
              CREATE TABLE contacts(id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')));
              CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1)));
-             CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL);
+             CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL,unit_cost INTEGER);
              CREATE TABLE sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT '');
              CREATE TABLE sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0));
              CREATE TABLE sales_refunds(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_id INTEGER NOT NULL REFERENCES sales_returns(id),refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',notes TEXT NOT NULL DEFAULT '');
