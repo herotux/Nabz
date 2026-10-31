@@ -13,7 +13,8 @@ Updated: 2026-10-30
 - [ ] Move all accounting operations, validation, and read models from both frontends into `nabz-core`.
 - [ ] Add cross-frontend integration tests that write through one frontend/core API and read through the other.
 - [x] Add a UI switch that records the preferred frontend without copying or relocating the database; expose a dedicated preference selector in settings remains pending.
-- [ ] Add backup-before-migration integration; SQLite backup/restore validation exists, but migrations do not yet automatically create a pre-migration snapshot.
+- [x] Create a verified SQLite online-backup snapshot before every on-disk schema migration; abort migration if backup creation/validation fails.
+- [ ] Add broader migration fault-injection tests and verify backup retention/recovery on target platforms.
 - [ ] Define and test simultaneous-launch / write-conflict behavior.
 - [ ] Build and publish independently installable Tauri and Slint artifacts; uninstalling either must preserve shared data.
 

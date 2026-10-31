@@ -369,6 +369,49 @@ pub fn open_database_at(path: impl AsRef<Path>) -> Result<Connection, String> {
     Ok(connection)
 }
 
+/// Create a verified snapshot of an existing on-disk database before changing
+/// its schema. In-memory databases and brand-new empty files have no durable
+/// user data to protect and are intentionally skipped.
+fn backup_before_migration(connection: &Connection, current_version: i64) -> Result<Option<PathBuf>, String> {
+    if current_version >= SCHEMA_VERSION {
+        return Ok(None);
+    }
+
+    let user_objects: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master
+         WHERE type IN ('table','index','trigger','view')
+           AND name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    ).map_err(|e| format!("بررسی دیتابیس پیش از مهاجرت ناموفق بود: {e}"))?;
+    if user_objects == 0 {
+        return Ok(None);
+    }
+
+    let filename: String = connection.query_row(
+        "PRAGMA database_list",
+        [],
+        |row| row.get(2),
+    ).map_err(|e| format!("تشخیص مسیر دیتابیس پیش از مهاجرت ناموفق بود: {e}"))?;
+    if filename.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let database = PathBuf::from(filename);
+    let root = database.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let backup_dir = root.join("backups");
+    std::fs::create_dir_all(&backup_dir)
+        .map_err(|e| format!("ساخت پوشهٔ پشتیبان پیش از مهاجرت ناموفق بود: {e}"))?;
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?.as_nanos();
+    let destination = backup_dir.join(format!("pre-migration-v{current_version}-{stamp}.sqlite3"));
+    backup_database_to(connection, &destination)
+        .map_err(|e| format!("مهاجرت متوقف شد؛ تهیهٔ پشتیبان پیش از تغییر ساختار ناموفق بود و دیتابیس دست‌نخورده ماند: {e}"))?;
+    Ok(Some(destination))
+}
+
 /// Initialize the common schema and apply every outstanding migration.
 pub fn initialize(connection: &Connection) -> Result<(), String> {
     // Reject newer schemas before any DDL/DML can mutate a database.
@@ -380,6 +423,10 @@ pub fn initialize(connection: &Connection) -> Result<(), String> {
             "نسخهٔ پایگاه داده ({current_version}) از نسخهٔ پشتیبانی‌شدهٔ این برنامه ({SCHEMA_VERSION}) جدیدتر است."
         ));
     }
+
+    // Back up only when a real, existing on-disk database needs a migration.
+    // A failed backup aborts initialization before any schema DDL is executed.
+    backup_before_migration(connection, current_version)?;
 
     connection
         .execute_batch(
@@ -931,6 +978,57 @@ mod tests {
         assert_eq!(version, SCHEMA_VERSION + 1);
         assert_eq!(contacts_table, 0);
         assert_eq!(value, "keep");
+    }
+
+    #[test]
+    fn on_disk_schema_migration_creates_a_verified_pre_migration_backup() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "nabz-migration-backup-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let db_path = root.join(DATABASE_FILE);
+        let connection = open_database_at(&db_path).unwrap();
+        connection.execute(
+            "INSERT INTO products(name,code,buy_price,quantity,average_cost) VALUES('Legacy item','MIG-1',42,7,42)",
+            [],
+        ).unwrap();
+        connection.execute_batch(
+            "ALTER TABLE products DROP COLUMN average_cost;
+             PRAGMA user_version=5;"
+        ).unwrap();
+
+        initialize(&connection).unwrap();
+
+        let backup_dir = root.join("backups");
+        let backups = std::fs::read_dir(&backup_dir).unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.file_name().unwrap().to_string_lossy().starts_with("pre-migration-v5-"))
+            .collect::<Vec<_>>();
+        assert_eq!(backups.len(), 1);
+
+        let backup = Connection::open_with_flags(&backups[0], OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let backup_version: i64 = backup.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        let old_cost_column: i64 = backup.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('products') WHERE name='average_cost'",
+            [], |row| row.get(0)
+        ).unwrap();
+        let preserved_quantity: i64 = backup.query_row(
+            "SELECT quantity FROM products WHERE code='MIG-1'", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(backup_version, 5);
+        assert_eq!(old_cost_column, 0);
+        assert_eq!(preserved_quantity, 7);
+
+        let migrated_cost: i64 = connection.query_row(
+            "SELECT average_cost FROM products WHERE code='MIG-1'", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(migrated_cost, 42);
+
+        drop(backup);
+        drop(connection);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

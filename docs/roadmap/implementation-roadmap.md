@@ -29,7 +29,8 @@ This roadmap defines the eight major delivery phases for Nabz. The checklists ar
 - [ ] Add cross-frontend integration tests: write through shared APIs and read the same data through the other frontend.
 - [x] Add a persisted preferred-UI setting and a safe UI-switch flow; successful switches remember the target, and failed launches roll back the preference.
 - [ ] Define behavior for simultaneous app launches, SQLite locking, and write conflicts.
-- [ ] Add backup-before-migration and verified restore behavior.
+- [x] Add automatic verified backup-before-migration for existing on-disk databases; abort schema changes if the snapshot cannot be created.
+- [ ] Add migration fault-injection and cross-platform recovery acceptance tests.
 - [ ] Ensure uninstalling either frontend does not delete shared user data.
 
 ### Exit criteria
