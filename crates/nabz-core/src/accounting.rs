@@ -1338,4 +1338,20 @@ mod tests {
         assert_eq!(result,(3,27));
     }
 
+    #[test]
+    fn purchase_invoice_discount_is_allocated_into_inventory_average_cost() {
+        let mut c=database();
+        create_contact(&c,&ContactInput{name:"تامین‌کننده تخفیف".into(),kind:"supplier".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        let pid=create_product(&c,&ProductInput{name:"کالای تخفیف".into(),code:"AVG-DISC".into(),barcode:String::new(),buy_price:10,sell_price:50,quantity:1,min_quantity:0}).unwrap();
+        create_invoice(&mut c,&InvoiceInput{
+            kind:"purchase".into(),contact_name:"تامین‌کننده تخفیف".into(),date:String::new(),
+            discount:10,paid:0,method:"cash".into(),notes:String::new(),
+            lines:vec![InvoiceLineInput{product_lookup:"AVG-DISC".into(),quantity:1,unit_price:30}],
+        }).unwrap();
+        let (latest_price,average):(i64,i64)=c.query_row(
+            "SELECT buy_price,average_cost FROM products WHERE id=?1",[pid],|r|Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        assert_eq!((latest_price,average),(30,15));
+    }
+
 }
