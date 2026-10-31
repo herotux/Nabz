@@ -100,7 +100,7 @@ fn weighted_average_cost(existing_quantity:i64,existing_unit_cost:i64,incoming_q
     let existing_value=existing_quantity.checked_mul(existing_unit_cost).ok_or("ارزش موجودی قبلی بیش از ظرفیت عددی است")?;
     let incoming_value=incoming_quantity.checked_mul(incoming_unit_cost).ok_or("ارزش خرید جدید بیش از ظرفیت عددی است")?;
     let total_value=existing_value.checked_add(incoming_value).ok_or("ارزش کل موجودی بیش از ظرفیت عددی است")?;
-    total_value.checked_add(total_quantity/2).ok_or("گرد کردن بهای میانگین موزون بیش از ظرفیت عددی است").map(|v|v/total_quantity)
+    total_value.checked_add(total_quantity/2).ok_or_else(|| "گرد کردن بهای میانگین موزون بیش از ظرفیت عددی است".to_string()).map(|v|v/total_quantity)
 }
 
 /// Allocate an invoice-level purchase discount proportionally, assigning
