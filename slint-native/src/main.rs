@@ -78,6 +78,25 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
         rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?.join("\n")
     };
     ui.set_inventory_adjustment_history(if history.is_empty(){"هنوز سابقه‌ای ثبت نشده است.".into()}else{history.into()});
+    let valuation = nabz_core::accounting::inventory_valuation(c)?;
+    let total_units = valuation.iter().map(|p| p.quantity).sum::<i64>();
+    let total_value = valuation.iter().map(|p| p.stock_value).sum::<i64>();
+    let low_stock = valuation.iter().filter(|p| p.quantity <= p.min_quantity).count();
+    let zero_stock = valuation.iter().filter(|p| p.quantity == 0).count();
+    ui.set_inventory_report_summary(format!(
+        "تعداد کالا: {} | تعداد موجود: {} | نیازمند تأمین: {} | بدون موجودی: {} | ارزش انبار: {}",
+        fmt_number(valuation.len() as i64), fmt_number(total_units), fmt_number(low_stock as i64),
+        fmt_number(zero_stock as i64), money(total_value)
+    ).into());
+    let movements = nabz_core::accounting::inventory_movements(c)?;
+    let movement_text = movements.iter().take(12).map(|m| format!(
+        "{} · {} · {} · {} ({:+}) · مانده {}",
+        m.movement_date, m.product_name, m.movement_type, m.reference,
+        m.quantity_delta, fmt_number(m.balance_after)
+    )).collect::<Vec<_>>().join("\n");
+    ui.set_inventory_report_movements(if movement_text.is_empty() {
+        "هنوز گردش انباری ثبت نشده است.".into()
+    } else { movement_text.into() });
     ui.set_contacts_count(q("SELECT COUNT(*) FROM contacts")? as i32);
     ui.set_products_count(q("SELECT COUNT(*) FROM products")? as i32);
     ui.set_invoices_count(q("SELECT COUNT(*) FROM invoices WHERE voided=0")? as i32);
