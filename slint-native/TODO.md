@@ -1,5 +1,7 @@
 # Nabz Slint migration — TODO
 
+> Official eight-phase product roadmap: [docs/roadmap/implementation-roadmap.md](../docs/roadmap/implementation-roadmap.md). This file tracks detailed implementation tasks; the roadmap defines phase goals and exit criteria.
+
 Updated: 2026-10-30
 
 ## Shared product architecture
