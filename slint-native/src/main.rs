@@ -1,61 +1,16 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
-use std::{cell::RefCell, env, fs, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 slint::include_modules!();
 
-fn database_path() -> PathBuf {
-    if let Some(path) = env::var_os("NABZ_DB_PATH") {
-        return PathBuf::from(path);
-    }
-    let data_home = env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    data_home.join("com.herotux.nabz.webprototype").join("nabz.sqlite3")
-}
-
+#[cfg(test)]
 fn migrate_database(c: &mut Connection) -> Result<(), String> {
-    let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if version < 1 {
-        let tx = c.transaction().map_err(|e| e.to_string())?;
-        let has_voided: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('invoices') WHERE name='voided'",
-            [], |r| r.get(0)
-        ).map_err(|e| e.to_string())?;
-        if has_voided == 0 {
-            tx.execute("ALTER TABLE invoices ADD COLUMN voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1))", [])
-                .map_err(|e| format!("افزودن وضعیت ابطال فاکتور ناموفق بود: {e}"))?;
-        }
-        tx.execute_batch(
-            "CREATE TABLE IF NOT EXISTS sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT '');
-             CREATE TABLE IF NOT EXISTS sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0));
-             CREATE TABLE IF NOT EXISTS sales_refunds(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_id INTEGER NOT NULL REFERENCES sales_returns(id),refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',notes TEXT NOT NULL DEFAULT '');"
-        ).map_err(|e| e.to_string())?;
-        tx.pragma_update(None, "user_version", 1).map_err(|e| e.to_string())?;
-        tx.commit().map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    nabz_core::initialize(c)
 }
 
 fn open_database() -> Result<Connection, String> {
-    let path = database_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("ساخت پوشهٔ داده ناموفق بود: {e}"))?;
-    }
-    let mut c = Connection::open(&path).map_err(|e| format!("بازکردن پایگاه داده ناموفق بود ({}): {e}", path.display()))?;
-    c.execute_batch(
-        "PRAGMA foreign_keys=ON;
-         PRAGMA journal_mode=WAL;
-         CREATE TABLE IF NOT EXISTS contacts(id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')));
-         CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
-         CREATE TABLE IF NOT EXISTS invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '');
-         CREATE TABLE IF NOT EXISTS invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL);
-         CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
-         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
-    ).map_err(|e| e.to_string())?;
-    migrate_database(&mut c)?;
-    Ok(c)
+    nabz_core::open_database()
 }
 
 fn digits(input: &str) -> String {
@@ -97,12 +52,7 @@ fn fmt_number(value: i64) -> String {
 fn money(value: i64) -> String { format!("{} تومان", fmt_number(value)) }
 
 fn normalize_kind(raw: &str) -> Result<&'static str, String> {
-    match raw.trim() {
-        "customer" | "مشتری" => Ok("customer"),
-        "supplier" | "تأمین‌کننده" | "تامین‌کننده" => Ok("supplier"),
-        "both" | "هر دو" | "مشتری و تأمین‌کننده" => Ok("both"),
-        _ => Err("نوع طرف‌حساب معتبر نیست".into())
-    }
+    nabz_core::normalize_contact_kind(raw).ok_or_else(|| "نوع طرف‌حساب معتبر نیست".into())
 }
 
 fn normalize_invoice_search(input: &str) -> String {
@@ -121,7 +71,40 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     ui.set_receipts_today(SharedString::from(money(q("SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')),0)-COALESCE((SELECT SUM(amount) FROM sales_refunds WHERE refund_date=date('now','localtime')),0)")?)));
     let balance = q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?;
     ui.set_customer_balance(SharedString::from(money(balance)));
-    ui.set_inventory_value(SharedString::from(money(q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?)));
+    ui.set_inventory_value(SharedString::from(money(q("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products")?)));
+    let history = {
+        let mut st=c.prepare("SELECT product_name,previous_quantity,new_quantity,delta,reason,created_at FROM inventory_adjustments ORDER BY id DESC LIMIT 5").map_err(|e|e.to_string())?;
+        let rows=st.query_map([],|r|Ok(format!("{}: {} ← {} ({:+}) · {} · {}",r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?))).map_err(|e|e.to_string())?;
+        rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?.join("\n")
+    };
+    ui.set_inventory_adjustment_history(if history.is_empty(){"هنوز سابقه‌ای ثبت نشده است.".into()}else{history.into()});
+    let valuation = nabz_core::accounting::inventory_valuation(c)?;
+    let total_units = valuation.iter().try_fold(0_i64, |sum, p| sum.checked_add(p.quantity))
+        .ok_or("جمع تعداد موجودی بیش از ظرفیت عددی است")?;
+    let total_value = valuation.iter().try_fold(0_i64, |sum, p| sum.checked_add(p.stock_value))
+        .ok_or("ارزش کل انبار بیش از ظرفیت عددی است")?;
+    let low_stock = valuation.iter().filter(|p| p.quantity <= p.min_quantity).count();
+    let zero_stock = valuation.iter().filter(|p| p.quantity == 0).count();
+    ui.set_inventory_report_summary(format!(
+        "تعداد کالا: {} | تعداد موجود: {} | نیازمند تأمین: {} | بدون موجودی: {} | ارزش انبار: {}",
+        fmt_number(valuation.len() as i64), fmt_number(total_units), fmt_number(low_stock as i64),
+        fmt_number(zero_stock as i64), money(total_value)
+    ).into());
+    let movements = nabz_core::accounting::inventory_movements(c)?;
+    let movement_text = movements.iter().take(12).map(|m| format!(
+        "{} · {} · {} · {} ({:+}) · مانده {}",
+        m.movement_date, m.product_name, m.movement_type, m.reference,
+        m.quantity_delta, fmt_number(m.balance_after)
+    )).collect::<Vec<_>>().join("\n");
+    ui.set_inventory_report_movements(if movement_text.is_empty() {
+        "هنوز گردش انباری ثبت نشده است.".into()
+    } else { movement_text.into() });
+    let profit = nabz_core::accounting::profit_loss_report(c, "", "")?;
+    ui.set_profit_loss_summary(format!(
+        "فروش خالص: {} | بهای تمام‌شده: {} | سود ناخالص: {} | هزینه‌ها: {} | سود خالص: {} | فروش‌های بدون بهای ثبت‌شده: {}",
+        money(profit.net_sales), money(profit.cost_of_goods_sold), money(profit.gross_profit),
+        money(profit.expenses), money(profit.net_profit), money(profit.uncosted_sales)
+    ).into());
     ui.set_contacts_count(q("SELECT COUNT(*) FROM contacts")? as i32);
     ui.set_products_count(q("SELECT COUNT(*) FROM products")? as i32);
     ui.set_invoices_count(q("SELECT COUNT(*) FROM invoices WHERE voided=0")? as i32);
@@ -208,116 +191,55 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
 }
 
 fn save_contact(c: &Connection, name: &str, kind: &str, phone: &str, balance_text: &str) -> Result<(), String> {
-    let name = name.trim();
-    if name.is_empty() { return Err("نام طرف‌حساب الزامی است".into()); }
     let kind = normalize_kind(kind)?;
     let balance = parse_amount(balance_text)?;
-    let count: i64 = c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE", [name], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if count > 0 { return Err("طرف‌حسابی با این نام قبلاً ثبت شده است".into()); }
-    if kind == "both" && balance != 0 { return Err("برای طرف‌حساب دوگانه، ماندهٔ اولیه فعلاً باید صفر باشد".into()); }
-    c.execute("INSERT INTO contacts(name,kind,phone,opening_balance) VALUES(?1,?2,?3,?4)", params![name, kind, phone.trim(), balance]).map_err(|e| e.to_string())?;
-    Ok(())
+    nabz_core::accounting::create_contact(c, &nabz_core::accounting::ContactInput {
+        name: name.to_owned(), kind: kind.to_owned(), phone: phone.to_owned(),
+        opening_balance: balance, notes: String::new(),
+    }).map(|_| ())
 }
 
 
 fn update_contact(c: &Connection, id: i64, name: &str, phone: &str) -> Result<(), String> {
-    let name = name.trim();
-    if id <= 0 || name.is_empty() { return Err("شناسه و نام طرف‌حساب معتبر نیست".into()); }
-    let exists: i64 = c.query_row("SELECT COUNT(*) FROM contacts WHERE id=?1", [id], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if exists == 0 { return Err("طرف‌حساب موردنظر پیدا نشد".into()); }
-    let duplicate: i64 = c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE AND id<>?2", params![name,id], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if duplicate > 0 { return Err("طرف‌حساب دیگری با این نام وجود دارد".into()); }
-    c.execute("UPDATE contacts SET name=?1,phone=?2 WHERE id=?3", params![name,phone.trim(),id]).map_err(|e| e.to_string())?;
-    Ok(())
+    nabz_core::accounting::update_contact(c, id, name, phone)
 }
 
 fn update_product(c: &Connection, id: i64, name: &str, code: &str, barcode: &str, buy: &str, sell: &str, minimum: &str) -> Result<(), String> {
-    let name=name.trim(); let code=code.trim();
-    if id <= 0 || name.is_empty() || code.is_empty() { return Err("شناسه، نام و کد کالا معتبر نیست".into()); }
-    let buy=parse_amount(buy)?; let sell=parse_amount(sell)?; let minimum=parse_amount(minimum)?;
-    if buy < 0 || sell < 0 || minimum < 0 { return Err("قیمت‌ها و حداقل موجودی نمی‌توانند منفی باشند".into()); }
-    let exists: i64 = c.query_row("SELECT COUNT(*) FROM products WHERE id=?1", [id], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if exists == 0 { return Err("کالای موردنظر پیدا نشد".into()); }
-    c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,min_quantity=?6 WHERE id=?7",
-        params![name,code,barcode.trim(),buy,sell,minimum,id])
-        .map_err(|e| if e.to_string().contains("UNIQUE") { "کد کالا تکراری است".into() } else { e.to_string() })?;
-    Ok(())
+    let input = nabz_core::accounting::ProductInput {
+        name: name.to_owned(), code: code.to_owned(), barcode: barcode.to_owned(),
+        buy_price: parse_amount(buy)?, sell_price: parse_amount(sell)?, quantity: 0,
+        min_quantity: parse_amount(minimum)?,
+    };
+    nabz_core::accounting::update_product(c, id, &input)
 }
 
 fn save_product(c: &Connection, name: &str, code: &str, barcode: &str, qty: &str, buy: &str, sell: &str, minimum: &str) -> Result<(), String> {
-    let name = name.trim();
-    let code = code.trim();
-    if name.is_empty() || code.is_empty() { return Err("نام و کد کالا الزامی است".into()); }
-    let qty = parse_amount(qty)?; let buy = parse_amount(buy)?; let sell = parse_amount(sell)?; let minimum = parse_amount(minimum)?;
-    if qty < 0 || buy < 0 || sell < 0 || minimum < 0 { return Err("موجودی و قیمت‌ها نمی‌توانند منفی باشند".into()); }
-    c.execute("INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![name, code, barcode.trim(), buy, sell, qty, minimum])
-        .map_err(|e| if e.to_string().contains("UNIQUE") { "کد کالا تکراری است".into() } else { e.to_string() })?;
-    Ok(())
+    nabz_core::accounting::create_product(c, &nabz_core::accounting::ProductInput {
+        name: name.to_owned(), code: code.to_owned(), barcode: barcode.to_owned(),
+        quantity: parse_amount(qty)?, buy_price: parse_amount(buy)?, sell_price: parse_amount(sell)?,
+        min_quantity: parse_amount(minimum)?,
+    }).map(|_| ())
 }
 
 fn save_invoice(c: &mut Connection, kind: &str, contact: &str, item: &str, qty_text: &str, price_text: &str, discount_text: &str, paid_text: &str, method: &str, notes: &str) -> Result<(), String> {
-    if kind != "sale" && kind != "purchase" { return Err("نوع فاکتور معتبر نیست".into()); }
-    let contact = contact.trim();
-    let item = item.trim();
-    if item.is_empty() { return Err("نام یا کد کالا الزامی است".into()); }
-    let qty = parse_amount(qty_text)?;
-    let price = parse_amount(price_text)?;
-    let discount = parse_amount(discount_text)?;
-    let paid_input = parse_amount(paid_text)?;
-    if qty <= 0 || price < 0 || discount < 0 { return Err("تعداد باید مثبت و قیمت و تخفیف نامنفی باشند".into()); }
-    let subtotal = qty.checked_mul(price).ok_or("مبلغ ردیف بیش از حد بزرگ است")?;
-    if discount > subtotal { return Err("تخفیف از مبلغ کالا بیشتر است".into()); }
-    let total = subtotal - discount;
-    let tx = c.transaction().map_err(|e| e.to_string())?;
-    let cid: Option<i64> = if contact.is_empty() { None } else { tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1", [contact], |r| r.get(0)).optional().map_err(|e| e.to_string())? };
-    if kind == "purchase" && cid.is_none() { return Err("برای خرید، تأمین‌کنندهٔ ثبت‌شده الزامی است".into()); }
-    if kind == "sale" && !contact.is_empty() && cid.is_none() { return Err("مشتری پیدا نشد؛ ابتدا طرف‌حساب را ثبت کنید".into()); }
-    if let Some(id) = cid {
-        let role: String = tx.query_row("SELECT kind FROM contacts WHERE id=?1", [id], |r| r.get(0)).map_err(|e| e.to_string())?;
-        if kind == "sale" && role == "supplier" { return Err("برای فاکتور فروش، مشتری انتخاب کنید".into()); }
-        if kind == "purchase" && role == "customer" { return Err("برای فاکتور خرید، تأمین‌کننده انتخاب کنید".into()); }
-    }
-    let paid = if kind == "sale" { paid_input } else { 0 };
-    if paid < 0 || paid > total { return Err("مبلغ دریافتی باید بین صفر و مبلغ نهایی باشد".into()); }
-    if kind == "sale" && paid < total && cid.is_none() { return Err("فروش گذری باید کامل تسویه شود".into()); }
-
-    let product: Option<(i64, i64)> = tx.query_row("SELECT id,quantity FROM products WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1", [item], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e| e.to_string())?;
-    let (pid, item_name) = if let Some((id, stock)) = product {
-        if kind == "sale" {
-            if stock < qty { return Err(format!("موجودی کافی نیست؛ موجودی فعلی: {stock}")); }
-            tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2", params![qty,id]).map_err(|e| e.to_string())?;
-        } else {
-            tx.execute("UPDATE products SET quantity=quantity+?1,buy_price=?2 WHERE id=?3", params![qty,price,id]).map_err(|e| e.to_string())?;
-        }
-        (Some(id), item.to_string())
-    } else if kind == "purchase" {
-        let code = format!("AUTO-{}", tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM products", [], |r| r.get::<_,i64>(0)).map_err(|e| e.to_string())?);
-        tx.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)", params![item,code,price,qty]).map_err(|e| e.to_string())?;
-        (Some(tx.last_insert_rowid()), item.to_string())
-    } else {
-        return Err("کالای فروش در انبار پیدا نشد؛ ابتدا کالا را ثبت کنید".into());
-    };
-    let number: i64 = tx.query_row("SELECT COALESCE(MAX(number),1000)+1 FROM invoices", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let contact_name = if contact.is_empty() { "مشتری گذری" } else { contact };
-    tx.execute("INSERT INTO invoices(number,kind,contact_id,contact_name,subtotal,discount,total,paid,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![number,kind,cid,contact_name,subtotal,discount,total,paid,notes.trim()]).map_err(|e| e.to_string())?;
-    let invoice_id = tx.last_insert_rowid();
-    tx.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(?1,?2,?3,?4,?5,?6)", params![invoice_id,pid,item_name,qty,price,qty*price]).map_err(|e| e.to_string())?;
-    if kind == "sale" && paid > 0 {
-        tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,notes) VALUES('receipt',?1,?2,?3,COALESCE(NULLIF(?4,''),'cash'),?5)", params![cid,contact_name,paid,method.trim(),format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+    nabz_core::accounting::create_invoice(c, &nabz_core::accounting::InvoiceInput {
+        kind: kind.to_owned(), contact_name: contact.to_owned(), date: String::new(),
+        discount: parse_amount(discount_text)?, paid: parse_amount(paid_text)?,
+        method: method.to_owned(), notes: notes.to_owned(),
+        lines: vec![nabz_core::accounting::InvoiceLineInput {
+            product_lookup: item.to_owned(), quantity: parse_amount(qty_text)?,
+            unit_price: parse_amount(price_text)?,
+        }],
+    }).map(|_| ())
 }
 
 fn save_invoice_multi(c: &mut Connection, kind: &str, contact: &str, rows_text: &str, discount_text: &str, paid_text: &str, method: &str, notes: &str) -> Result<(), String> {
-    if kind != "sale" && kind != "purchase" { return Err("نوع فاکتور معتبر نیست".into()); }
-    let contact = contact.trim();
     let discount = parse_amount(discount_text)?;
-    let paid_input = parse_amount(paid_text)?;
-    if discount < 0 || paid_input < 0 { return Err("تخفیف و مبلغ دریافتی نمی‌توانند منفی باشند".into()); }
-
-    let mut rows: Vec<(String, i64, i64, i64)> = Vec::new();
-    let mut subtotal: i64 = 0;
+    let paid = parse_amount(paid_text)?;
+    if discount < 0 || paid < 0 {
+        return Err("تخفیف و مبلغ دریافتی نمی‌توانند منفی باشند".into());
+    }
+    let mut lines = Vec::new();
     for (line_no, raw) in rows_text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() { continue; }
@@ -325,71 +247,19 @@ fn save_invoice_multi(c: &mut Connection, kind: &str, contact: &str, rows_text: 
         if parts.len() != 3 || parts[0].is_empty() {
             return Err(format!("ردیف {}: قالب باید «کد یا نام کالا | تعداد | قیمت واحد» باشد", line_no + 1));
         }
-        let qty = parse_amount(parts[1]).map_err(|e| format!("ردیف {}: {e}", line_no + 1))?;
-        let price = parse_amount(parts[2]).map_err(|e| format!("ردیف {}: {e}", line_no + 1))?;
-        if qty <= 0 || price < 0 {
+        let quantity = parse_amount(parts[1]).map_err(|e| format!("ردیف {}: {e}", line_no + 1))?;
+        let unit_price = parse_amount(parts[2]).map_err(|e| format!("ردیف {}: {e}", line_no + 1))?;
+        if quantity <= 0 || unit_price < 0 {
             return Err(format!("ردیف {}: تعداد باید مثبت و قیمت نامنفی باشد", line_no + 1));
         }
-        let line_total = qty.checked_mul(price).ok_or_else(|| format!("ردیف {}: مبلغ بیش از حد بزرگ است", line_no + 1))?;
-        subtotal = subtotal.checked_add(line_total).ok_or("جمع فاکتور بیش از حد بزرگ است")?;
-        rows.push((parts[0].to_string(), qty, price, line_total));
+        lines.push(nabz_core::accounting::InvoiceLineInput {
+            product_lookup: parts[0].to_owned(), quantity, unit_price,
+        });
     }
-    if rows.is_empty() { return Err("حداقل یک ردیف کالا وارد کنید".into()); }
-    if discount > subtotal { return Err("تخفیف از جمع فاکتور بیشتر است".into()); }
-    let total = subtotal.checked_sub(discount).ok_or("مبلغ نهایی نامعتبر است")?;
-    let paid = if kind == "sale" { paid_input } else { 0 };
-    if paid > total { return Err("مبلغ دریافتی از مبلغ نهایی بیشتر است".into()); }
-
-    let tx = c.transaction().map_err(|e| e.to_string())?;
-    let cid: Option<i64> = if contact.is_empty() { None } else {
-        tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1", [contact], |r| r.get(0))
-            .optional().map_err(|e| e.to_string())?
-    };
-    if kind == "purchase" && cid.is_none() { return Err("برای خرید، تأمین‌کنندهٔ ثبت‌شده الزامی است".into()); }
-    if kind == "sale" && !contact.is_empty() && cid.is_none() { return Err("مشتری پیدا نشد؛ ابتدا طرف‌حساب را ثبت کنید".into()); }
-    if let Some(id) = cid {
-        let role: String = tx.query_row("SELECT kind FROM contacts WHERE id=?1", [id], |r| r.get(0)).map_err(|e| e.to_string())?;
-        if kind == "sale" && role == "supplier" { return Err("برای فاکتور فروش، مشتری انتخاب کنید".into()); }
-        if kind == "purchase" && role == "customer" { return Err("برای فاکتور خرید، تأمین‌کننده انتخاب کنید".into()); }
-    }
-    if kind == "sale" && paid < total && cid.is_none() { return Err("فروش گذری باید کامل تسویه شود".into()); }
-
-    let number: i64 = tx.query_row("SELECT COALESCE(MAX(number),1000)+1 FROM invoices", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let contact_name = if contact.is_empty() { "مشتری گذری" } else { contact };
-    tx.execute("INSERT INTO invoices(number,kind,contact_id,contact_name,subtotal,discount,total,paid,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-        params![number,kind,cid,contact_name,subtotal,discount,total,paid,notes.trim()]).map_err(|e| e.to_string())?;
-    let invoice_id = tx.last_insert_rowid();
-
-    for (item, qty, price, line_total) in rows {
-        let product: Option<(i64, i64, String)> = tx.query_row(
-            "SELECT id,quantity,name FROM products WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
-            [&item], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        ).optional().map_err(|e| e.to_string())?;
-        let (pid, item_name) = if let Some((id, stock, product_name)) = product {
-            if kind == "sale" {
-                if stock < qty { return Err(format!("موجودی «{item}» کافی نیست؛ موجودی فعلی: {stock}")); }
-                let changed = tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2 AND quantity>=?1", params![qty,id]).map_err(|e| e.to_string())?;
-                if changed != 1 { return Err(format!("موجودی «{item}» کافی نیست")); }
-            } else {
-                tx.execute("UPDATE products SET quantity=quantity+?1,buy_price=?2 WHERE id=?3", params![qty,price,id]).map_err(|e| e.to_string())?;
-            }
-            (id, product_name)
-        } else if kind == "purchase" {
-            let code = format!("AUTO-{}", tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM products", [], |r| r.get::<_,i64>(0)).map_err(|e| e.to_string())?);
-            tx.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)", params![item,code,price,qty]).map_err(|e| e.to_string())?;
-            (tx.last_insert_rowid(), item)
-        } else {
-            return Err(format!("کالای «{item}» در انبار پیدا نشد؛ ابتدا کالا را ثبت کنید"));
-        };
-        tx.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(?1,?2,?3,?4,?5,?6)",
-            params![invoice_id,pid,item_name,qty,price,line_total]).map_err(|e| e.to_string())?;
-    }
-    if kind == "sale" && paid > 0 {
-        tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,notes) VALUES('receipt',?1,?2,?3,COALESCE(NULLIF(?4,''),'cash'),?5)",
-            params![cid,contact_name,paid,method.trim(),format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+    nabz_core::accounting::create_invoice(c, &nabz_core::accounting::InvoiceInput {
+        kind: kind.to_owned(), contact_name: contact.to_owned(), date: String::new(),
+        discount, paid, method: method.to_owned(), notes: notes.to_owned(), lines,
+    }).map(|_| ())
 }
 
 fn invoice_details(c: &Connection, invoice_id: i64) -> Result<String, String> {
@@ -435,155 +305,33 @@ fn invoice_details(c: &Connection, invoice_id: i64) -> Result<String, String> {
 }
 
 fn return_sale_items(c: &mut Connection, invoice_id: i64, rows_text: &str, refund_method: &str) -> Result<(i64,i64), String> {
-    if invoice_id <= 0 { return Err("ابتدا فاکتور فروش را انتخاب کنید".into()); }
-    let mut requested: Vec<(String,i64)> = Vec::new();
+    let mut lines = Vec::new();
     for (line_no, raw) in rows_text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() { continue; }
         let parts: Vec<&str> = line.split('|').map(str::trim).collect();
-        if parts.len() != 2 || parts[0].is_empty() { return Err(format!("ردیف {}: قالب باید «کد یا نام کالا | تعداد برگشتی» باشد", line_no+1)); }
-        let qty = parse_amount(parts[1])?;
-        if qty <= 0 { return Err(format!("ردیف {}: تعداد برگشتی باید مثبت باشد", line_no+1)); }
-        if requested.iter().any(|(name,_)| name.eq_ignore_ascii_case(parts[0])) {
-            return Err(format!("کالای «{}» را فقط یک بار در فهرست برگشت وارد کنید", parts[0]));
+        if parts.len() != 2 || parts[0].is_empty() {
+            return Err(format!("ردیف {}: قالب باید «کد یا نام کالا | تعداد برگشتی» باشد", line_no + 1));
         }
-        requested.push((parts[0].to_string(),qty));
+        lines.push(nabz_core::accounting::ReturnLineInput {
+            product_lookup: parts[0].to_owned(),
+            quantity: parse_amount(parts[1])?,
+        });
     }
-    if requested.is_empty() { return Err("حداقل یک ردیف برگشت وارد کنید".into()); }
-    let refund_method = if refund_method.trim().is_empty() { "cash" } else { refund_method.trim() };
-    let tx = c.transaction().map_err(|e|e.to_string())?;
-    let invoice: (String,i64,i64,i64,i64) = tx.query_row("SELECT kind,subtotal,discount,total,paid FROM invoices WHERE id=?1 AND voided=0",[invoice_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|e|e.to_string())?.ok_or("فاکتور پیدا نشد یا باطل شده است")?;
-    if invoice.0 != "sale" { return Err("برگشت جزئی فقط برای فاکتور فروش مجاز است".into()); }
-    let mut lines: Vec<(i64,i64,i64,i64,String)> = Vec::new();
-    let mut gross_return = 0i64;
-    for (lookup, qty) in requested {
-        let mut st=tx.prepare("SELECT ii.id,ii.product_id,ii.quantity,ii.unit_price,ii.item_name FROM invoice_items ii JOIN products p ON p.id=ii.product_id WHERE ii.invoice_id=?1 AND (ii.item_name=?2 COLLATE NOCASE OR p.code=?2 OR p.barcode=?2) ORDER BY ii.id").map_err(|e|e.to_string())?;
-        let matches=st.query_map(params![invoice_id,lookup],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?))).map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
-        drop(st);
-        if matches.len()!=1 { return Err(format!("کالای «{lookup}» در این فاکتور یکتا نیست یا پیدا نشد؛ از کد یکتا استفاده کنید")); }
-        let (item_id,pid,original_qty,unit_price,item_name)=matches.into_iter().next().unwrap();
-        if pid<=0 { return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ برگشت ممکن نیست")); }
-        let already:i64=tx.query_row("SELECT COALESCE(SUM(quantity),0) FROM sales_return_items WHERE invoice_item_id=?1",[item_id],|r|r.get(0)).map_err(|e|e.to_string())?;
-        let remaining=original_qty.checked_sub(already).ok_or("سابقهٔ برگشت نامعتبر است")?;
-        if qty>remaining { return Err(format!("برای «{item_name}» فقط {} عدد قابل برگشت است",remaining)); }
-        let gross=qty.checked_mul(unit_price).ok_or("مبلغ برگشت بیش از حد بزرگ است")?;
-        gross_return=gross_return.checked_add(gross).ok_or("جمع برگشت بیش از حد بزرگ است")?;
-        lines.push((item_id,pid,qty,unit_price,item_name));
-    }
-    if invoice.1<=0 || gross_return>invoice.1 { return Err("مبلغ ردیف‌های برگشتی از جمع اولیهٔ فاکتور بیشتر است".into()); }
-    let credit=gross_return.checked_mul(invoice.3).ok_or("محاسبهٔ مبلغ برگشت بیش از حد بزرگ است")? / invoice.1;
-    if credit<=0 { return Err("مبلغ خالص برگشت صفر است؛ مقدار برگشت را بررسی کنید".into()); }
-    let new_subtotal=invoice.1-gross_return;
-    let new_total=invoice.3.checked_sub(credit).ok_or("مبلغ نهایی نامعتبر است")?;
-    let refund = invoice.4.saturating_sub(new_total).max(0);
-    let new_discount=new_subtotal-new_total;
-    tx.execute("INSERT INTO sales_returns(invoice_id,amount,notes) VALUES(?1,?2,?3)",params![invoice_id,credit,format!("برگشت جزئی فاکتور #{}",invoice_id)]).map_err(|e|e.to_string())?;
-    let return_id=tx.last_insert_rowid();
-    if refund > 0 {
-        tx.execute("INSERT INTO sales_refunds(invoice_id,return_id,amount,method,notes) VALUES(?1,?2,?3,?4,?5)", params![invoice_id,return_id,refund,refund_method,format!("بازپرداخت بابت برگشت فاکتور #{}",invoice_id)]).map_err(|e|e.to_string())?;
-    }
-    for (item_id,pid,qty,unit_price,item_name) in lines {
-        let amount=qty.checked_mul(unit_price).ok_or("مبلغ ردیف برگشت بیش از حد بزرگ است")?;
-        tx.execute("UPDATE products SET quantity=quantity+?1 WHERE id=?2",params![qty,pid]).map_err(|e|e.to_string())?;
-        tx.execute("INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![return_id,item_id,pid,item_name,qty,unit_price,amount]).map_err(|e|e.to_string())?;
-    }
-    tx.execute("UPDATE invoices SET subtotal=?1,discount=?2,total=?3,paid=MIN(paid,?3) WHERE id=?4",params![new_subtotal,new_discount,new_total,invoice_id]).map_err(|e|e.to_string())?;
-    tx.commit().map_err(|e|e.to_string())?;
-    Ok((credit,refund))
+    let kind:String=c.query_row("SELECT kind FROM invoices WHERE id=?1 AND voided=0",[invoice_id],|r|r.get(0)).map_err(|e|e.to_string())?;
+    if kind=="purchase" { nabz_core::accounting::return_purchase_items(c,invoice_id,&lines,refund_method) }
+    else { nabz_core::accounting::return_sale_items(c,invoice_id,&lines,refund_method) }
 }
 
 fn void_invoice(c: &mut Connection, invoice_id: i64) -> Result<(), String> {
-    if invoice_id <= 0 { return Err("ابتدا یک فاکتور را انتخاب کنید".into()); }
-    let tx = c.transaction().map_err(|e| e.to_string())?;
-    let invoice: Option<(i64,String,Option<i64>,String,i64,i64)> = tx.query_row(
-        "SELECT number,kind,contact_id,contact_name,total,paid FROM invoices WHERE id=?1 AND voided=0",
-        [invoice_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
-    ).optional().map_err(|e| e.to_string())?;
-    let (number,kind,contact_id,contact_name,total,paid)=invoice.ok_or("فاکتور پیدا نشد یا قبلاً باطل شده است")?;
-    let return_count: i64 = tx.query_row("SELECT COUNT(*) FROM sales_returns WHERE invoice_id=?1", [invoice_id], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if return_count > 0 {
-        return Err("این فاکتور سابقهٔ برگشت کالا/بازپرداخت دارد؛ ابطال مستقیم برای جلوگیری از دوباره‌کاری موجودی مجاز نیست".into());
-    }
-
-    let initial_receipt: i64 = if kind == "sale" {
-        tx.query_row("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND notes=?1",
-            [format!("دریافت بابت فاکتور فروش #{number}")], |r| r.get(0)).map_err(|e| e.to_string())?
-    } else { 0 };
-    if kind == "sale" && paid != initial_receipt {
-        return Err("این فاکتور پرداخت‌های تخصیص‌یافتهٔ بعدی دارد؛ برای جلوگیری از مغایرت، ابتدا گردش‌های مرتبط را اصلاح کنید".into());
-    }
-    if kind == "purchase" && paid != 0 {
-        return Err("برای این فاکتور خرید پرداخت تخصیص یافته است؛ ابتدا گردش مالی آن را اصلاح کنید".into());
-    }
-    if kind != "sale" && kind != "purchase" { return Err("نوع فاکتور ناشناخته است".into()); }
-
-    let mut st = tx.prepare("SELECT product_id,item_name,quantity FROM invoice_items WHERE invoice_id=?1 ORDER BY id")
-        .map_err(|e| e.to_string())?;
-    let mapped = st.query_map([invoice_id], |r| Ok((r.get::<_,Option<i64>>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?)))
-        .map_err(|e| e.to_string())?;
-    let lines = mapped.collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())?;
-    drop(st);
-    if lines.is_empty() { return Err("فاکتور ردیف کالا ندارد؛ ابطال خودکار ممکن نیست".into()); }
-
-    for (product_id,item_name,qty) in lines {
-        if qty <= 0 { return Err(format!("تعداد نامعتبر برای کالای «{item_name}»؛ ابطال لغو شد")); }
-        if let Some(pid) = product_id {
-            let stock: i64 = tx.query_row("SELECT quantity FROM products WHERE id=?1", [pid], |r| r.get(0))
-                .optional().map_err(|e| e.to_string())?.ok_or(format!("کالای «{item_name}» حذف شده؛ ابطال امن ممکن نیست"))?;
-            if kind == "sale" {
-                let next = stock.checked_add(qty).ok_or("موجودی پس از برگشت بیش از حد بزرگ می‌شود")?;
-                tx.execute("UPDATE products SET quantity=?1 WHERE id=?2", params![next,pid]).map_err(|e| e.to_string())?;
-            } else {
-                if stock < qty {
-                    return Err(format!("موجودی «{item_name}» برای برگشت خرید کافی نیست؛ موجودی فعلی {} و مقدار برگشت {}", stock, qty));
-                }
-                tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2", params![qty,pid]).map_err(|e| e.to_string())?;
-            }
-        } else if kind == "purchase" {
-            return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ ابطال امن ممکن نیست"));
-        }
-    }
-    if initial_receipt > 0 {
-        tx.execute("DELETE FROM payments WHERE kind='receipt' AND notes=?1",
-            [format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e| e.to_string())?;
-    }
-    tx.execute("UPDATE invoices SET voided=1 WHERE id=?1 AND voided=0", [invoice_id]).map_err(|e| e.to_string())?;
-    let _ = (contact_id,contact_name,total);
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+    nabz_core::accounting::void_invoice(c, invoice_id)
 }
 
 fn save_payment(c: &mut Connection, kind: &str, contact: &str, amount_text: &str, method: &str, notes: &str) -> Result<(), String> {
-    let amount = parse_amount(amount_text)?;
-    let contact = contact.trim();
-    if !["receipt","payment"].contains(&kind) || contact.is_empty() || amount <= 0 { return Err("طرف‌حساب و مبلغ مثبت الزامی است".into()); }
-    let tx = c.transaction().map_err(|e| e.to_string())?;
-    let cid: i64 = tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1", [contact], |r| r.get(0)).optional().map_err(|e| e.to_string())?.ok_or("طرف‌حساب ثبت‌شده‌ای با این نام پیدا نشد")?;
-    let role: String = tx.query_row("SELECT kind FROM contacts WHERE id=?1", [cid], |r| r.get(0)).map_err(|e| e.to_string())?;
-    if kind == "receipt" && role == "supplier" { return Err("برای دریافت، مشتری انتخاب کنید".into()); }
-    if kind == "payment" && role == "customer" { return Err("برای پرداخت، تأمین‌کننده انتخاب کنید".into()); }
-    let invoice_kind = if kind == "receipt" { "sale" } else { "purchase" };
-    let invoice_outstanding: i64 = tx.query_row("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2 AND voided=0", params![cid,invoice_kind], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let opening: i64 = tx.query_row("SELECT opening_balance FROM contacts WHERE id=?1", [cid], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?.max(0_i64);
-    let outstanding = invoice_outstanding.checked_add(opening).ok_or("ماندهٔ حساب بیش از حد بزرگ است")?;
-    if amount > outstanding { return Err(format!("مبلغ از ماندهٔ قابل تخصیص بیشتر است: {}", money(outstanding))); }
-    tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),?6)", params![kind,cid,contact,amount,method.trim(),notes.trim()]).map_err(|e| e.to_string())?;
-    let mut remaining = amount.min(opening);
-    if remaining > 0 { tx.execute("UPDATE contacts SET opening_balance=opening_balance-?1 WHERE id=?2", params![remaining,cid]).map_err(|e| e.to_string())?; }
-    let mut st = tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_id=?1 AND kind=?2 AND voided=0 AND paid<total ORDER BY invoice_date,id").map_err(|e| e.to_string())?;
-    let rows = st.query_map(params![cid,invoice_kind], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e| e.to_string())?;
-    let invoices = rows.collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())?;
-    drop(st);
-    for (id,total,paid) in invoices {
-        if remaining >= amount { break; }
-        let applied = (amount - remaining).min(total-paid);
-        if applied > 0 {
-            tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2", params![applied,id]).map_err(|e| e.to_string())?;
-            remaining += applied;
-        }
-    }
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+    nabz_core::accounting::record_payment(c, &nabz_core::accounting::PaymentInput {
+        kind: kind.to_owned(), contact_name: contact.to_owned(), amount: parse_amount(amount_text)?,
+        method: method.to_owned(), date: String::new(), notes: notes.to_owned(),
+    }).map(|_| ())
 }
 
 fn set_status(ui: &MainWindow, message: impl Into<SharedString>) {
@@ -616,6 +364,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => set_status(&ui, format!("خطا: {e}")),
             }
             if let Err(e) = refresh_ui(&ui, &db.borrow()) { set_status(&ui, format!("خطای تازه‌سازی: {e}")); }
+        });
+    }
+    {
+        let weak=ui.as_weak(); let db=db.clone();
+        ui.on_adjust_inventory_requested(move |id| if let Some(ui)=weak.upgrade() {
+            let current=db.borrow().query_row("SELECT quantity FROM products WHERE id=?1",[id as i64],|r|r.get::<_,i64>(0));
+            match current {
+                Ok(quantity)=>{ui.set_adjustment_product_id(id);ui.set_adjustment_new_quantity(quantity.to_string().into());ui.set_adjustment_reason("انبارگردانی".into());set_status(&ui,format!("موجودی فعلی کالا {} است؛ مقدار واقعی جدید و علت را وارد کنید",fmt_number(quantity)));},
+                Err(e)=>set_status(&ui,format!("بارگذاری موجودی ناموفق بود: {e}"))
+            }
+        });
+    }
+    {
+        let weak=ui.as_weak(); let db=db.clone();
+        ui.on_save_inventory_adjustment_requested(move || if let Some(ui)=weak.upgrade() {
+            let result=nabz_core::accounting::adjust_inventory(&mut db.borrow_mut(),ui.get_adjustment_product_id() as i64,parse_amount(&ui.get_adjustment_new_quantity()).unwrap_or(-1),&ui.get_adjustment_reason());
+            match result {
+                Ok(change)=>{set_status(&ui,format!("موجودی اصلاح شد: {} به {}؛ اختلاف {}؛ علت: {}",fmt_number(change.previous_quantity),fmt_number(change.new_quantity),fmt_number(change.delta),change.reason));ui.set_adjustment_product_id(0);ui.set_adjustment_new_quantity("0".into());ui.set_adjustment_reason("انبارگردانی".into());},
+                Err(e)=>set_status(&ui,format!("اصلاح موجودی انجام نشد: {e}"))
+            }
+            if let Err(e)=refresh_ui(&ui,&db.borrow()){set_status(&ui,format!("خطای تازه‌سازی: {e}"));}
         });
     }
     {
@@ -679,6 +448,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         let weak = ui.as_weak(); let db = db.clone();
+        ui.on_save_expense_requested(move || if let Some(ui) = weak.upgrade() {
+            let result = nabz_core::accounting::create_expense(&db.borrow(), &nabz_core::accounting::ExpenseInput {
+                category: ui.get_expense_category().to_string(),
+                description: ui.get_expense_description().to_string(),
+                amount: parse_amount(&ui.get_expense_amount()).unwrap_or(0),
+                date: String::new(),
+            });
+            match result {
+                Ok(_) => { ui.set_expense_description("".into()); ui.set_expense_amount("".into()); set_status(&ui, "هزینه ثبت شد"); }
+                Err(error) => set_status(&ui, format!("ثبت هزینه ناموفق بود: {error}")),
+            }
+            if let Err(error) = refresh_ui(&ui, &db.borrow()) { set_status(&ui, format!("تازه‌سازی ناموفق بود: {error}")); }
+        });
+    }
+
+    {
+        let weak = ui.as_weak(); let db = db.clone();
         ui.on_save_payment_requested(move || if let Some(ui) = weak.upgrade() {
             let result = save_payment(&mut db.borrow_mut(), &ui.get_payment_kind(), &ui.get_payment_contact(), &ui.get_payment_amount(), &ui.get_payment_method(), &ui.get_payment_notes());
             match result {
@@ -702,6 +488,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let weak = ui.as_weak();
+        let db = db.clone();
+        ui.on_switch_ui_requested(move || {
+            match nabz_core::switch_frontend(&db.borrow(), nabz_core::Frontend::Tauri) {
+                Ok(_child) => {
+                    if let Err(error) = slint::quit_event_loop() {
+                        if let Some(ui) = weak.upgrade() {
+                            set_status(&ui, format!("رابط مقصد اجرا شد؛ بستن رابط فعلی ناموفق بود: {error}"));
+                        }
+                    }
+                }
+                Err(error) => {
+                    if let Some(ui) = weak.upgrade() {
+                        set_status(&ui, error);
+                    }
+                }
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let db = db.clone();
+        ui.on_create_backup_requested(move || if let Some(ui) = weak.upgrade() {
+            match nabz_core::create_automatic_backup(&db.borrow()) {
+                Ok(path) => set_status(&ui, format!("پشتیبان کامل ذخیره شد: {}", path.display())),
+                Err(error) => set_status(&ui, format!("ساخت پشتیبان ناموفق بود: {error}")),
+            }
+        });
+    }
+    {
+        let weak = ui.as_weak();
+        let db = db.clone();
+        ui.on_restore_backup_requested(move || if let Some(ui) = weak.upgrade() {
+            match nabz_core::restore_latest_backup(&mut db.borrow_mut()) {
+                Ok(path) => {
+                    set_status(&ui, format!("بازیابی کامل شد: {}", path.display()));
+                    if let Err(error) = refresh_ui(&ui, &db.borrow()) {
+                        set_status(&ui, format!("بازیابی انجام شد؛ تازه‌سازی ناموفق بود: {error}"));
+                    }
+                }
+                Err(error) => set_status(&ui, format!("بازیابی ناموفق بود: {error}")),
+            }
+        });
+    }
+
     ui.run()?;
     Ok(())
 }
@@ -715,16 +548,16 @@ mod tests {
         c.execute_batch(
             "PRAGMA foreign_keys=ON;
              CREATE TABLE contacts(id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')));
-             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0,average_cost INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1)));
-             CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL);
+             CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL,unit_cost INTEGER);
              CREATE TABLE sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT '');
              CREATE TABLE sales_return_items(id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0));
              CREATE TABLE sales_refunds(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_id INTEGER NOT NULL REFERENCES sales_returns(id),refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',notes TEXT NOT NULL DEFAULT '');
              CREATE TABLE payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
              CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
              INSERT INTO contacts(name,kind) VALUES('Ali','customer');
-             INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Pen','PEN',10,20,10,2);"
+             INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Pen','PEN',10,20,10,2,10);"
         ).unwrap();
         c
     }
@@ -793,6 +626,7 @@ mod tests {
         save_invoice(&mut c, "purchase", "Vendor", "PEN", "5", "12", "0", "0", "cash", "").unwrap();
         assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 15);
         assert_eq!(scalar(&c, "SELECT buy_price FROM products WHERE code='PEN'"), 12);
+        assert_eq!(scalar(&c, "SELECT average_cost FROM products WHERE code='PEN'"), 11);
         assert_eq!(scalar(&c, "SELECT total FROM invoices WHERE kind='purchase'"), 60);
     }
 
@@ -817,7 +651,7 @@ mod tests {
     #[test]
     fn multi_row_sale_records_all_lines_and_updates_stock() {
         let mut c = test_db();
-        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Cable','CAB',30,60,5,1)", []).unwrap();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Cable','CAB',30,60,5,1,30)", []).unwrap();
         save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 3 | 60", "10", "100", "cash", "").unwrap();
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoice_items"), 2);
         assert_eq!(scalar(&c, "SELECT subtotal FROM invoices WHERE kind='sale'"), 280);
@@ -830,7 +664,7 @@ mod tests {
     #[test]
     fn multi_row_sale_rolls_back_everything_when_later_row_has_insufficient_stock() {
         let mut c = test_db();
-        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Cable','CAB',30,60,1,1)", []).unwrap();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Cable','CAB',30,60,1,1,30)", []).unwrap();
         assert!(save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 2 | 60", "0", "0", "cash", "").is_err());
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 0);
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoice_items"), 0);
@@ -851,7 +685,7 @@ mod tests {
     #[test]
     fn invoice_details_show_all_lines_and_balance() {
         let mut c = test_db();
-        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Cable','CAB',30,60,5,1)", []).unwrap();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Cable','CAB',30,60,5,1,30)", []).unwrap();
         save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 1 | 60", "10", "20", "cash", "test detail").unwrap();
         let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
         let details = invoice_details(&c, id).unwrap();
@@ -967,16 +801,17 @@ mod tests {
         c.execute_batch(
             "PRAGMA foreign_keys=ON;
              CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '');
-             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE);
+             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),item_name TEXT NOT NULL);"
         ).unwrap();
         c.execute("INSERT INTO invoices(id,number,kind,contact_name,subtotal,total) VALUES(1,1,'sale','Legacy',100,100)", []).unwrap();
         migrate_database(&mut c).unwrap();
         assert_eq!(scalar(&c, "SELECT voided FROM invoices WHERE id=1"), 0);
-        assert_eq!(scalar(&c, "PRAGMA user_version"), 1);
+        assert_eq!(scalar(&c, "PRAGMA user_version"), nabz_core::SCHEMA_VERSION);
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('sales_returns','sales_return_items','sales_refunds')"), 3);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM pragma_table_info('products') WHERE name='average_cost'"), 1);
         migrate_database(&mut c).unwrap();
-        assert_eq!(scalar(&c, "PRAGMA user_version"), 1);
+        assert_eq!(scalar(&c, "PRAGMA user_version"), nabz_core::SCHEMA_VERSION);
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 1);
     }
 

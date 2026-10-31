@@ -1,19 +1,14 @@
 name: Slint native UI CI
 
 on:
-  push:
-    branches: [feature/slint-native-ui]
-    paths:
-      - "slint-native/**"
-      - ".github/workflows/slint-native-ci.yml"
-  pull_request:
-    paths:
-      - "slint-native/**"
-      - ".github/workflows/slint-native-ci.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: nabz-slint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   linux:
@@ -23,20 +18,62 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: slint-native
+          workspaces: |
+            slint-native
+            crates/nabz-core
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev libssl-dev pkg-config
+      - name: Test shared core schema and migrations
+        run: cargo test --manifest-path crates/nabz-core/Cargo.toml
       - name: Check native UI
         run: cargo check --manifest-path slint-native/Cargo.toml
       - name: Run native accounting and migration tests
         run: cargo test --manifest-path slint-native/Cargo.toml
       - name: Build release binary
         run: cargo build --release --manifest-path slint-native/Cargo.toml
+      - name: Verify executable
+        run: test -s slint-native/target/release/nabz-slint
+      - name: Package standalone Debian installer
+        run: |
+          set -eu
+          package="slint-native/target/nabz-slint-deb"
+          mkdir -p "$package/DEBIAN" "$package/usr/bin" "$package/usr/share/applications" "$package/usr/share/doc/nabz-slint"
+          install -m 0755 slint-native/target/release/nabz-slint "$package/usr/bin/nabz-slint"
+          install -m 0644 slint-native/README.md "$package/usr/share/doc/nabz-slint/README.md"
+          cat > "$package/DEBIAN/control" <<'CONTROL'
+          Package: nabz-slint
+          Version: 0.1.0
+          Section: office
+          Priority: optional
+          Architecture: amd64
+          Depends: libx11-6, libxcb1, libxkbcommon0, libfontconfig1
+          Maintainer: Herotux
+          Description: Nabz native Persian accounting interface
+           Native Slint frontend for the Nabz accounting application.
+           Uses the shared Nabz SQLite database.
+          CONTROL
+          cat > "$package/usr/share/applications/nabz-slint.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=Nabz (Slint)
+          Comment=Native Persian accounting application
+          Exec=nabz-slint
+          Terminal=false
+          Categories=Office;Finance;
+          DESKTOP
+          dpkg-deb --build --root-owner-group "$package" slint-native/target/nabz-slint_0.1.0_amd64.deb
+          dpkg-deb --info slint-native/target/nabz-slint_0.1.0_amd64.deb
+          test -s slint-native/target/nabz-slint_0.1.0_amd64.deb
+      - name: Verify package cannot remove shared user data
+        run: bash scripts/verify-deb-data-safety.sh slint-native/target/nabz-slint_0.1.0_amd64.deb
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: nabz-slint-linux-x86_64
-          path: slint-native/target/release/nabz-slint
+          name: nabz-slint-linux-x86_64-and-deb
+          path: |
+            slint-native/target/release/nabz-slint
+            slint-native/target/nabz-slint_0.1.0_amd64.deb
           if-no-files-found: error
+          retention-days: 14

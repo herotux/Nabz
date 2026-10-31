@@ -1,16 +1,6 @@
 name: Nabz Tauri Web CI
 
 on:
-  push:
-    branches:
-      - tauri-web-prototype
-    paths:
-      - "tauri-web/**"
-      - ".github/workflows/tauri-web-ci.yml"
-  pull_request:
-    paths:
-      - "tauri-web/**"
-      - ".github/workflows/tauri-web-ci.yml"
   workflow_dispatch:
 
 permissions:
