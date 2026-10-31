@@ -1,5 +1,4 @@
 use nabz_core::{open_database_at, preferred_frontend, set_preferred_frontend, Frontend};
-use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -80,6 +79,5 @@ fn both_frontends_reopen_the_same_ledger_after_either_ui_is_removed() {
     assert_eq!(preferred_frontend(&db).unwrap(), Some(Frontend::Tauri));
 
     drop(db);
-    drop(Connection::open_in_memory().unwrap());
     std::fs::remove_dir_all(root).unwrap();
 }
