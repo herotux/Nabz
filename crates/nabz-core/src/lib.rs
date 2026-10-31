@@ -756,7 +756,9 @@ mod tests {
         assert_eq!(version, SCHEMA_VERSION + 1);
         assert_eq!(contacts_table, 0);
         assert_eq!(value, "keep");
-    }    #[test]
+    }
+
+    #[test]
     fn version_five_migration_adds_average_cost_without_rewriting_historical_sales_cost() {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
@@ -775,10 +777,11 @@ mod tests {
              PRAGMA user_version=5;"
         ).unwrap();
         initialize(&connection).unwrap();
-        let (version, average_cost, historical_cost): (i64, i64, i64) = connection.query_row(
-            "SELECT (SELECT user_version FROM pragma_user_version),p.average_cost,ii.unit_cost
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let (average_cost, historical_cost): (i64, i64) = connection.query_row(
+            "SELECT p.average_cost,ii.unit_cost
              FROM products p JOIN invoice_items ii ON ii.product_id=p.id WHERE p.id=1",
-            [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+            [], |r| Ok((r.get(0)?,r.get(1)?))
         ).unwrap();
         assert_eq!((version, average_cost, historical_cost), (6, 42, 17));
     }
