@@ -189,6 +189,22 @@ impl fmt::Display for AiError {
 
 impl std::error::Error for AiError {}
 
+/// Reference to a credential held by an OS-backed secret store.
+/// The secret value itself must never be placed in AiSettings or SQLite.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AiSecretRef {
+    pub account: String,
+}
+
+/// Secret-storage boundary. Implementations should use the operating system's
+/// credential vault (Secret Service, Windows Credential Manager or macOS Keychain).
+/// No plaintext-file fallback is provided by the shared core.
+pub trait AiSecretStore: Send + Sync {
+    fn store(&self, reference: &AiSecretRef, secret: &str) -> Result<(), AiError>;
+    fn retrieve(&self, reference: &AiSecretRef) -> Result<Option<String>, AiError>;
+    fn delete(&self, reference: &AiSecretRef) -> Result<(), AiError>;
+}
+
 /// Synchronous provider boundary for the first foundation release.
 /// Network adapters may wrap async clients behind the frontend's async runtime later.
 pub trait AiProvider: Send + Sync {
