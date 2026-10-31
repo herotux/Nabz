@@ -144,3 +144,28 @@ CI is the compile/package verification gate. A successful GitHub commit or a que
 workflow is not proof of a successful build. Manjaro installation and real-database
 cross-frontend acceptance testing must also be completed before declaring a release
 ready.
+
+## Automated shared-data lifecycle verification
+
+The manual-only GitHub Actions workflow
+`.github/workflows/shared-data-lifecycle.yml` verifies the shared-data contract
+without requiring a developer workstation:
+
+- The `nabz-core` test suite runs against temporary databases.
+- An integration test creates accounting records through the shared core, removes
+  each frontend's simulated installation directory in turn, reopens the same
+  SQLite file, and verifies records, frontend preference, and SQLite integrity.
+- A Debian package lifecycle fixture builds two disposable frontend packages,
+  installs both with `dpkg`, removes one and then the other, reinstalls one, and
+  verifies that the product-owned SQLite file and its contents survive.
+
+The Debian fixture is intentionally isolated under a temporary XDG data root and
+uses disposable package names. It does not install or remove the real Nabz
+frontends. The separate package-content guard continues to inspect actual DEB
+artifacts for bundled databases or destructive maintainer scripts.
+
+Run this check manually from GitHub Actions when desired. Adding the workflow does
+not start a build or consume Actions minutes by itself. A passing hosted test is
+evidence for the shared-core and Debian package-lifecycle contracts, but does not
+replace final installation testing on Manjaro or acceptance testing with a real
+user database.
