@@ -4,6 +4,7 @@
 //! and migrations here so a UI switch never creates a second accounting ledger.
 
 pub mod accounting;
+pub mod ai;
 
 use rusqlite::{backup::Backup, Connection, OpenFlags};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
