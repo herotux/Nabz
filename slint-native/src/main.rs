@@ -71,7 +71,7 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     ui.set_receipts_today(SharedString::from(money(q("SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')),0)-COALESCE((SELECT SUM(amount) FROM sales_refunds WHERE refund_date=date('now','localtime')),0)")?)));
     let balance = q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?;
     ui.set_customer_balance(SharedString::from(money(balance)));
-    ui.set_inventory_value(SharedString::from(money(q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?)));
+    ui.set_inventory_value(SharedString::from(money(q("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products")?)));
     let history = {
         let mut st=c.prepare("SELECT product_name,previous_quantity,new_quantity,delta,reason,created_at FROM inventory_adjustments ORDER BY id DESC LIMIT 5").map_err(|e|e.to_string())?;
         let rows=st.query_map([],|r|Ok(format!("{}: {} ← {} ({:+}) · {} · {}",r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?))).map_err(|e|e.to_string())?;
@@ -547,7 +547,10 @@ mod tests {
         c.execute_batch(
             "PRAGMA foreign_keys=ON;
              CREATE TABLE contacts(id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')));
-             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0,average_cost INTEGER NOT NULL DEFAULT 0);
+             CREATE TRIGGER products_initialize_average_cost AFTER INSERT ON products
+             WHEN NEW.quantity>0 AND NEW.average_cost=0 AND NEW.buy_price>0
+             BEGIN UPDATE products SET average_cost=NEW.buy_price WHERE id=NEW.id; END;
              CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1)));
              CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL,unit_cost INTEGER);
              CREATE TABLE sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT '');
@@ -625,6 +628,7 @@ mod tests {
         save_invoice(&mut c, "purchase", "Vendor", "PEN", "5", "12", "0", "0", "cash", "").unwrap();
         assert_eq!(scalar(&c, "SELECT quantity FROM products WHERE code='PEN'"), 15);
         assert_eq!(scalar(&c, "SELECT buy_price FROM products WHERE code='PEN'"), 12);
+        assert_eq!(scalar(&c, "SELECT average_cost FROM products WHERE code='PEN'"), 11);
         assert_eq!(scalar(&c, "SELECT total FROM invoices WHERE kind='purchase'"), 60);
     }
 
