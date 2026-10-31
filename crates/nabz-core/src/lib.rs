@@ -63,6 +63,119 @@ pub enum Frontend {
     Slint,
 }
 
+impl Frontend {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Tauri => "tauri",
+            Self::Slint => "slint",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "tauri" => Ok(Self::Tauri),
+            "slint" => Ok(Self::Slint),
+            other => Err(format!("رابط ذخیره‌شدهٔ نبض ناشناخته است: {other}")),
+        }
+    }
+}
+
+/// Canonical per-user storage layout. Frontend binaries are deliberately not
+/// part of this directory and may be independently installed or removed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataPaths {
+    pub root: PathBuf,
+    pub database: PathBuf,
+    pub backups: PathBuf,
+    pub attachments: PathBuf,
+    pub logs: PathBuf,
+}
+
+impl DataPaths {
+    pub fn from_database_path(database: impl Into<PathBuf>) -> Result<Self, String> {
+        let database = database.into();
+        let root = database.parent()
+            .ok_or_else(|| "مسیر پایگاه داده معتبر نیست".to_string())?
+            .to_path_buf();
+        Ok(Self {
+            backups: root.join("backups"),
+            attachments: root.join("attachments"),
+            logs: root.join("logs"),
+            root,
+            database,
+        })
+    }
+
+    pub fn ensure_directories(&self) -> Result<(), String> {
+        for directory in [&self.root, &self.backups, &self.attachments, &self.logs] {
+            std::fs::create_dir_all(directory)
+                .map_err(|e| format!("ساخت پوشهٔ دادهٔ نبض ناموفق بود ({}): {e}", directory.display()))?;
+        }
+        Ok(())
+    }
+}
+
+/// Return the canonical shared user-data layout used by both frontends.
+pub fn data_paths() -> Result<DataPaths, String> {
+    DataPaths::from_database_path(database_path())
+}
+
+/// Create shared data, backup, attachment, and log directories without
+/// coupling their lifetime to either frontend's installation directory.
+pub fn ensure_data_directories() -> Result<DataPaths, String> {
+    let paths = data_paths()?;
+    paths.ensure_directories()?;
+    Ok(paths)
+}
+
+/// Read the preferred frontend from the shared SQLite settings table.
+/// None means that the user has not selected a preference yet.
+pub fn preferred_frontend(connection: &Connection) -> Result<Option<Frontend>, String> {
+    let value = connection.query_row(
+        "SELECT value FROM settings WHERE key='preferred_frontend'",
+        [],
+        |row| row.get::<_, String>(0),
+    );
+    match value {
+        Ok(value) => Frontend::parse(&value).map(Some),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!("خواندن رابط پیش‌فرض ناموفق بود: {error}")),
+    }
+}
+
+/// Persist the preferred frontend in the same database shared by Slint/Tauri.
+pub fn set_preferred_frontend(connection: &Connection, frontend: Frontend) -> Result<(), String> {
+    connection.execute(
+        "INSERT INTO settings(key,value) VALUES('preferred_frontend',?1)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        [frontend.as_str()],
+    ).map_err(|e| format!("ذخیرهٔ رابط پیش‌فرض ناموفق بود: {e}"))?;
+    Ok(())
+}
+
+/// Launch the requested UI and remember it only if startup succeeds. On a
+/// launch failure, restore the previous preference so settings never point
+/// to a frontend that could not be started.
+pub fn switch_frontend(connection: &Connection, frontend: Frontend) -> Result<Child, String> {
+    let previous = preferred_frontend(connection)?;
+    set_preferred_frontend(connection, frontend)?;
+    match launch_frontend(frontend) {
+        Ok(child) => Ok(child),
+        Err(launch_error) => {
+            let rollback = match previous {
+                Some(previous) => set_preferred_frontend(connection, previous),
+                None => connection.execute(
+                    "DELETE FROM settings WHERE key='preferred_frontend'", []
+                ).map(|_| ()).map_err(|e| format!("بازگردانی تنظیم رابط ناموفق بود: {e}")),
+            };
+            match rollback {
+                Ok(()) => Err(launch_error),
+                Err(rollback_error) => Err(format!("{launch_error}; {rollback_error}")),
+            }
+        }
+    }
+}
+
 /// Start another installed frontend from the current installation directory or PATH.
 /// The caller should close its own window only after this function succeeds.
 pub fn launch_frontend(frontend: Frontend) -> Result<Child, String> {
@@ -246,10 +359,8 @@ pub fn open_database() -> Result<Connection, String> {
 /// Open a database at an explicit path and apply the canonical schema/migrations.
 pub fn open_database_at(path: impl AsRef<Path>) -> Result<Connection, String> {
     let path = path.as_ref();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("ساخت پوشهٔ داده ناموفق بود: {e}"))?;
-    }
+    let paths = DataPaths::from_database_path(path.to_path_buf())?;
+    paths.ensure_directories()?;
 
     let connection = Connection::open(path)
         .map_err(|e| format!("بازکردن پایگاه داده ناموفق بود ({}): {e}", path.display()))?;
@@ -548,6 +659,41 @@ mod tests {
             "SELECT COUNT(*) FROM inventory_adjustments", [], |row| row.get(0)
         ).unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn preferred_frontend_is_persisted_in_the_shared_database() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        assert_eq!(preferred_frontend(&connection).unwrap(), None);
+
+        set_preferred_frontend(&connection, Frontend::Slint).unwrap();
+        assert_eq!(preferred_frontend(&connection).unwrap(), Some(Frontend::Slint));
+
+        set_preferred_frontend(&connection, Frontend::Tauri).unwrap();
+        assert_eq!(preferred_frontend(&connection).unwrap(), Some(Frontend::Tauri));
+    }
+
+    #[test]
+    fn frontend_setting_rejects_unknown_values_without_silently_defaulting() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO settings(key,value) VALUES('preferred_frontend','unknown-ui')", []
+        ).unwrap();
+        assert!(preferred_frontend(&connection).unwrap_err().contains("ناشناخته"));
+    }
+
+    #[test]
+    fn data_layout_keeps_database_and_frontend_installation_separate() {
+        let root = std::env::temp_dir().join(format!("nabz-data-layout-{}", std::process::id()));
+        let paths = DataPaths::from_database_path(root.join(DATABASE_FILE)).unwrap();
+        paths.ensure_directories().unwrap();
+        assert!(paths.database.starts_with(&paths.root));
+        assert!(paths.backups.is_dir());
+        assert!(paths.attachments.is_dir());
+        assert!(paths.logs.is_dir());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

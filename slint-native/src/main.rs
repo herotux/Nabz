@@ -490,8 +490,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let weak = ui.as_weak();
+        let db = db.clone();
         ui.on_switch_ui_requested(move || {
-            match nabz_core::launch_frontend(nabz_core::Frontend::Tauri) {
+            match nabz_core::switch_frontend(&db.borrow(), nabz_core::Frontend::Tauri) {
                 Ok(_child) => {
                     if let Err(error) = slint::quit_event_loop() {
                         if let Some(ui) = weak.upgrade() {

@@ -337,8 +337,9 @@ fn restore_latest_database_backup(db: State<'_, Db>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn switch_to_slint(app: tauri::AppHandle) -> Result<(), String> {
-    nabz_core::launch_frontend(nabz_core::Frontend::Slint)?;
+fn switch_to_slint(app: tauri::AppHandle, db: State<'_, Db>) -> Result<(), String> {
+    let connection = db.0.lock().map_err(|e| e.to_string())?;
+    nabz_core::switch_frontend(&connection, nabz_core::Frontend::Slint)?;
     app.exit(0);
     Ok(())
 }

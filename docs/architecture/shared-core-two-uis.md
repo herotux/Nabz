@@ -45,9 +45,37 @@ and WAL mode are enabled by the common initializer.
   `PATH`. The current UI exits only after the other executable starts successfully.
 - The target frontend must already be installed. If it is missing, the current UI
   stays open and reports the launch error.
+- A successful switch records `preferred_frontend` in the shared SQLite
+  `settings` table. A failed launch rolls that preference back to its previous
+  value. The stored preference is metadata; it does not automatically launch or
+  install a missing frontend.
 - The switch is a process handoff, not a data conversion. Both binaries open the
   same SQLite file. Users should not run two frontends concurrently for normal
   accounting work.
+
+## Shared data ownership and uninstall safety
+
+The data directory belongs to the Nabz product, not to either frontend package.
+The shared core exposes one canonical `DataPaths` layout for the SQLite file,
+backups, attachments, and logs. Both frontends create/use this layout through
+`nabz-core`; no frontend may put accounting data beside its executable.
+
+On Linux the canonical location remains
+`${XDG_DATA_HOME:-~/.local/share}/com.herotux.nabz.webprototype/`.
+This deliberately preserves the existing database location. The package
+uninstallation policy is therefore:
+
+- Removing `nabz-slint` removes only its executable, desktop entry, and package
+  documentation; it must not remove the shared data directory.
+- Removing the Tauri package has the same rule.
+- Updating or reinstalling either frontend must reuse the existing database.
+- Deleting accounting data is a separate, explicit user operation, never an
+  uninstall side effect. Keep manual backups before any deliberate data reset.
+- The core does not expose an implicit "delete all user data" operation.
+
+The database and frontend executables have separate lifecycles. A package
+manager uninstall does not own or recursively delete a user's home-directory
+data.
 
 Expected Linux executable names are `nabz-tauri` and `nabz-slint`.
 

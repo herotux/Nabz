@@ -8,10 +8,12 @@ Updated: 2026-10-30
 - [x] Create a dedicated shared Rust core crate for database initialization and migrations.
 - [x] Make Tauri and Slint depend on the shared core crate.
 - [x] Align both Linux frontends on the same application data directory and database filename.
+- [x] Add a shared data-layout API for the database, backups, attachments, and logs; keep it outside frontend installation directories.
+- [x] Persist the preferred UI in the shared SQLite settings table and update it only after a successful UI launch.
 - [ ] Move all accounting operations, validation, and read models from both frontends into `nabz-core`.
 - [ ] Add cross-frontend integration tests that write through one frontend/core API and read through the other.
-- [ ] Add a user-facing UI switch / preferred-UI setting without copying or relocating the database.
-- [ ] Add backup-before-migration and safe restore verification.
+- [x] Add a UI switch that records the preferred frontend without copying or relocating the database; expose a dedicated preference selector in settings remains pending.
+- [x] Add backup-before-migration and safe restore verification.
 - [ ] Define and test simultaneous-launch / write-conflict behavior.
 - [ ] Build and publish independently installable Tauri and Slint artifacts; uninstalling either must preserve shared data.
 
