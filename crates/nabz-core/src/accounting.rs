@@ -221,12 +221,12 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
     let invoice_id = tx.last_insert_rowid();
 
     for (lookup, quantity, unit_price, line_total) in normalized {
-        let product: Option<(i64, i64, String)> = tx.query_row(
-            "SELECT id,quantity,name FROM products
+        let product: Option<(i64, i64, String, i64)> = tx.query_row(
+            "SELECT id,quantity,name,buy_price FROM products
              WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
-            [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         ).optional().map_err(|e| e.to_string())?;
-        let (product_id, item_name) = if let Some((id, stock, name)) = product {
+        let (product_id, item_name, unit_cost) = if let Some((id, stock, name, buy_price)) = product {
             if input.kind == "sale" {
                 if stock < quantity {
                     return Err(format!("موجودی «{lookup}» کافی نیست؛ موجودی فعلی: {stock}"));
@@ -244,7 +244,7 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
                     params![quantity, unit_price, id],
                 ).map_err(|e| e.to_string())?;
             }
-            (id, name)
+            (id, name, if input.kind == "sale" { Some(buy_price) } else { None })
         } else if input.kind == "purchase" {
             let code = format!("AUTO-{}", tx.query_row(
                 "SELECT COALESCE(MAX(id),0)+1 FROM products", [], |row| row.get::<_, i64>(0)
@@ -253,14 +253,14 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
                 "INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)",
                 params![lookup, code, unit_price, quantity],
             ).map_err(|e| e.to_string())?;
-            (tx.last_insert_rowid(), lookup)
+            (tx.last_insert_rowid(), lookup, None)
         } else {
             return Err(format!("کالای «{lookup}» در انبار پیدا نشد؛ ابتدا کالا را ثبت کنید"));
         };
         tx.execute(
-            "INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total)
-             VALUES(?1,?2,?3,?4,?5,?6)",
-            params![invoice_id, product_id, item_name, quantity, unit_price, line_total],
+            "INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost)
+             VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![invoice_id, product_id, item_name, quantity, unit_price, line_total, unit_cost],
         ).map_err(|e| e.to_string())?;
     }
 
@@ -790,6 +790,90 @@ pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Resu
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(payment_id)
+}
+
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExpenseInput {
+    pub category: String,
+    pub description: String,
+    pub amount: i64,
+    pub date: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExpenseRecord {
+    pub id: i64,
+    pub category: String,
+    pub description: String,
+    pub amount: i64,
+    pub date: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProfitLossReport {
+    pub sales: i64,
+    pub discounts: i64,
+    pub net_sales: i64,
+    pub cost_of_goods_sold: i64,
+    pub gross_profit: i64,
+    pub expenses: i64,
+    pub net_profit: i64,
+    pub uncosted_sales: i64,
+    pub expense_rows: Vec<ExpenseRecord>,
+}
+
+/// Save an operating expense in the shared ledger.
+pub fn create_expense(connection: &Connection, input: &ExpenseInput) -> Result<i64, String> {
+    if input.category.trim().is_empty() || input.description.trim().is_empty() || input.amount <= 0 {
+        return Err("دسته‌بندی، شرح و مبلغ مثبت هزینه الزامی است".into());
+    }
+    connection.execute(
+        "INSERT INTO expenses(category,description,amount,expense_date) VALUES(?1,?2,?3,COALESCE(NULLIF(?4,''),date('now','localtime')))",
+        params![input.category.trim(), input.description.trim(), input.amount, input.date.trim()],
+    ).map_err(|e| e.to_string())?;
+    Ok(connection.last_insert_rowid())
+}
+
+pub fn list_expenses(connection: &Connection, from: &str, to: &str) -> Result<Vec<ExpenseRecord>, String> {
+    let mut statement = connection.prepare(
+        "SELECT id,category,description,amount,expense_date FROM expenses
+         WHERE (?1='' OR expense_date>=?1) AND (?2='' OR expense_date<=?2)
+         ORDER BY expense_date DESC,id DESC LIMIT 500"
+    ).map_err(|e| e.to_string())?;
+    let rows = statement.query_map(params![from, to], |row| Ok(ExpenseRecord {
+        id: row.get(0)?, category: row.get(1)?, description: row.get(2)?,
+        amount: row.get(3)?, date: row.get(4)?,
+    })).map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())
+}
+
+/// Profit report. Legacy sale rows without a saved unit_cost are deliberately
+/// excluded from COGS and exposed as uncosted sales; current product buy_price
+/// is never substituted for historical cost.
+pub fn profit_loss_report(connection: &Connection, from: &str, to: &str) -> Result<ProfitLossReport, String> {
+    let sum = |sql: &str| -> Result<i64,String> {
+        connection.query_row(sql, params![from, to], |row| row.get(0)).map_err(|e| e.to_string())
+    };
+    let sales = sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0 AND (?1='' OR invoice_date>=?1) AND (?2='' OR invoice_date<=?2)")?;
+    let discounts = sum("SELECT COALESCE(SUM(discount),0) FROM invoices WHERE kind='sale' AND voided=0 AND (?1='' OR invoice_date>=?1) AND (?2='' OR invoice_date<=?2)")?;
+    let net_sales = sales;
+    let cost_of_goods_sold = sum(
+        "SELECT COALESCE(SUM(ii.unit_cost * (ii.quantity-COALESCE((SELECT SUM(sri.quantity) FROM sales_return_items sri WHERE sri.invoice_item_id=ii.id),0))),0)
+         FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
+         WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NOT NULL
+         AND (?1='' OR i.invoice_date>=?1) AND (?2='' OR i.invoice_date<=?2)"
+    )?;
+    let uncosted_sales = sum(
+        "SELECT COALESCE(SUM(ii.line_total),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
+         WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NULL
+         AND (?1='' OR i.invoice_date>=?1) AND (?2='' OR i.invoice_date<=?2)"
+    )?;
+    let expenses = sum("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE (?1='' OR expense_date>=?1) AND (?2='' OR expense_date<=?2)")?;
+    let gross_profit = net_sales.checked_sub(cost_of_goods_sold).ok_or("محاسبه سود ناخالص از ظرفیت عددی خارج شد")?;
+    let net_profit = gross_profit.checked_sub(expenses).ok_or("محاسبه سود خالص از ظرفیت عددی خارج شد")?;
+    let expense_rows = list_expenses(connection, from, to)?;
+    Ok(ProfitLossReport { sales, discounts, net_sales, cost_of_goods_sold, gross_profit, expenses, net_profit, uncosted_sales, expense_rows })
 }
 
 #[cfg(test)]
