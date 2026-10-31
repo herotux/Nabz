@@ -522,7 +522,7 @@ mod tests {
         let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
         let stock:i64=connection.query_row("SELECT quantity FROM products WHERE code='OLD-1'",[],|r|r.get(0)).unwrap();
         let tables:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('purchase_returns','purchase_return_items','purchase_refunds')",[],|r|r.get(0)).unwrap();
-        assert_eq!(version,3);
+        assert_eq!(version,SCHEMA_VERSION);
         assert_eq!(stock,7);
         assert_eq!(tables,3);
         let audit_table:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='inventory_adjustments'",[],|r|r.get(0)).unwrap();
@@ -540,7 +540,30 @@ mod tests {
         let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
         let count:i64=connection.query_row("SELECT COUNT(*) FROM inventory_adjustments",[],|r|r.get(0)).unwrap();
         let stock:i64=connection.query_row("SELECT quantity FROM products WHERE code='STOCK-2'",[],|r|r.get(0)).unwrap();
-        assert_eq!((version,count,stock),(3,0,4));
+        assert_eq!((version,count,stock),(SCHEMA_VERSION,0,4));
+    }
+
+    #[test]
+    fn version_three_database_gets_immutable_audit_triggers() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute_batch(
+            "DROP TRIGGER inventory_adjustments_no_update;
+             DROP TRIGGER inventory_adjustments_no_delete;"
+        ).unwrap();
+        connection.pragma_update(None, "user_version", 3).unwrap();
+        initialize(&connection).unwrap();
+
+        let trigger_count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger'
+             AND name IN ('inventory_adjustments_no_update','inventory_adjustments_no_delete')",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(trigger_count, 2);
+        assert_eq!(
+            connection.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0)).unwrap(),
+            SCHEMA_VERSION
+        );
     }
 
     #[test]
