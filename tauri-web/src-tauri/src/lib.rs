@@ -355,7 +355,7 @@ mod accounting_tests {
   let c=Connection::open_in_memory().expect("in-memory SQLite");
   init(&c).expect("schema");
   c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Ali','customer',0)",[]).unwrap();
-  c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Pen','PEN',10,20,10,2)",[]).unwrap();
+  c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Pen','PEN',10,20,10,2,10)",[]).unwrap();
   c
  }
  fn sale(customer:&str,status:&str,paid:i64,qty:i64,price:i64,discount:i64)->Value {
