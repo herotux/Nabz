@@ -1,15 +1,5 @@
 name: Build Nabz Slint Native Windows
 on:
-  push:
-    branches: [feature/slint-native-ui]
-    paths:
-      - "slint-native/**"
-      - ".github/workflows/build-windows.yml"
-  pull_request:
-    branches: [feature/slint-native-ui]
-    paths:
-      - "slint-native/**"
-      - ".github/workflows/build-windows.yml"
   workflow_dispatch:
 
 permissions:

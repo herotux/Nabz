@@ -1,17 +1,6 @@
 name: Slint native UI CI
 
 on:
-  push:
-    branches: [feature/slint-native-ui]
-    paths:
-      - "slint-native/**"
-      - "crates/nabz-core/**"
-      - ".github/workflows/slint-native-ci.yml"
-  pull_request:
-    paths:
-      - "slint-native/**"
-      - "crates/nabz-core/**"
-      - ".github/workflows/slint-native-ci.yml"
   workflow_dispatch:
 
 permissions:

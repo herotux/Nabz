@@ -1,11 +1,7 @@
 name: Build Nabz Tauri Web
 on:
   workflow_dispatch:
-  push:
-    branches: [tauri-web-prototype]
-    paths:
-      - 'tauri-web/**'
-      - '.github/workflows/build-tauri-web.yml'
+
 jobs:
   build-linux:
     runs-on: ubuntu-22.04
