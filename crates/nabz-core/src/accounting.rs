@@ -1242,7 +1242,7 @@ mod tests {
     fn sale_cost_is_snapshotted_and_expenses_reduce_net_profit() {
         let mut c = database();
         c.execute("INSERT INTO contacts(name,kind) VALUES('Ali','customer')", []).unwrap();
-        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES('Pen','PEN',10,20,10)", []).unwrap();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,average_cost) VALUES('Pen','PEN',10,20,10,10)", []).unwrap();
         let id = create_invoice(&mut c, &InvoiceInput {
             kind: "sale".into(), contact_name: "Ali".into(), date: "2026-10-31".into(),
             discount: 0, paid: 0, method: "cash".into(), notes: String::new(),
