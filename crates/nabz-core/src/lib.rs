@@ -95,7 +95,8 @@ impl DataPaths {
     pub fn from_database_path(database: impl Into<PathBuf>) -> Result<Self, String> {
         let database = database.into();
         let root = database.parent()
-            .ok_or_else(|| "مسیر پایگاه داده معتبر نیست".to_string())?
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
         Ok(Self {
             backups: root.join("backups"),
@@ -662,16 +663,28 @@ mod tests {
     }
 
     #[test]
-    fn preferred_frontend_is_persisted_in_the_shared_database() {
-        let connection = Connection::open_in_memory().unwrap();
-        initialize(&connection).unwrap();
-        assert_eq!(preferred_frontend(&connection).unwrap(), None);
+    fn preferred_frontend_is_persisted_across_database_reopen() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "nabz-preferred-ui-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let db_path = root.join(DATABASE_FILE);
 
-        set_preferred_frontend(&connection, Frontend::Slint).unwrap();
-        assert_eq!(preferred_frontend(&connection).unwrap(), Some(Frontend::Slint));
-
-        set_preferred_frontend(&connection, Frontend::Tauri).unwrap();
-        assert_eq!(preferred_frontend(&connection).unwrap(), Some(Frontend::Tauri));
+        {
+            let connection = open_database_at(&db_path).unwrap();
+            assert_eq!(preferred_frontend(&connection).unwrap(), None);
+            set_preferred_frontend(&connection, Frontend::Slint).unwrap();
+        }
+        {
+            let reopened = open_database_at(&db_path).unwrap();
+            assert_eq!(preferred_frontend(&reopened).unwrap(), Some(Frontend::Slint));
+            set_preferred_frontend(&reopened, Frontend::Tauri).unwrap();
+        }
+        let reopened = open_database_at(&db_path).unwrap();
+        assert_eq!(preferred_frontend(&reopened).unwrap(), Some(Frontend::Tauri));
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
