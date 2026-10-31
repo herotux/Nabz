@@ -11,6 +11,36 @@ struct Summary { sales_today:i64, receipts_today:i64, customer_balance:i64, inve
 struct Record { id:i64, name:String, detail:String, amount:i64, status:String, date:String }
 #[derive(Serialize)]
 struct ProductRecord { id:i64, name:String, code:String, quantity:i64, buy_price:i64, sell_price:i64, min_quantity:i64 }
+#[tauri::command]
+fn inventory_report(db:State<'_,Db>)->Result<Value,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let products=nabz_core::accounting::inventory_valuation(&c)?;
+ let movements=nabz_core::accounting::inventory_movements(&c)?;
+ let total_units=products.iter().try_fold(0_i64,|sum,p|sum.checked_add(p.quantity))
+  .ok_or("جمع تعداد موجودی بیش از ظرفیت عددی است")?;
+ let inventory_value=products.iter().try_fold(0_i64,|sum,p|sum.checked_add(p.stock_value))
+  .ok_or("ارزش کل انبار بیش از ظرفیت عددی است")?;
+ let low_stock_count=products.iter().filter(|p|p.quantity<=p.min_quantity).count();
+ let zero_stock_count=products.iter().filter(|p|p.quantity==0).count();
+ Ok(json!({
+  "summary":{
+   "total_products":products.len(),"total_units":total_units,
+   "inventory_value":inventory_value,"low_stock_count":low_stock_count,
+   "zero_stock_count":zero_stock_count
+  },
+  "products":products.iter().map(|p|json!({
+   "product_id":p.product_id,"product_name":p.product_name,"code":p.code,
+   "quantity":p.quantity,"buy_price":p.buy_price,"stock_value":p.stock_value,
+   "min_quantity":p.min_quantity
+  })).collect::<Vec<_>>(),
+  "movements":movements.iter().take(500).map(|m|json!({
+   "product_id":m.product_id,"product_name":m.product_name,
+   "movement_date":m.movement_date,"movement_type":m.movement_type,
+   "reference":m.reference,"quantity_delta":m.quantity_delta,
+   "balance_after":m.balance_after
+  })).collect::<Vec<_>>()
+ }))
+}
 
 fn text(v:&Value,k:&str)->String { v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned() }
 fn num(v:&Value,k:&str)->i64 { v.get(k).and_then(|x|x.as_i64().or_else(||x.as_str().and_then(|s|s.replace(',',"").replace('٬',"").parse().ok()))).unwrap_or(0) }
@@ -280,7 +310,7 @@ fn switch_to_slint(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,list_inventory_adjustments,adjust_inventory,delete_record,save_contact,save_product,save_invoice,save_payment,return_sale_items,return_purchase_items,save_setting,get_settings,sales_trend,switch_to_slint,create_database_backup,restore_latest_database_backup]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,list_inventory_adjustments,inventory_report,adjust_inventory,delete_record,save_contact,save_product,save_invoice,save_payment,return_sale_items,return_purchase_items,save_setting,get_settings,sales_trend,switch_to_slint,create_database_backup,restore_latest_database_backup]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
