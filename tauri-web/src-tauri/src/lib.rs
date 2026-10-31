@@ -42,6 +42,30 @@ fn inventory_report(db:State<'_,Db>)->Result<Value,String>{
  }))
 }
 
+
+#[tauri::command]
+fn save_expense(payload: Value, db: State<'_,Db>) -> Result<i64,String> {
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ nabz_core::accounting::create_expense(&c,&nabz_core::accounting::ExpenseInput{
+  category:text(&payload,"category"),description:text(&payload,"description"),
+  amount:num(&payload,"amount"),date:text(&payload,"date")
+ })
+}
+#[tauri::command]
+fn profit_loss_report(from:String,to:String,db:State<'_,Db>)->Result<Value,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let report=nabz_core::accounting::profit_loss_report(&c,&from,&to)?;
+ Ok(json!({
+  "sales":report.sales,"discounts":report.discounts,"net_sales":report.net_sales,
+  "cost_of_goods_sold":report.cost_of_goods_sold,"gross_profit":report.gross_profit,
+  "expenses":report.expenses,"net_profit":report.net_profit,
+  "uncosted_sales":report.uncosted_sales,
+  "expense_rows":report.expense_rows.iter().map(|e|json!({
+   "id":e.id,"category":e.category,"description":e.description,"amount":e.amount,"date":e.date
+  })).collect::<Vec<_>>()
+ }))
+}
+
 fn text(v:&Value,k:&str)->String { v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned() }
 fn num(v:&Value,k:&str)->i64 { v.get(k).and_then(|x|x.as_i64().or_else(||x.as_str().and_then(|s|s.replace(',',"").replace('٬',"").parse().ok()))).unwrap_or(0) }
 fn normalize_contact_kind(raw:&str)->Option<&'static str>{ nabz_core::normalize_contact_kind(raw) }
@@ -310,7 +334,7 @@ fn switch_to_slint(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,list_inventory_adjustments,inventory_report,adjust_inventory,delete_record,save_contact,save_product,save_invoice,save_payment,return_sale_items,return_purchase_items,save_setting,get_settings,sales_trend,switch_to_slint,create_database_backup,restore_latest_database_backup]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,list_inventory_adjustments,inventory_report,profit_loss_report,save_expense,adjust_inventory,delete_record,save_contact,save_product,save_invoice,save_payment,return_sale_items,return_purchase_items,save_setting,get_settings,sales_trend,switch_to_slint,create_database_backup,restore_latest_database_backup]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
