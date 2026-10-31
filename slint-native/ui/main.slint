@@ -64,6 +64,8 @@ export component MainWindow inherits Window {
     in-out property <string> adjustment-new-quantity: "0";
     in-out property <string> adjustment-reason: "انبارگردانی";
     in-out property <string> inventory-adjustment-history: "هنوز سابقه‌ای ثبت نشده است.";
+    in-out property <string> inventory-report-summary: "گزارش انبار آماده نیست.";
+    in-out property <string> inventory-report-movements: "هنوز گردش انباری ثبت نشده است.";
 
     in-out property <string> invoice-kind: "sale";
     in-out property <string> invoice-search: "";
@@ -324,6 +326,11 @@ export component MainWindow inherits Window {
                             Text { text: "ماندهٔ مشتریان: " + root.customer-balance; color: #c47a16; font-size: 16px; horizontal-alignment: right; }
                             Text { text: "ارزش موجودی: " + root.inventory-value; color: #6941c6; font-size: 16px; horizontal-alignment: right; }
                             Text { text: "تعداد طرف‌حساب‌ها: " + root.contacts-count + " | تعداد کالاها: " + root.products-count + " | تعداد فاکتورها: " + root.invoices-count; color: #475467; font-size: 15px; horizontal-alignment: right; }
+                            Rectangle { height: 1px; background: #e4e7ec; }
+                            Text { text: "ارزش‌گذاری موجودی"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: root.inventory-report-summary; color: #475467; font-size: 13px; horizontal-alignment: right; wrap: word-wrap; }
+                            Text { text: "آخرین گردش‌های انبار"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: root.inventory-report-movements; color: #475467; font-size: 12px; horizontal-alignment: right; wrap: word-wrap; }
                         }
                     }
 
