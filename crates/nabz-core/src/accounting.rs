@@ -149,7 +149,7 @@ pub fn update_product(connection: &Connection, id: i64, input: &ProductInput) ->
         return Err("قیمت‌ها و حداقل موجودی نمی‌توانند منفی باشند".into());
     }
     let changed = connection.execute(
-        "UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,min_quantity=?6 WHERE id=?7",
+        "UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,min_quantity=?6,average_cost=CASE WHEN quantity=0 THEN ?4 ELSE average_cost END WHERE id=?7",
         params![input.name.trim(), input.code.trim(), input.barcode.trim(), input.buy_price, input.sell_price, input.min_quantity, id],
     ).map_err(|e| if e.to_string().contains("UNIQUE") {
         "کد کالا تکراری است".to_string()
@@ -621,7 +621,7 @@ pub fn adjust_inventory(
     ).optional().map_err(|e| e.to_string())?.ok_or("کالای انتخاب‌شده پیدا نشد")?;
     let delta = new_quantity.checked_sub(previous).ok_or("اختلاف موجودی بیش از حد بزرگ است")?;
     if delta == 0 { return Err("موجودی جدید با موجودی فعلی برابر است؛ تغییری برای ثبت وجود ندارد".into()); }
-    let changed = tx.execute("UPDATE products SET quantity=?1,average_cost=CASE WHEN ?1=0 THEN 0 ELSE average_cost END WHERE id=?2 AND quantity=?3",
+    let changed = tx.execute("UPDATE products SET quantity=?1,average_cost=CASE WHEN ?1=0 THEN 0 WHEN quantity=0 THEN buy_price ELSE average_cost END WHERE id=?2 AND quantity=?3",
         params![new_quantity,product_id,previous]).map_err(|e|e.to_string())?;
     if changed != 1 {
         return Err("موجودی کالا هم‌زمان تغییر کرده است؛ فهرست را تازه‌سازی و دوباره تلاش کنید".into());
@@ -1352,6 +1352,18 @@ mod tests {
             "SELECT buy_price,average_cost FROM products WHERE id=?1",[pid],|r|Ok((r.get(0)?,r.get(1)?))
         ).unwrap();
         assert_eq!((latest_price,average),(30,15));
+    }
+
+    #[test]
+    fn stock_adjustment_from_zero_uses_latest_purchase_price_as_opening_cost() {
+        let mut c=database();
+        let input=ProductInput{name:"کالای تازه".into(),code:"OPEN-COST".into(),barcode:String::new(),buy_price:10,sell_price:30,quantity:0,min_quantity:0};
+        let pid=create_product(&c,&input).unwrap();
+        let edited=ProductInput{buy_price:20,..input};
+        update_product(&c,pid,&edited).unwrap();
+        adjust_inventory(&mut c,pid,5,"ثبت موجودی افتتاحیه").unwrap();
+        let average:i64=c.query_row("SELECT average_cost FROM products WHERE id=?1",[pid],|r|r.get(0)).unwrap();
+        assert_eq!(average,20);
     }
 
 }
