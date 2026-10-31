@@ -66,6 +66,7 @@ export component MainWindow inherits Window {
     in-out property <string> inventory-adjustment-history: "هنوز سابقه‌ای ثبت نشده است.";
     in-out property <string> inventory-report-summary: "گزارش انبار آماده نیست.";
     in-out property <string> inventory-report-movements: "هنوز گردش انباری ثبت نشده است.";
+    in-out property <string> profit-loss-summary: "گزارش سود و زیان آماده نیست.";
 
     in-out property <string> invoice-kind: "sale";
     in-out property <string> invoice-search: "";
@@ -331,6 +332,9 @@ export component MainWindow inherits Window {
                             Text { text: root.inventory-report-summary; color: #475467; font-size: 13px; horizontal-alignment: right; wrap: word-wrap; }
                             Text { text: "آخرین گردش‌های انبار"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                             Text { text: root.inventory-report-movements; color: #475467; font-size: 12px; horizontal-alignment: right; wrap: word-wrap; }
+                            Rectangle { height: 1px; background: #e4e7ec; }
+                            Text { text: "سود و زیان"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: root.profit-loss-summary; color: #475467; font-size: 13px; horizontal-alignment: right; wrap: word-wrap; }
                         }
                     }
 
