@@ -33,5 +33,8 @@ jobs:
       - name: Run cross-frontend shared-ledger lifecycle test
         run: cargo test --manifest-path crates/nabz-core/Cargo.toml --test frontend_lifecycle
 
+      - name: Test Debian package data-safety guard against safe and unsafe fixtures
+        run: bash scripts/test-deb-data-safety-guard.sh
+
       - name: Simulate Debian install, remove, and reinstall
         run: bash scripts/test-deb-frontend-lifecycle.sh
