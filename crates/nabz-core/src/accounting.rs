@@ -234,12 +234,12 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
     let invoice_id = tx.last_insert_rowid();
 
     for (lookup, quantity, unit_price, line_total) in normalized {
-        let product: Option<(i64, i64, String, i64, i64)> = tx.query_row(
-            "SELECT id,quantity,name,buy_price,average_cost FROM products
+        let product: Option<(i64, i64, String, i64)> = tx.query_row(
+            "SELECT id,quantity,name,average_cost FROM products
              WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
-            [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         ).optional().map_err(|e| e.to_string())?;
-        let (product_id, item_name, unit_cost) = if let Some((id, stock, name, buy_price, average_cost)) = product {
+        let (product_id, item_name, unit_cost) = if let Some((id, stock, name, average_cost)) = product {
             if input.kind == "sale" {
                 if stock < quantity {
                     return Err(format!("موجودی «{lookup}» کافی نیست؛ موجودی فعلی: {stock}"));
@@ -629,8 +629,8 @@ pub struct InventoryMovement {
     pub balance_after: i64,
 }
 
-/// Current stock valuation for every product. Values use the recorded purchase
-/// price and checked arithmetic so a corrupt/overflowing row is never hidden.
+/// Current stock valuation for every product. Stock value uses the perpetual
+/// moving weighted-average cost, with checked arithmetic to expose overflow.
 pub fn inventory_valuation(connection: &Connection) -> Result<Vec<InventoryValuation>, String> {
     let mut statement = connection.prepare(
         "SELECT id,name,code,quantity,buy_price,average_cost,min_quantity
@@ -1232,7 +1232,7 @@ mod tests {
     fn inventory_valuation_detects_integer_overflow() {
         let connection = database();
         connection.execute(
-            "INSERT INTO products(name,code,quantity,buy_price) VALUES('کالای بزرگ','BIG-1',9223372036854775807,2)",
+            "INSERT INTO products(name,code,quantity,buy_price,average_cost) VALUES('کالای بزرگ','BIG-1',9223372036854775807,2,2)",
             []
         ).unwrap();
         assert!(inventory_valuation(&connection).unwrap_err().contains("ظرفیت عددی"));
