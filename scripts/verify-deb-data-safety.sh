@@ -21,8 +21,8 @@ mkdir -p "$tmp/control"
 dpkg-deb --control "$package" "$tmp/control"
 
 # A frontend package must never contain a user's live database or its data tree.
-if find "$tmp/root" -type f \( -name 'nabz.sqlite3' -o -name 'nabz.sqlite3-*' -o -name '*.sqlite3-wal' -o -name '*.sqlite3-shm' \) -print -quit | grep -q .; then
-  echo "Unsafe package: contains a Nabz SQLite database or sidecar file" >&2
+if find "$tmp/root" -type f \( -name '*.sqlite' -o -name '*.sqlite3' -o -name '*.sqlite3-*' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \) -print -quit | grep -q .; then
+  echo "Unsafe package: contains SQLite database data or sidecar files" >&2
   exit 1
 fi
 if find "$tmp/root" -type d -name 'com.herotux.nabz.webprototype' -print -quit | grep -q .; then
