@@ -70,6 +70,26 @@ These controls restore the latest automatically generated snapshot. A user-facin
 file picker for importing an arbitrary backup from another computer is a separate
 feature and is not claimed here.
 
+## Inventory costing and profit history
+
+Schema version 6 adds `products.average_cost` as a separate field from the latest purchase price (`buy_price`).
+New purchase invoices update the perpetual moving weighted-average cost using
+checked integer arithmetic. Sales snapshot that average into
+`invoice_items.unit_cost`, so later purchases and product edits do not rewrite
+the cost or profit of an older sale. Sale returns and sale-invoice voids reintroduce
+stock at the original saved unit cost; purchase returns and purchase-invoice voids
+remove quantity at the current moving-average basis. Manual quantity adjustments
+preserve the average cost, and an empty stock balance resets it to zero.
+
+A v5 database has no complete opening-stock cost layers. Migration v6 therefore
+seeds the opening `average_cost` from the product's currently recorded
+`buy_price` for products with stock. This is an explicit opening estimate,
+not a reconstruction of unavailable historical purchase layers. Existing
+`invoice_items.unit_cost` values are never rewritten. Tauri's JSON backup
+includes `average_cost` and restores it; older JSON backups without that field
+fall back to their recorded purchase price. Full SQLite backups preserve the column
+automatically.
+
 ## Independent distribution
 
 - Tauri CI builds its AppImage and Debian packages.
@@ -82,13 +102,13 @@ feature and is not claimed here.
 ## Remaining architectural work
 
 The database, schema versioning, launch handoff, and backup/restore are shared.
-`crates/nabz-core/src/accounting.rs` now owns common create/update rules for
-contacts and products, transactional receipt/payment allocation (opening balance
-first, then oldest non-voided invoices), and transactional sale/purchase invoice
-creation with inventory updates and immediate sale receipts. Both Tauri and Slint
-call these same operations. Returns/voiding, archive/delete policy, reports,
-dashboard queries, and remaining business workflows are still partly implemented
-in the UI crates and must be migrated before the full business layer can be called shared.
+`crates/nabz-core/src/accounting.rs` owns common contact/product operations,
+transactional invoice creation, receipt/payment allocation, sale/purchase returns,
+invoice voiding, inventory adjustments and movements, expense recording, profit/loss,
+and inventory valuation. Both Tauri and Slint call the same accounting services.
+Some dashboard summaries, presentation logic, and archive/delete policies remain
+in the UI crates; the shared core is not yet a claim that every UI workflow has
+been fully migrated.
 
 CI is the compile/package verification gate. A successful GitHub commit or a queued
 workflow is not proof of a successful build. Manjaro installation and real-database
