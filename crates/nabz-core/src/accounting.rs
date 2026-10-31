@@ -103,6 +103,31 @@ fn weighted_average_cost(existing_quantity:i64,existing_unit_cost:i64,incoming_q
     total_value.checked_add(total_quantity/2).ok_or("گرد کردن بهای میانگین موزون بیش از ظرفیت عددی است").map(|v|v/total_quantity)
 }
 
+/// Allocate an invoice-level purchase discount proportionally, assigning
+/// fractional remainder units to the lines with the largest remainders.
+fn allocate_purchase_discount(line_totals:&[i64],discount:i64,subtotal:i64)->Result<Vec<i64>,String>{
+    if discount<0||subtotal<0||discount>subtotal{return Err("تخفیف خرید معتبر نیست".into());}
+    if line_totals.is_empty(){return Ok(Vec::new());}
+    if discount==0||subtotal==0{return Ok(vec![0;line_totals.len()]);}
+    let mut allocations=vec![0_i64;line_totals.len()];
+    let mut remainders=Vec::with_capacity(line_totals.len());
+    let mut allocated=0_i64;
+    for (index,line_total) in line_totals.iter().enumerate(){
+        if *line_total<0{return Err("مبلغ ردیف خرید نامعتبر است".into());}
+        let weighted=discount.checked_mul(*line_total).ok_or("تخصیص تخفیف خرید بیش از ظرفیت عددی است")?;
+        let base=weighted/subtotal;
+        allocations[index]=base;
+        allocated=allocated.checked_add(base).ok_or("جمع تخفیف‌های تخصیص‌یافته بیش از ظرفیت عددی است")?;
+        remainders.push((index,weighted%subtotal));
+    }
+    let remaining=discount.checked_sub(allocated).ok_or("تخصیص تخفیف خرید نامعتبر است")?;
+    remainders.sort_by(|a,b|b.1.cmp(&a.1).then_with(||a.0.cmp(&b.0)));
+    for (index,_) in remainders.into_iter().take(remaining as usize){
+        allocations[index]=allocations[index].checked_add(1).ok_or("تخفیف ردیف بیش از ظرفیت عددی است")?;
+    }
+    Ok(allocations)
+}
+
 pub fn create_product(connection: &Connection, input: &ProductInput) -> Result<i64, String> {
     validate_product(input)?;
     connection.execute(
@@ -186,6 +211,10 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
         return Err("تخفیف از جمع فاکتور بیشتر است".into());
     }
     let total = subtotal.checked_sub(input.discount).ok_or("مبلغ نهایی نامعتبر است")?;
+    let purchase_discounts = if input.kind=="purchase" {
+        let line_totals=normalized.iter().map(|line|line.3).collect::<Vec<_>>();
+        allocate_purchase_discount(&line_totals,input.discount,subtotal)?
+    } else { vec![0;normalized.len()] };
     let paid = if input.kind == "sale" { input.paid } else { 0 };
     if paid > total {
         return Err("مبلغ دریافتی از مبلغ نهایی بیشتر است".into());
@@ -233,7 +262,12 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
     ).map_err(|e| e.to_string())?;
     let invoice_id = tx.last_insert_rowid();
 
-    for (lookup, quantity, unit_price, line_total) in normalized {
+    for (line_index,(lookup, quantity, unit_price, line_total)) in normalized.into_iter().enumerate() {
+        let line_discount=purchase_discounts[line_index];
+        let net_line_cost=line_total.checked_sub(line_discount).ok_or("بهای خالص ردیف خرید نامعتبر است")?;
+        let inventory_unit_cost=if input.kind=="purchase" {
+            net_line_cost.checked_add(quantity/2).ok_or("گرد کردن بهای خرید بیش از ظرفیت عددی است")?/quantity
+        } else { unit_price };
         let product: Option<(i64, i64, String, i64)> = tx.query_row(
             "SELECT id,quantity,name,average_cost FROM products
              WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
@@ -253,7 +287,7 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
                 }
             } else {
                 let next_quantity=stock.checked_add(quantity).ok_or_else(||format!("موجودی «{lookup}» بیش از ظرفیت عددی است"))?;
-                let next_average=weighted_average_cost(stock,average_cost,quantity,unit_price)?;
+                let next_average=weighted_average_cost(stock,average_cost,quantity,inventory_unit_cost)?;
                 tx.execute("UPDATE products SET quantity=?1,buy_price=?2,average_cost=?3 WHERE id=?4",
                     params![next_quantity,unit_price,next_average,id]).map_err(|e|e.to_string())?;
             }
@@ -263,8 +297,8 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
                 "SELECT COALESCE(MAX(id),0)+1 FROM products", [], |row| row.get::<_, i64>(0)
             ).map_err(|e| e.to_string())?);
             tx.execute(
-                "INSERT INTO products(name,code,buy_price,sell_price,quantity,average_cost) VALUES(?1,?2,?3,?3,?4,?3)",
-                params![lookup, code, unit_price, quantity],
+                "INSERT INTO products(name,code,buy_price,sell_price,quantity,average_cost) VALUES(?1,?2,?3,?3,?4,?5)",
+                params![lookup, code, unit_price, quantity, inventory_unit_cost],
             ).map_err(|e| e.to_string())?;
             (tx.last_insert_rowid(), lookup, None)
         } else {
