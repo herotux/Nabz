@@ -592,6 +592,120 @@ pub fn adjust_inventory(
     Ok(InventoryAdjustment{product_id,previous_quantity:previous,new_quantity,delta,reason:reason.into(),created_at})
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InventoryValuation {
+    pub product_id: i64,
+    pub product_name: String,
+    pub code: String,
+    pub quantity: i64,
+    pub buy_price: i64,
+    pub stock_value: i64,
+    pub min_quantity: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InventoryMovement {
+    pub product_id: i64,
+    pub product_name: String,
+    pub movement_date: String,
+    pub movement_type: String,
+    pub reference: String,
+    pub quantity_delta: i64,
+    pub balance_after: i64,
+}
+
+/// Current stock valuation for every product. Values use the recorded purchase
+/// price and checked arithmetic so a corrupt/overflowing row is never hidden.
+pub fn inventory_valuation(connection: &Connection) -> Result<Vec<InventoryValuation>, String> {
+    let mut statement = connection.prepare(
+        "SELECT id,name,code,quantity,buy_price,min_quantity
+         FROM products ORDER BY name COLLATE NOCASE,id"
+    ).map_err(|e| e.to_string())?;
+    let rows = statement.query_map([], |row| {
+        let quantity: i64 = row.get(3)?;
+        let buy_price: i64 = row.get(4)?;
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?, quantity, buy_price, row.get::<_, i64>(5)?))
+    }).map_err(|e| e.to_string())?;
+    let products = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    products.into_iter().map(|(product_id, product_name, code, quantity, buy_price, min_quantity)| {
+        let stock_value = quantity.checked_mul(buy_price)
+            .ok_or_else(|| format!("ارزش موجودی کالای «{product_name}» بیش از ظرفیت عددی است"))?;
+        Ok(InventoryValuation { product_id, product_name, code, quantity, buy_price, stock_value, min_quantity })
+    }).collect()
+}
+
+/// Build a chronological stock ledger from purchases, sales, both return types,
+/// and manual inventory adjustments. Opening stock is derived from the current
+/// quantity minus the complete movement sum, so legacy opening balances remain valid.
+pub fn inventory_movements(connection: &Connection) -> Result<Vec<InventoryMovement>, String> {
+    use std::collections::HashMap;
+    let mut current = HashMap::<i64, i64>::new();
+    {
+        let mut statement = connection.prepare("SELECT id,quantity FROM products")
+            .map_err(|e| e.to_string())?;
+        let rows = statement.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            let (id, quantity) = row.map_err(|e| e.to_string())?;
+            current.insert(id, quantity);
+        }
+    }
+
+    let sql = "
+      SELECT movement_date,product_id,product_name,movement_type,reference,quantity_delta,sort_id
+      FROM (
+        SELECT i.invoice_date AS movement_date,ii.product_id AS product_id,ii.item_name AS product_name,
+          CASE i.kind WHEN 'purchase' THEN 'خرید' ELSE 'فروش' END AS movement_type,
+          'فاکتور #'||i.number AS reference,
+          CASE i.kind WHEN 'purchase' THEN ii.quantity ELSE -ii.quantity END AS quantity_delta,
+          i.id AS sort_id
+        FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
+        WHERE i.voided=0 AND ii.product_id IS NOT NULL
+        UNION ALL
+        SELECT sr.return_date,sri.product_id,sri.item_name,'برگشت فروش',
+          'برگشت فاکتور #'||sr.invoice_id,sri.quantity,sr.id
+        FROM sales_return_items sri JOIN sales_returns sr ON sr.id=sri.return_id
+        UNION ALL
+        SELECT pr.return_date,pri.product_id,pri.item_name,'مرجوعی خرید',
+          'مرجوعی فاکتور #'||pr.invoice_id,-pri.quantity,pr.id
+        FROM purchase_return_items pri JOIN purchase_returns pr ON pr.id=pri.return_id
+        UNION ALL
+        SELECT created_at,product_id,product_name,'اصلاح موجودی',reason,delta,id
+        FROM inventory_adjustments
+      )
+      ORDER BY movement_date,sort_id,product_id";
+    let mut statement = connection.prepare(sql).map_err(|e| e.to_string())?;
+    let rows = statement.query_map([], |row| Ok((
+        row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?,
+        row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?
+    ))).map_err(|e| e.to_string())?;
+    let raw = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+
+    let mut movement_totals = HashMap::<i64, i64>::new();
+    for (_, product_id, _, _, _, delta) in &raw {
+        let total = movement_totals.entry(*product_id).or_default();
+        *total = total.checked_add(*delta).ok_or("جمع گردش موجودی بیش از ظرفیت عددی است")?;
+    }
+    let mut balances = HashMap::<i64, i64>::new();
+    for (id, quantity) in &current {
+        let moved = movement_totals.get(id).copied().unwrap_or(0);
+        balances.insert(*id, quantity.checked_sub(moved).ok_or("محاسبه موجودی اول دوره نامعتبر است")?);
+    }
+
+    let mut result = Vec::with_capacity(raw.len());
+    for (movement_date, product_id, product_name, movement_type, reference, quantity_delta) in raw {
+        let balance = balances.entry(product_id).or_default();
+        *balance = balance.checked_add(quantity_delta).ok_or("محاسبه مانده گردش موجودی بیش از ظرفیت عددی است")?;
+        result.push(InventoryMovement {
+            product_id, product_name, movement_date, movement_type, reference,
+            quantity_delta, balance_after: *balance,
+        });
+    }
+    result.reverse();
+    Ok(result)
+}
+
 pub struct PaymentInput {
     pub kind: String,
     pub contact_name: String,
