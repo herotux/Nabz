@@ -67,6 +67,9 @@ export component MainWindow inherits Window {
     in-out property <string> inventory-report-summary: "گزارش انبار آماده نیست.";
     in-out property <string> inventory-report-movements: "هنوز گردش انباری ثبت نشده است.";
     in-out property <string> profit-loss-summary: "گزارش سود و زیان آماده نیست.";
+    in-out property <string> expense-category: "سایر";
+    in-out property <string> expense-description: "";
+    in-out property <string> expense-amount: "";
 
     in-out property <string> invoice-kind: "sale";
     in-out property <string> invoice-search: "";
@@ -106,6 +109,7 @@ export component MainWindow inherits Window {
     callback invoice-void-requested(int);
     callback invoice-return-requested(int, string, string);
     callback save-payment-requested();
+    callback save-expense-requested();
     callback save-settings-requested();
     callback switch-ui-requested();
     callback create-backup-requested();
@@ -335,6 +339,11 @@ export component MainWindow inherits Window {
                             Rectangle { height: 1px; background: #e4e7ec; }
                             Text { text: "سود و زیان"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                             Text { text: root.profit-loss-summary; color: #475467; font-size: 13px; horizontal-alignment: right; wrap: word-wrap; }
+                            Text { text: "ثبت هزینهٔ جاری"; color: #101828; font-size: 15px; font-weight: 600; horizontal-alignment: right; }
+                            LineEdit { text <=> root.expense-category; placeholder-text: "دسته‌بندی هزینه"; }
+                            LineEdit { text <=> root.expense-description; placeholder-text: "شرح هزینه"; }
+                            LineEdit { text <=> root.expense-amount; placeholder-text: "مبلغ به تومان"; }
+                            Button { text: "ثبت هزینه"; clicked => { root.save-expense-requested(); } }
                         }
                     }
 
