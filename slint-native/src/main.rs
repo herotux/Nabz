@@ -448,6 +448,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         let weak = ui.as_weak(); let db = db.clone();
+        ui.on_save_expense_requested(move || if let Some(ui) = weak.upgrade() {
+            let result = nabz_core::accounting::create_expense(&db.borrow(), &nabz_core::accounting::ExpenseInput {
+                category: ui.get_expense_category().to_string(),
+                description: ui.get_expense_description().to_string(),
+                amount: parse_amount(&ui.get_expense_amount()).unwrap_or(0),
+                date: String::new(),
+            });
+            match result {
+                Ok(_) => { ui.set_expense_description("".into()); ui.set_expense_amount("".into()); set_status(&ui, "هزینه ثبت شد"); }
+                Err(error) => set_status(&ui, format!("ثبت هزینه ناموفق بود: {error}")),
+            }
+            if let Err(error) = refresh_ui(&ui, &db.borrow()) { set_status(&ui, format!("تازه‌سازی ناموفق بود: {error}")); }
+        });
+    }
+
+    {
+        let weak = ui.as_weak(); let db = db.clone();
         ui.on_save_payment_requested(move || if let Some(ui) = weak.upgrade() {
             let result = save_payment(&mut db.borrow_mut(), &ui.get_payment_kind(), &ui.get_payment_contact(), &ui.get_payment_amount(), &ui.get_payment_method(), &ui.get_payment_notes());
             match result {
