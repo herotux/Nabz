@@ -1225,6 +1225,8 @@ mod tests {
     #[test]
     fn sale_cost_is_snapshotted_and_expenses_reduce_net_profit() {
         let mut c = database();
+        c.execute("INSERT INTO contacts(name,kind) VALUES('Ali','customer')", []).unwrap();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES('Pen','PEN',10,20,10)", []).unwrap();
         let id = create_invoice(&mut c, &InvoiceInput {
             kind: "sale".into(), contact_name: "Ali".into(), date: "2026-10-31".into(),
             discount: 0, paid: 0, method: "cash".into(), notes: String::new(),
@@ -1246,6 +1248,8 @@ mod tests {
     #[test]
     fn legacy_sale_without_cost_is_reported_as_uncosted_not_guessed() {
         let c = database();
+        c.execute("INSERT INTO contacts(name,kind) VALUES('Ali','customer')", []).unwrap();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES('Pen','PEN',10,20,10)", []).unwrap();
         c.execute("INSERT INTO invoices(number,kind,contact_name,invoice_date,subtotal,total) VALUES(1001,'sale','Ali','2026-10-31',100,100)", []).unwrap();
         c.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(1,1,'Pen',2,50,100)", []).unwrap();
         let report = profit_loss_report(&c, "2026-10-31", "2026-10-31").unwrap();
