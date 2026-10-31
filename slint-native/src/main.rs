@@ -548,9 +548,6 @@ mod tests {
             "PRAGMA foreign_keys=ON;
              CREATE TABLE contacts(id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')));
              CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0,average_cost INTEGER NOT NULL DEFAULT 0);
-             CREATE TRIGGER products_initialize_average_cost AFTER INSERT ON products
-             WHEN NEW.quantity>0 AND NEW.average_cost=0 AND NEW.buy_price>0
-             BEGIN UPDATE products SET average_cost=NEW.buy_price WHERE id=NEW.id; END;
              CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1)));
              CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL,unit_cost INTEGER);
              CREATE TABLE sales_returns(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),return_date TEXT NOT NULL DEFAULT(date('now','localtime')),amount INTEGER NOT NULL CHECK(amount>0),notes TEXT NOT NULL DEFAULT '');
@@ -559,7 +556,7 @@ mod tests {
              CREATE TABLE payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
              CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
              INSERT INTO contacts(name,kind) VALUES('Ali','customer');
-             INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Pen','PEN',10,20,10,2);"
+             INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Pen','PEN',10,20,10,2,10);"
         ).unwrap();
         c
     }
@@ -653,7 +650,7 @@ mod tests {
     #[test]
     fn multi_row_sale_records_all_lines_and_updates_stock() {
         let mut c = test_db();
-        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Cable','CAB',30,60,5,1)", []).unwrap();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Cable','CAB',30,60,5,1,30)", []).unwrap();
         save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 3 | 60", "10", "100", "cash", "").unwrap();
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoice_items"), 2);
         assert_eq!(scalar(&c, "SELECT subtotal FROM invoices WHERE kind='sale'"), 280);
@@ -666,7 +663,7 @@ mod tests {
     #[test]
     fn multi_row_sale_rolls_back_everything_when_later_row_has_insufficient_stock() {
         let mut c = test_db();
-        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Cable','CAB',30,60,1,1)", []).unwrap();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Cable','CAB',30,60,1,1,30)", []).unwrap();
         assert!(save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 2 | 60", "0", "0", "cash", "").is_err());
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 0);
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoice_items"), 0);
@@ -687,7 +684,7 @@ mod tests {
     #[test]
     fn invoice_details_show_all_lines_and_balance() {
         let mut c = test_db();
-        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Cable','CAB',30,60,5,1)", []).unwrap();
+        c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Cable','CAB',30,60,5,1,30)", []).unwrap();
         save_invoice_multi(&mut c, "sale", "Ali", "PEN | 2 | 50\nCAB | 1 | 60", "10", "20", "cash", "test detail").unwrap();
         let id = scalar(&c, "SELECT id FROM invoices LIMIT 1");
         let details = invoice_details(&c, id).unwrap();
