@@ -60,6 +60,16 @@ export component MainWindow inherits Window {
     in-out property <string> product-buy-price: "0";
     in-out property <string> product-sell-price: "0";
     in-out property <string> product-minimum: "0";
+    in-out property <int> adjustment-product-id: 0;
+    in-out property <string> adjustment-new-quantity: "0";
+    in-out property <string> adjustment-reason: "انبارگردانی";
+    in-out property <string> inventory-adjustment-history: "هنوز سابقه‌ای ثبت نشده است.";
+    in-out property <string> inventory-report-summary: "گزارش انبار آماده نیست.";
+    in-out property <string> inventory-report-movements: "هنوز گردش انباری ثبت نشده است.";
+    in-out property <string> profit-loss-summary: "گزارش سود و زیان آماده نیست.";
+    in-out property <string> expense-category: "سایر";
+    in-out property <string> expense-description: "";
+    in-out property <string> expense-amount: "";
 
     in-out property <string> invoice-kind: "sale";
     in-out property <string> invoice-search: "";
@@ -85,18 +95,25 @@ export component MainWindow inherits Window {
 
     in-out property <string> settings-store-name: "فروشگاه من";
     in-out property <string> settings-currency: "تومان";
+    in-out property <bool> restore-confirmation: false;
 
     callback refresh-requested();
     callback save-contact-requested();
     callback edit-contact-requested(int);
     callback edit-product-requested(int);
     callback save-product-requested();
+    callback adjust-inventory-requested(int);
+    callback save-inventory-adjustment-requested();
     callback save-invoice-requested();
     callback invoice-detail-requested(int);
     callback invoice-void-requested(int);
     callback invoice-return-requested(int, string, string);
     callback save-payment-requested();
+    callback save-expense-requested();
     callback save-settings-requested();
+    callback switch-ui-requested();
+    callback create-backup-requested();
+    callback restore-backup-requested();
 
     VerticalLayout {
         spacing: 0px;
@@ -108,6 +125,7 @@ export component MainWindow inherits Window {
                 alignment: center; spacing: 14px;
                 Text { text: "نبض"; color: #18864b; font-size: 27px; font-weight: 700; }
                 Text { text: "حسابداری فروشگاهی"; color: #344054; font-size: 16px; horizontal-stretch: 1; horizontal-alignment: right; }
+                Button { text: "رابط Tauri"; clicked => { root.switch-ui-requested(); } }
                 Button { text: "تازه‌سازی"; clicked => { root.refresh-requested(); } }
             }
         }
@@ -218,6 +236,20 @@ export component MainWindow inherits Window {
                             }
                         }
                         Rectangle {
+                            background: #ffffff; border-color: #d0d5dd; border-width: 1px; border-radius: 10px; padding: 10px;
+                            VerticalLayout {
+                                spacing: 7px;
+                                Text { text: "اصلاح موجودی انبار"; color: #101828; font-size: 15px; font-weight: 600; horizontal-alignment: right; }
+                                HorizontalLayout { spacing: 8px;
+                                    LineEdit { text <=> root.adjustment-new-quantity; placeholder-text: "موجودی واقعی جدید"; }
+                                    LineEdit { text <=> root.adjustment-reason; placeholder-text: "علت تغییر (مثلاً انبارگردانی)"; horizontal-stretch: 1; }
+                                    Button { text: "ثبت اصلاح موجودی"; enabled: root.adjustment-product-id > 0; clicked => { root.save-inventory-adjustment-requested(); } }
+                                }
+                                Text { text: "موجودی قبل و بعد، اختلاف و علت تغییر به‌صورت دائمی در سابقه ثبت می‌شود."; color: #667085; font-size: 12px; horizontal-alignment: right; }
+                                Text { text: root.inventory-adjustment-history; color: #475467; font-size: 12px; horizontal-alignment: right; wrap: word-wrap; }
+                            }
+                        }
+                        Rectangle {
                             background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 8px;
                             VerticalLayout {
                                 spacing: 0px;
@@ -231,7 +263,7 @@ export component MainWindow inherits Window {
                                             Text { text: row.name; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; }
                                             Text { text: row.code; width: 110px; horizontal-alignment: right; color: #475467; }
                                             Text { text: row.quantity; width: 90px; horizontal-alignment: right; color: #475467; }
-                                            Text { text: row.price; width: 130px; horizontal-alignment: right; color: #475467; } Button { text: "ویرایش"; clicked => { root.edit-product-requested(row.id); } }
+                                            Text { text: row.price; width: 130px; horizontal-alignment: right; color: #475467; } Button { text: "ویرایش"; clicked => { root.edit-product-requested(row.id); } } Button { text: "اصلاح موجودی"; clicked => { root.adjustment-product-id = row.id; root.adjust-inventory-requested(row.id); } }
                                         }
                                     }
                                 }
@@ -299,6 +331,19 @@ export component MainWindow inherits Window {
                             Text { text: "ماندهٔ مشتریان: " + root.customer-balance; color: #c47a16; font-size: 16px; horizontal-alignment: right; }
                             Text { text: "ارزش موجودی: " + root.inventory-value; color: #6941c6; font-size: 16px; horizontal-alignment: right; }
                             Text { text: "تعداد طرف‌حساب‌ها: " + root.contacts-count + " | تعداد کالاها: " + root.products-count + " | تعداد فاکتورها: " + root.invoices-count; color: #475467; font-size: 15px; horizontal-alignment: right; }
+                            Rectangle { height: 1px; background: #e4e7ec; }
+                            Text { text: "ارزش‌گذاری موجودی"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: root.inventory-report-summary; color: #475467; font-size: 13px; horizontal-alignment: right; wrap: word-wrap; }
+                            Text { text: "آخرین گردش‌های انبار"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: root.inventory-report-movements; color: #475467; font-size: 12px; horizontal-alignment: right; wrap: word-wrap; }
+                            Rectangle { height: 1px; background: #e4e7ec; }
+                            Text { text: "سود و زیان"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: root.profit-loss-summary; color: #475467; font-size: 13px; horizontal-alignment: right; wrap: word-wrap; }
+                            Text { text: "ثبت هزینهٔ جاری"; color: #101828; font-size: 15px; font-weight: 600; horizontal-alignment: right; }
+                            LineEdit { text <=> root.expense-category; placeholder-text: "دسته‌بندی هزینه"; }
+                            LineEdit { text <=> root.expense-description; placeholder-text: "شرح هزینه"; }
+                            LineEdit { text <=> root.expense-amount; placeholder-text: "مبلغ به تومان"; }
+                            Button { text: "ثبت هزینه"; clicked => { root.save-expense-requested(); } }
                         }
                     }
 
@@ -318,6 +363,21 @@ export component MainWindow inherits Window {
                             LineEdit { text <=> root.settings-currency; placeholder-text: "واحد پول"; }
                             Button { text: "ذخیرهٔ تنظیمات"; clicked => { root.save-settings-requested(); } }
                             Text { text: "تنظیمات این نسخه در SQLite ذخیره می‌شوند."; color: #667085; font-size: 13px; horizontal-alignment: right; }
+                            Rectangle { height: 1px; background: #e4e7ec; }
+                            Text { text: "پشتیبان کامل پایگاه داده"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: "تمام جدول‌ها، فاکتورها، برگشت‌ها، پرداخت‌ها و تنظیمات در یک فایل SQLite ذخیره می‌شوند."; color: #667085; font-size: 12px; wrap: word-wrap; horizontal-alignment: right; }
+                            Button { text: "ساخت نسخهٔ پشتیبان"; clicked => { root.create-backup-requested(); } }
+                            Button {
+                                text: root.restore-confirmation ? "برای تأیید، دوباره کلیک کن" : "بازیابی آخرین نسخهٔ پشتیبان";
+                                clicked => {
+                                    if root.restore-confirmation {
+                                        root.restore-confirmation = false;
+                                        root.restore-backup-requested();
+                                    } else {
+                                        root.restore-confirmation = true;
+                                    }
+                                }
+                            }
                         }
                     }
                 }

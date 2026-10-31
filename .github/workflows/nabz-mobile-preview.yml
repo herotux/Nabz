@@ -1,12 +1,6 @@
 name: Nabz mobile preview
 
 on:
-  push:
-    branches:
-      - tauri-web-prototype
-    paths:
-      - "tauri-web/**"
-      - ".github/workflows/nabz-mobile-preview.yml"
   workflow_dispatch:
 
 permissions:

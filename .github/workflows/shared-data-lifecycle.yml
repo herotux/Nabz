@@ -1,0 +1,40 @@
+name: Shared data lifecycle tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nabz-shared-data-lifecycle
+  cancel-in-progress: true
+
+jobs:
+  shared-data-lifecycle:
+    name: Shared SQLite and Debian package lifecycle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache shared-core dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/nabz-core
+
+      - name: Run shared-core tests
+        run: cargo test --manifest-path crates/nabz-core/Cargo.toml
+
+      - name: Run cross-frontend shared-ledger lifecycle test
+        run: cargo test --manifest-path crates/nabz-core/Cargo.toml --test frontend_lifecycle
+
+      - name: Test Debian package data-safety guard against safe and unsafe fixtures
+        run: bash scripts/test-deb-data-safety-guard.sh
+
+      - name: Simulate Debian install, remove, and reinstall
+        run: bash scripts/test-deb-frontend-lifecycle.sh

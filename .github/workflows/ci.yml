@@ -1,11 +1,13 @@
-name: Rust tests
+name: Legacy root Rust tests
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: nabz-legacy-rust-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

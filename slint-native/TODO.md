@@ -1,6 +1,22 @@
 # Nabz Slint migration — TODO
 
+> Official eight-phase product roadmap: [docs/roadmap/implementation-roadmap.md](../docs/roadmap/implementation-roadmap.md). This file tracks detailed implementation tasks; the roadmap defines phase goals and exit criteria.
+
 Updated: 2026-10-30
+
+## Shared product architecture
+- [x] Create a dedicated shared Rust core crate for database initialization and migrations.
+- [x] Make Tauri and Slint depend on the shared core crate.
+- [x] Align both Linux frontends on the same application data directory and database filename.
+- [x] Add a shared data-layout API for the database, backups, attachments, and logs; keep it outside frontend installation directories.
+- [x] Persist the preferred UI in the shared SQLite settings table and update it only after a successful UI launch.
+- [ ] Move all accounting operations, validation, and read models from both frontends into `nabz-core`.
+- [ ] Add cross-frontend integration tests that write through one frontend/core API and read through the other.
+- [x] Add a UI switch that records the preferred frontend without copying or relocating the database; expose a dedicated preference selector in settings remains pending.
+- [x] Create a verified SQLite online-backup snapshot before every on-disk schema migration; abort migration if backup creation/validation fails.
+- [ ] Add broader migration fault-injection tests and verify backup retention/recovery on target platforms.
+- [ ] Define and test simultaneous-launch / write-conflict behavior.
+- [ ] Build and publish independently installable Tauri and Slint artifacts; uninstalling either must preserve shared data.
 
 ## Current CI / blocking issues
 - [x] Inspect the failed Slint Native UI CI run.
@@ -68,6 +84,9 @@ Updated: 2026-10-30
 - [ ] Update the main README and release workflow only after native UI and accounting checks pass.
 
 ## Guardrails
+- Treat Nabz as one product with two independently distributable UIs, not two accounting implementations.
+- Keep the canonical database path and all schema migrations in `nabz-core`.
+- Do not claim business logic is fully shared until both frontends call shared core operations rather than duplicate SQL.
 - Keep `tauri-web-prototype` and `main` unchanged during the migration.
 - Never claim a workflow passed until the exact current commit has a green run.
 - Do not use a real accounting database for tests; use an isolated copy and keep a backup.
