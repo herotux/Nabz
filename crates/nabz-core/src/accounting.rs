@@ -575,8 +575,11 @@ pub fn adjust_inventory(
     ).optional().map_err(|e| e.to_string())?.ok_or("کالای انتخاب‌شده پیدا نشد")?;
     let delta = new_quantity.checked_sub(previous).ok_or("اختلاف موجودی بیش از حد بزرگ است")?;
     if delta == 0 { return Err("موجودی جدید با موجودی فعلی برابر است؛ تغییری برای ثبت وجود ندارد".into()); }
-    tx.execute("UPDATE products SET quantity=?1 WHERE id=?2 AND quantity=?3",
+    let changed = tx.execute("UPDATE products SET quantity=?1 WHERE id=?2 AND quantity=?3",
         params![new_quantity,product_id,previous]).map_err(|e|e.to_string())?;
+    if changed != 1 {
+        return Err("موجودی کالا هم‌زمان تغییر کرده است؛ فهرست را تازه‌سازی و دوباره تلاش کنید".into());
+    }
     tx.execute(
         "INSERT INTO inventory_adjustments(product_id,product_name,previous_quantity,new_quantity,delta,reason)
          VALUES(?1,?2,?3,?4,?5,?6)",
