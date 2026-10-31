@@ -877,37 +877,6 @@ pub fn profit_loss_report(connection: &Connection, from: &str, to: &str) -> Resu
 }
 
 
-    #[test]
-    fn sale_cost_is_snapshotted_and_expenses_reduce_net_profit() {
-        let mut c = test_db();
-        let id = create_invoice(&mut c, &InvoiceInput {
-            kind: "sale".into(), contact_name: "Ali".into(), date: "2026-10-31".into(),
-            discount: 0, paid: 0, method: "cash".into(), notes: String::new(),
-            lines: vec![InvoiceLineInput { product_lookup: "PEN".into(), quantity: 2, unit_price: 20 }],
-        }).unwrap();
-        let saved_cost: i64 = c.query_row("SELECT unit_cost FROM invoice_items WHERE invoice_id=?1", [id], |r| r.get(0)).unwrap();
-        assert_eq!(saved_cost, 10);
-        c.execute("UPDATE products SET buy_price=15 WHERE code='PEN'", []).unwrap();
-        create_expense(&c, &ExpenseInput { category:"اجاره".into(), description:"اجاره مغازه".into(), amount:5, date:"2026-10-31".into() }).unwrap();
-        let report = profit_loss_report(&c, "2026-10-31", "2026-10-31").unwrap();
-        assert_eq!(report.net_sales, 40);
-        assert_eq!(report.cost_of_goods_sold, 20);
-        assert_eq!(report.gross_profit, 20);
-        assert_eq!(report.expenses, 5);
-        assert_eq!(report.net_profit, 15);
-        assert_eq!(report.uncosted_sales, 0);
-    }
-
-    #[test]
-    fn legacy_sale_without_cost_is_reported_as_uncosted_not_guessed() {
-        let c = test_db();
-        c.execute("INSERT INTO invoices(number,kind,contact_name,invoice_date,subtotal,total) VALUES(1001,'sale','Ali','2026-10-31',100,100)", []).unwrap();
-        c.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(1,1,'Pen',2,50,100)", []).unwrap();
-        let report = profit_loss_report(&c, "2026-10-31", "2026-10-31").unwrap();
-        assert_eq!(report.cost_of_goods_sold, 0);
-        assert_eq!(report.uncosted_sales, 100);
-    }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1252,4 +1221,37 @@ mod tests {
         ).unwrap();
         assert!(inventory_valuation(&connection).unwrap_err().contains("ظرفیت عددی"));
     }
+
+    #[test]
+    fn sale_cost_is_snapshotted_and_expenses_reduce_net_profit() {
+        let mut c = database();
+        let id = create_invoice(&mut c, &InvoiceInput {
+            kind: "sale".into(), contact_name: "Ali".into(), date: "2026-10-31".into(),
+            discount: 0, paid: 0, method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "PEN".into(), quantity: 2, unit_price: 20 }],
+        }).unwrap();
+        let saved_cost: i64 = c.query_row("SELECT unit_cost FROM invoice_items WHERE invoice_id=?1", [id], |r| r.get(0)).unwrap();
+        assert_eq!(saved_cost, 10);
+        c.execute("UPDATE products SET buy_price=15 WHERE code='PEN'", []).unwrap();
+        create_expense(&c, &ExpenseInput { category:"اجاره".into(), description:"اجاره مغازه".into(), amount:5, date:"2026-10-31".into() }).unwrap();
+        let report = profit_loss_report(&c, "2026-10-31", "2026-10-31").unwrap();
+        assert_eq!(report.net_sales, 40);
+        assert_eq!(report.cost_of_goods_sold, 20);
+        assert_eq!(report.gross_profit, 20);
+        assert_eq!(report.expenses, 5);
+        assert_eq!(report.net_profit, 15);
+        assert_eq!(report.uncosted_sales, 0);
+    }
+
+    #[test]
+    fn legacy_sale_without_cost_is_reported_as_uncosted_not_guessed() {
+        let c = database();
+        c.execute("INSERT INTO invoices(number,kind,contact_name,invoice_date,subtotal,total) VALUES(1001,'sale','Ali','2026-10-31',100,100)", []).unwrap();
+        c.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(1,1,'Pen',2,50,100)", []).unwrap();
+        let report = profit_loss_report(&c, "2026-10-31", "2026-10-31").unwrap();
+        assert_eq!(report.cost_of_goods_sold, 0);
+        assert_eq!(report.uncosted_sales, 100);
+    }
+
+
 }
