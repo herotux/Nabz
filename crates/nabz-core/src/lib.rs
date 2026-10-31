@@ -339,6 +339,15 @@ pub fn initialize(connection: &Connection) -> Result<(), String> {
     migrate(connection)
 }
 
+fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name=?2",
+        rusqlite::params![table, column],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    Ok(count > 0)
+}
+
 fn migrate(connection: &Connection) -> Result<(), String> {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -475,9 +484,13 @@ fn migrate(connection: &Connection) -> Result<(), String> {
 
     if version < 5 {
         let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "invoice_items", "unit_cost")? {
+            tx.execute_batch(
+                "ALTER TABLE invoice_items ADD COLUMN unit_cost INTEGER CHECK(unit_cost IS NULL OR unit_cost>=0);"
+            ).map_err(|e| format!("افزودن بهای تاریخی ردیف فاکتور ناموفق بود: {e}"))?;
+        }
         tx.execute_batch(
-            "ALTER TABLE invoice_items ADD COLUMN unit_cost INTEGER CHECK(unit_cost IS NULL OR unit_cost>=0);
-             CREATE TABLE IF NOT EXISTS expenses(
+            "CREATE TABLE IF NOT EXISTS expenses(
                id INTEGER PRIMARY KEY,
                category TEXT NOT NULL CHECK(length(trim(category))>0),
                description TEXT NOT NULL CHECK(length(trim(description))>0),
@@ -493,13 +506,15 @@ fn migrate(connection: &Connection) -> Result<(), String> {
 
     if version < 6 {
         let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
-        tx.execute_batch(
-            "ALTER TABLE products ADD COLUMN average_cost INTEGER NOT NULL DEFAULT 0;
-             -- Existing stock has no complete cost-layer history. Preserve the current
-             -- recorded purchase price as its opening-cost estimate; new purchases
-             -- use perpetual moving weighted-average costing from this point onward.
-             UPDATE products SET average_cost=buy_price WHERE quantity>0;"
-        ).map_err(|e| format!("افزودن بهای میانگین موزون به کالاها ناموفق بود: {e}"))?;
+        if !column_exists(&tx, "products", "average_cost")? {
+            tx.execute_batch(
+                "ALTER TABLE products ADD COLUMN average_cost INTEGER NOT NULL DEFAULT 0;
+                 -- Existing stock has no complete cost-layer history. Preserve the current
+                 -- recorded purchase price as its opening-cost estimate; new purchases
+                 -- use perpetual moving weighted-average costing from this point onward.
+                 UPDATE products SET average_cost=buy_price WHERE quantity>0;"
+            ).map_err(|e| format!("افزودن بهای میانگین موزون به کالاها ناموفق بود: {e}"))?;
+        }
         tx.pragma_update(None, "user_version", 6).map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
     }
