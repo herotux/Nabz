@@ -17,6 +17,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 dpkg-deb --extract "$package" "$tmp/root"
+mkdir -p "$tmp/control"
 dpkg-deb --control "$package" "$tmp/control"
 
 # A frontend package must never contain a user's live database or its data tree.
