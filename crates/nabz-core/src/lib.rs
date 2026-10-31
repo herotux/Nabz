@@ -497,13 +497,7 @@ fn migrate(connection: &Connection) -> Result<(), String> {
              -- Existing stock has no complete cost-layer history. Preserve the current
              -- recorded purchase price as its opening-cost estimate; new purchases
              -- use perpetual moving weighted-average costing from this point onward.
-             UPDATE products SET average_cost=buy_price WHERE quantity>0;
-             CREATE TRIGGER products_initialize_average_cost
-             AFTER INSERT ON products
-             WHEN NEW.quantity>0 AND NEW.average_cost=0 AND NEW.buy_price>0
-             BEGIN
-               UPDATE products SET average_cost=NEW.buy_price WHERE id=NEW.id;
-             END;"
+             UPDATE products SET average_cost=buy_price WHERE quantity>0;"
         ).map_err(|e| format!("افزودن بهای میانگین موزون به کالاها ناموفق بود: {e}"))?;
         tx.pragma_update(None, "user_version", 6).map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
@@ -779,8 +773,7 @@ mod tests {
              VALUES(1,1,'Legacy item',1,100,100,17)", []
         ).unwrap();
         connection.execute_batch(
-            "DROP TRIGGER IF EXISTS products_initialize_average_cost;
-             ALTER TABLE products DROP COLUMN average_cost;
+            "ALTER TABLE products DROP COLUMN average_cost;
              PRAGMA user_version=5;"
         ).unwrap();
         initialize(&connection).unwrap();
