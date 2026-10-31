@@ -31,6 +31,17 @@ updates do not strand databases created by earlier Tauri/Slint builds.
   explain the irreversible effect, require explicit confirmation, and recommend
   a verified backup first.
 
+## Automated package guard
+
+Both Debian package workflows run `scripts/verify-deb-data-safety.sh` against
+the generated package before publishing artifacts. The guard extracts the
+package and fails if it contains the live SQLite database, SQLite sidecars, or
+the shared data directory. It also inspects Debian maintainer scripts and
+rejects destructive commands that reference the shared data location.
+
+This is a static package-content check, not a substitute for a release-time
+install/uninstall/reinstall test on a disposable account.
+
 ## UI switching
 
 The switch operation launches the installed target frontend against the same
