@@ -26,12 +26,10 @@ jobs:
           for y in range(size):
               row = bytearray([0])
               for x in range(size):
-                  # Rounded-looking teal tile with a simple white Persian-inspired mark.
                   edge = min(x, y, size - 1 - x, size - 1 - y)
                   bg = (min(20 + x // 32, 28), min(112 + y // 12, 140), min(170 + x // 16, 195), 255)
                   if edge < 10:
                       bg = (18, 92, 148, 255)
-                  # A bold, geometric white N mark, kept away from the icon edges.
                   mark = (62 <= x <= 91 and 62 <= y <= 190) or (165 <= x <= 194 and 62 <= y <= 190)
                   mark = mark or (x >= 62 and x <= 194 and abs(y - (190 - (x - 62) * 128 / 132)) <= 14)
                   row.extend((245, 249, 255, 255) if mark else bg)
@@ -39,7 +37,7 @@ jobs:
           def chunk(kind, data):
               return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
           raw = b"".join(rows)
-          png = b"\x89PNG\r\n\x1a\n"
+          png = b"\\x89PNG\\r\\n\\x1a\\n"
           png += chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
           png += chunk(b"IDAT", zlib.compress(raw, 9))
           png += chunk(b"IEND", b"")
@@ -61,6 +59,12 @@ jobs:
         run: |
           test -n "$(find tauri-web/src-tauri/target/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)"
           test -n "$(find tauri-web/src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)"
+      - name: Verify Tauri Debian package cannot remove shared user data
+        run: |
+          set -eu
+          for package in tauri-web/src-tauri/target/release/bundle/deb/*.deb; do
+            bash scripts/verify-deb-data-safety.sh "$package"
+          done
       - name: Upload Linux installers
         uses: actions/upload-artifact@v4
         with:
