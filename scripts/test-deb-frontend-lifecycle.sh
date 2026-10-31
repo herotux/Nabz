@@ -7,7 +7,7 @@ command -v sudo >/dev/null
 command -v python3 >/dev/null
 
 tmp="$(mktemp -d)"
-trap 'sudo sudo dpkg -r nabz-slint-lifecycle-test nabz-tauri-lifecycle-test >/dev/null 2>&1 || true; rm -rf "$tmp"' EXIT
+trap 'sudo dpkg -r nabz-slint-lifecycle-test nabz-tauri-lifecycle-test >/dev/null 2>&1 || true; rm -rf "$tmp"' EXIT
 
 export XDG_DATA_HOME="$tmp/xdg-data"
 data_dir="$XDG_DATA_HOME/com.herotux.nabz.webprototype"
@@ -46,12 +46,12 @@ CONTROL
 make_package nabz-slint-lifecycle-test nabz-slint-lifecycle-test
 make_package nabz-tauri-lifecycle-test nabz-tauri-lifecycle-test
 
-sudo sudo dpkg -i "$tmp/nabz-slint-lifecycle-test.deb" "$tmp/nabz-tauri-lifecycle-test.deb" >/dev/null
+sudo dpkg -i "$tmp/nabz-slint-lifecycle-test.deb" "$tmp/nabz-tauri-lifecycle-test.deb" >/dev/null
 dpkg-query -W -f='${Status}\n' nabz-slint-lifecycle-test | grep -q 'install ok installed'
 dpkg-query -W -f='${Status}\n' nabz-tauri-lifecycle-test | grep -q 'install ok installed'
 
 # Removing one UI must leave the other package and the product-owned database.
-dpkg -r nabz-slint-lifecycle-test >/dev/null
+sudo dpkg -r nabz-slint-lifecycle-test >/dev/null
 dpkg-query -W -f='${Status}\n' nabz-tauri-lifecycle-test | grep -q 'install ok installed'
 test -s "$database"
 python3 - "$database" <<'PY'
@@ -66,7 +66,7 @@ PY
 # Removing the remaining UI and reinstalling the first one must still preserve data.
 sudo dpkg -r nabz-tauri-lifecycle-test >/dev/null
 test -s "$database"
-dpkg -i "$tmp/nabz-slint-lifecycle-test.deb" >/dev/null
+sudo dpkg -i "$tmp/nabz-slint-lifecycle-test.deb" >/dev/null
 test -x /usr/bin/nabz-slint-lifecycle-test
 python3 - "$database" <<'PY'
 import sqlite3, sys
