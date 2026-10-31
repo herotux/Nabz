@@ -74,7 +74,9 @@ feature and is not claimed here.
 
 Schema version 6 adds `products.average_cost` as a separate field from the latest purchase price (`buy_price`).
 New purchase invoices update the perpetual moving weighted-average cost using
-checked integer arithmetic. Sales snapshot that average into
+checked integer arithmetic. Invoice-level purchase discounts are allocated across
+lines by proportional largest remainder before they enter the cost basis. Sales
+snapshot that average into
 `invoice_items.unit_cost`, so later purchases and product edits do not rewrite
 the cost or profit of an older sale. Sale returns and sale-invoice voids reintroduce
 stock at the original saved unit cost; purchase returns and purchase-invoice voids
