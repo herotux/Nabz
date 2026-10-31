@@ -326,11 +326,12 @@ pub fn return_sale_items(
                  (ii.item_name=?2 COLLATE NOCASE OR p.code=?2 OR p.barcode=?2)
                  ORDER BY ii.id"
             ).map_err(|e| e.to_string())?;
-            statement.query_map(params![invoice_id, lookup], |r| {
+            let rows = statement.query_map(params![invoice_id, lookup], |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?.unwrap_or(0),
                     r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?))
-            }).map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+            }).map_err(|e| e.to_string())?;
+            let collected = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+            collected
         };
         if matches.len() != 1 {
             return Err(format!("کالای «{lookup}» در این فاکتور یکتا نیست یا پیدا نشد؛ از کد یکتا استفاده کنید"));
@@ -431,8 +432,10 @@ pub fn return_purchase_items(
                  WHERE ii.invoice_id=?1 AND (ii.item_name=?2 COLLATE NOCASE OR p.code=?2 OR p.barcode=?2)
                  ORDER BY ii.id"
             ).map_err(|e| e.to_string())?;
-            st.query_map(params![invoice_id,lookup],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?)))
-                .map_err(|e|e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+            let rows = st.query_map(params![invoice_id,lookup],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?)))
+                .map_err(|e|e.to_string())?;
+            let collected = rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+            collected
         };
         if matches.len()!=1 { return Err(format!("کالای «{lookup}» در این فاکتور یکتا نیست یا پیدا نشد؛ از کد یکتا استفاده کنید")); }
         let (item_id,product_id,original_qty,unit_price,item_name)=matches.into_iter().next().expect("one match");
@@ -506,10 +509,11 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
         let mut statement = tx.prepare(
             "SELECT product_id,item_name,quantity FROM invoice_items WHERE invoice_id=?1 ORDER BY id"
         ).map_err(|e| e.to_string())?;
-        statement.query_map([invoice_id], |r| Ok((
+        let rows = statement.query_map([invoice_id], |r| Ok((
             r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?
-        ))).map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        ))).map_err(|e| e.to_string())?;
+        let collected = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+        collected
     };
     if items.is_empty() { return Err("فاکتور ردیف کالا ندارد؛ ابطال خودکار ممکن نیست".into()); }
     for (product_id, item_name, quantity) in items {
@@ -623,8 +627,9 @@ pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Resu
         params![contact_id, invoice_kind], |row| row.get(0)
     ).map_err(|e| e.to_string())?;
     let opening: i64 = tx.query_row(
-        "SELECT opening_balance FROM contacts WHERE id=?1", [contact_id], |row| row.get(0)
-    ).map_err(|e| e.to_string())?.max(0);
+        "SELECT opening_balance FROM contacts WHERE id=?1", [contact_id], |row| row.get::<_, i64>(0)
+    ).map_err(|e| e.to_string())?;
+    let opening = opening.max(0);
     let outstanding = invoice_outstanding.checked_add(opening)
         .ok_or("ماندهٔ حساب بیش از حد بزرگ است")?;
     if input.amount > outstanding {
