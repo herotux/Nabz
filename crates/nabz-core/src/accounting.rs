@@ -90,10 +90,23 @@ fn validate_product(input: &ProductInput) -> Result<(), String> {
     Ok(())
 }
 
+/// Calculate perpetual moving weighted-average cost with checked integer arithmetic.
+fn weighted_average_cost(existing_quantity:i64,existing_unit_cost:i64,incoming_quantity:i64,incoming_unit_cost:i64)->Result<i64,String>{
+    if existing_quantity<0||incoming_quantity<0||existing_unit_cost<0||incoming_unit_cost<0{
+        return Err("مقادیر محاسبهٔ میانگین موزون نمی‌توانند منفی باشند".into());
+    }
+    let total_quantity=existing_quantity.checked_add(incoming_quantity).ok_or("تعداد موجودی بیش از ظرفیت عددی است")?;
+    if total_quantity==0{return Ok(0);}
+    let existing_value=existing_quantity.checked_mul(existing_unit_cost).ok_or("ارزش موجودی قبلی بیش از ظرفیت عددی است")?;
+    let incoming_value=incoming_quantity.checked_mul(incoming_unit_cost).ok_or("ارزش خرید جدید بیش از ظرفیت عددی است")?;
+    let total_value=existing_value.checked_add(incoming_value).ok_or("ارزش کل موجودی بیش از ظرفیت عددی است")?;
+    total_value.checked_add(total_quantity/2).ok_or("گرد کردن بهای میانگین موزون بیش از ظرفیت عددی است").map(|v|v/total_quantity)
+}
+
 pub fn create_product(connection: &Connection, input: &ProductInput) -> Result<i64, String> {
     validate_product(input)?;
     connection.execute(
-        "INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        "INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES(?1,?2,?3,?4,?5,?6,?7,?4)",
         params![input.name.trim(), input.code.trim(), input.barcode.trim(), input.buy_price, input.sell_price, input.quantity, input.min_quantity],
     ).map_err(|e| if e.to_string().contains("UNIQUE") {
         "کد کالا تکراری است".to_string()
@@ -221,12 +234,12 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
     let invoice_id = tx.last_insert_rowid();
 
     for (lookup, quantity, unit_price, line_total) in normalized {
-        let product: Option<(i64, i64, String, i64)> = tx.query_row(
-            "SELECT id,quantity,name,buy_price FROM products
+        let product: Option<(i64, i64, String, i64, i64)> = tx.query_row(
+            "SELECT id,quantity,name,buy_price,average_cost FROM products
              WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
-            [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         ).optional().map_err(|e| e.to_string())?;
-        let (product_id, item_name, unit_cost) = if let Some((id, stock, name, buy_price)) = product {
+        let (product_id, item_name, unit_cost) = if let Some((id, stock, name, buy_price, average_cost)) = product {
             if input.kind == "sale" {
                 if stock < quantity {
                     return Err(format!("موجودی «{lookup}» کافی نیست؛ موجودی فعلی: {stock}"));
@@ -239,18 +252,18 @@ pub fn create_invoice(connection: &mut Connection, input: &InvoiceInput) -> Resu
                     return Err(format!("موجودی «{lookup}» کافی نیست"));
                 }
             } else {
-                tx.execute(
-                    "UPDATE products SET quantity=quantity+?1,buy_price=?2 WHERE id=?3",
-                    params![quantity, unit_price, id],
-                ).map_err(|e| e.to_string())?;
+                let next_quantity=stock.checked_add(quantity).ok_or_else(||format!("موجودی «{lookup}» بیش از ظرفیت عددی است"))?;
+                let next_average=weighted_average_cost(stock,average_cost,quantity,unit_price)?;
+                tx.execute("UPDATE products SET quantity=?1,buy_price=?2,average_cost=?3 WHERE id=?4",
+                    params![next_quantity,unit_price,next_average,id]).map_err(|e|e.to_string())?;
             }
-            (id, name, if input.kind == "sale" { Some(buy_price) } else { None })
+            (id, name, if input.kind == "sale" { Some(average_cost) } else { None })
         } else if input.kind == "purchase" {
             let code = format!("AUTO-{}", tx.query_row(
                 "SELECT COALESCE(MAX(id),0)+1 FROM products", [], |row| row.get::<_, i64>(0)
             ).map_err(|e| e.to_string())?);
             tx.execute(
-                "INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)",
+                "INSERT INTO products(name,code,buy_price,sell_price,quantity,average_cost) VALUES(?1,?2,?3,?3,?4,?3)",
                 params![lookup, code, unit_price, quantity],
             ).map_err(|e| e.to_string())?;
             (tx.last_insert_rowid(), lookup, None)
@@ -320,7 +333,7 @@ pub fn return_sale_items(
         }
         let matches = {
             let mut statement = tx.prepare(
-                "SELECT ii.id,ii.product_id,ii.quantity,ii.unit_price,ii.item_name
+                "SELECT ii.id,ii.product_id,ii.quantity,ii.unit_price,ii.item_name,ii.unit_cost
                  FROM invoice_items ii JOIN products p ON p.id=ii.product_id
                  WHERE ii.invoice_id=?1 AND
                  (ii.item_name=?2 COLLATE NOCASE OR p.code=?2 OR p.barcode=?2)
@@ -328,7 +341,8 @@ pub fn return_sale_items(
             ).map_err(|e| e.to_string())?;
             let rows = statement.query_map(params![invoice_id, lookup], |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?.unwrap_or(0),
-                    r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?))
+                    r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?,
+                    r.get::<_, Option<i64>>(5)?))
             }).map_err(|e| e.to_string())?;
             let collected = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
             collected
@@ -336,7 +350,7 @@ pub fn return_sale_items(
         if matches.len() != 1 {
             return Err(format!("کالای «{lookup}» در این فاکتور یکتا نیست یا پیدا نشد؛ از کد یکتا استفاده کنید"));
         }
-        let (item_id, product_id, original_qty, unit_price, item_name) =
+        let (item_id, product_id, original_qty, unit_price, item_name, historical_cost) =
             matches.into_iter().next().expect("one match");
         if product_id <= 0 {
             return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ برگشت ممکن نیست"));
@@ -351,7 +365,7 @@ pub fn return_sale_items(
         }
         let amount = line.quantity.checked_mul(unit_price).ok_or("مبلغ برگشت بیش از حد بزرگ است")?;
         gross_return = gross_return.checked_add(amount).ok_or("جمع برگشت بیش از حد بزرگ است")?;
-        normalized.push((item_id, product_id, line.quantity, unit_price, item_name, amount));
+        normalized.push((item_id, product_id, line.quantity, unit_price, item_name, amount, historical_cost));
     }
 
     if invoice.1 <= 0 || gross_return > invoice.1 {
@@ -378,9 +392,11 @@ pub fn return_sale_items(
             params![invoice_id, return_id, refund, method, format!("بازپرداخت بابت برگشت فاکتور #{invoice_id}")],
         ).map_err(|e| e.to_string())?;
     }
-    for (item_id, product_id, quantity, unit_price, item_name, amount) in normalized {
-        tx.execute("UPDATE products SET quantity=quantity+?1 WHERE id=?2",
-            params![quantity, product_id]).map_err(|e| e.to_string())?;
+    for (item_id, product_id, quantity, unit_price, item_name, amount, historical_cost) in normalized {
+        let (stock,average_cost):(i64,i64)=tx.query_row("SELECT quantity,average_cost FROM products WHERE id=?1",[product_id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;
+        let next_quantity=stock.checked_add(quantity).ok_or("موجودی پس از برگشت بیش از ظرفیت عددی است")?;
+        let next_average=weighted_average_cost(stock,average_cost,quantity,historical_cost.unwrap_or(average_cost))?;
+        tx.execute("UPDATE products SET quantity=?1,average_cost=?2 WHERE id=?3",params![next_quantity,next_average,product_id]).map_err(|e|e.to_string())?;
         tx.execute(
             "INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
              VALUES(?1,?2,?3,?4,?5,?6,?7)",
@@ -461,7 +477,7 @@ pub fn return_purchase_items(
         tx.execute("INSERT INTO purchase_refunds(invoice_id,return_id,amount,method,notes) VALUES(?1,?2,?3,?4,?5)",params![invoice_id,return_id,supplier_refund,method,format!("دریافت وجه بابت مرجوعی خرید #{invoice_id}")]).map_err(|e|e.to_string())?;
     }
     for (item_id,product_id,quantity,unit_price,item_name,amount) in normalized {
-        let changed=tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2 AND quantity>=?1",params![quantity,product_id]).map_err(|e|e.to_string())?;
+        let changed=tx.execute("UPDATE products SET quantity=quantity-?1,average_cost=CASE WHEN quantity=?1 THEN 0 ELSE average_cost END WHERE id=?2 AND quantity>=?1",params![quantity,product_id]).map_err(|e|e.to_string())?;
         if changed==0 { return Err(format!("موجودی «{item_name}» برای مرجوعی کافی نیست؛ موجودی انبار تغییر نکرد")); }
         tx.execute("INSERT INTO purchase_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![return_id,item_id,product_id,item_name,quantity,unit_price,amount]).map_err(|e|e.to_string())?;
     }
@@ -507,32 +523,28 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
 
     let items = {
         let mut statement = tx.prepare(
-            "SELECT product_id,item_name,quantity FROM invoice_items WHERE invoice_id=?1 ORDER BY id"
+            "SELECT product_id,item_name,quantity,unit_cost FROM invoice_items WHERE invoice_id=?1 ORDER BY id"
         ).map_err(|e| e.to_string())?;
         let rows = statement.query_map([invoice_id], |r| Ok((
-            r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?
+            r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?,
+            r.get::<_, Option<i64>>(3)?
         ))).map_err(|e| e.to_string())?;
         let collected = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
         collected
     };
     if items.is_empty() { return Err("فاکتور ردیف کالا ندارد؛ ابطال خودکار ممکن نیست".into()); }
-    for (product_id, item_name, quantity) in items {
+    for (product_id, item_name, quantity, historical_cost) in items {
         if quantity <= 0 { return Err(format!("تعداد نامعتبر برای کالای «{item_name}»؛ ابطال لغو شد")); }
         if let Some(product_id) = product_id {
-            let stock: i64 = tx.query_row(
-                "SELECT quantity FROM products WHERE id=?1", [product_id], |r| r.get(0)
-            ).optional().map_err(|e| e.to_string())?
-                .ok_or(format!("کالای «{item_name}» حذف شده؛ ابطال امن ممکن نیست"))?;
-            if kind == "sale" {
-                let next = stock.checked_add(quantity).ok_or("موجودی پس از برگشت بیش از حد بزرگ می‌شود")?;
-                tx.execute("UPDATE products SET quantity=?1 WHERE id=?2", params![next, product_id])
-                    .map_err(|e| e.to_string())?;
+            let (stock,average_cost):(i64,i64)=tx.query_row("SELECT quantity,average_cost FROM products WHERE id=?1",[product_id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?.ok_or(format!("کالای «{item_name}» حذف شده؛ ابطال امن ممکن نیست"))?;
+            if kind=="sale" {
+                let next=stock.checked_add(quantity).ok_or("موجودی پس از برگشت بیش از حد بزرگ می‌شود")?;
+                let next_average=weighted_average_cost(stock,average_cost,quantity,historical_cost.unwrap_or(average_cost))?;
+                tx.execute("UPDATE products SET quantity=?1,average_cost=?2 WHERE id=?3",params![next,next_average,product_id]).map_err(|e|e.to_string())?;
             } else {
-                if stock < quantity {
-                    return Err(format!("موجودی «{item_name}» برای برگشت خرید کافی نیست؛ موجودی فعلی {} و مقدار برگشت {}", stock, quantity));
-                }
-                tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2", params![quantity, product_id])
-                    .map_err(|e| e.to_string())?;
+                if stock<quantity{return Err(format!("موجودی «{item_name}» برای برگشت خرید کافی نیست؛ موجودی فعلی {} و مقدار برگشت {}",stock,quantity));}
+                let next=stock-quantity;
+                tx.execute("UPDATE products SET quantity=?1,average_cost=CASE WHEN ?1=0 THEN 0 ELSE average_cost END WHERE id=?2",params![next,product_id]).map_err(|e|e.to_string())?;
             }
         } else if kind == "purchase" {
             return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ ابطال امن ممکن نیست"));
@@ -575,7 +587,7 @@ pub fn adjust_inventory(
     ).optional().map_err(|e| e.to_string())?.ok_or("کالای انتخاب‌شده پیدا نشد")?;
     let delta = new_quantity.checked_sub(previous).ok_or("اختلاف موجودی بیش از حد بزرگ است")?;
     if delta == 0 { return Err("موجودی جدید با موجودی فعلی برابر است؛ تغییری برای ثبت وجود ندارد".into()); }
-    let changed = tx.execute("UPDATE products SET quantity=?1 WHERE id=?2 AND quantity=?3",
+    let changed = tx.execute("UPDATE products SET quantity=?1,average_cost=CASE WHEN ?1=0 THEN 0 ELSE average_cost END WHERE id=?2 AND quantity=?3",
         params![new_quantity,product_id,previous]).map_err(|e|e.to_string())?;
     if changed != 1 {
         return Err("موجودی کالا هم‌زمان تغییر کرده است؛ فهرست را تازه‌سازی و دوباره تلاش کنید".into());
@@ -598,7 +610,10 @@ pub struct InventoryValuation {
     pub product_name: String,
     pub code: String,
     pub quantity: i64,
+    /// Most recent purchase price.
     pub buy_price: i64,
+    /// Perpetual moving weighted-average cost used for valuation.
+    pub average_cost: i64,
     pub stock_value: i64,
     pub min_quantity: i64,
 }
@@ -618,20 +633,21 @@ pub struct InventoryMovement {
 /// price and checked arithmetic so a corrupt/overflowing row is never hidden.
 pub fn inventory_valuation(connection: &Connection) -> Result<Vec<InventoryValuation>, String> {
     let mut statement = connection.prepare(
-        "SELECT id,name,code,quantity,buy_price,min_quantity
+        "SELECT id,name,code,quantity,buy_price,average_cost,min_quantity
          FROM products ORDER BY name COLLATE NOCASE,id"
     ).map_err(|e| e.to_string())?;
     let rows = statement.query_map([], |row| {
         let quantity: i64 = row.get(3)?;
         let buy_price: i64 = row.get(4)?;
+        let average_cost: i64 = row.get(5)?;
         Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?, quantity, buy_price, row.get::<_, i64>(5)?))
+            row.get::<_, String>(2)?, quantity, buy_price, average_cost, row.get::<_, i64>(6)?))
     }).map_err(|e| e.to_string())?;
     let products = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
-    products.into_iter().map(|(product_id, product_name, code, quantity, buy_price, min_quantity)| {
-        let stock_value = quantity.checked_mul(buy_price)
+    products.into_iter().map(|(product_id, product_name, code, quantity, buy_price, average_cost, min_quantity)| {
+        let stock_value = quantity.checked_mul(average_cost)
             .ok_or_else(|| format!("ارزش موجودی کالای «{product_name}» بیش از ظرفیت عددی است"))?;
-        Ok(InventoryValuation { product_id, product_name, code, quantity, buy_price, stock_value, min_quantity })
+        Ok(InventoryValuation { product_id, product_name, code, quantity, buy_price, average_cost, stock_value, min_quantity })
     }).collect()
 }
 
@@ -1200,7 +1216,7 @@ mod tests {
 
         let valuation = inventory_valuation(&connection).unwrap();
         assert_eq!(valuation.len(), 1);
-        assert_eq!((valuation[0].quantity, valuation[0].buy_price, valuation[0].stock_value), (11, 20, 220));
+        assert_eq!((valuation[0].quantity, valuation[0].buy_price, valuation[0].average_cost, valuation[0].stock_value), (11, 20, 13, 143));
 
         let movements = inventory_movements(&connection).unwrap();
         assert_eq!(movements.len(), 5);
@@ -1257,5 +1273,35 @@ mod tests {
         assert_eq!(report.uncosted_sales, 100);
     }
 
+
+    #[test]
+    fn moving_average_costs_purchases_and_preserves_historical_sale_cost() {
+        let mut c=database();
+        create_contact(&c,&ContactInput{name:"تامین‌کننده میانگین".into(),kind:"supplier".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        create_contact(&c,&ContactInput{name:"مشتری میانگین".into(),kind:"customer".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        let pid=create_product(&c,&ProductInput{name:"کالا".into(),code:"AVG-1".into(),barcode:String::new(),buy_price:10,sell_price:50,quantity:1,min_quantity:0}).unwrap();
+        create_invoice(&mut c,&InvoiceInput{kind:"purchase".into(),contact_name:"تامین‌کننده میانگین".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"AVG-1".into(),quantity:1,unit_price:30}]}).unwrap();
+        assert_eq!(c.query_row("SELECT average_cost FROM products WHERE id=?1",[pid],|r|r.get::<_,i64>(0)).unwrap(),20);
+        let sale=create_invoice(&mut c,&InvoiceInput{kind:"sale".into(),contact_name:"مشتری میانگین".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"AVG-1".into(),quantity:1,unit_price:50}]}).unwrap();
+        assert_eq!(c.query_row("SELECT unit_cost FROM invoice_items WHERE invoice_id=?1",[sale],|r|r.get::<_,i64>(0)).unwrap(),20);
+        create_invoice(&mut c,&InvoiceInput{kind:"purchase".into(),contact_name:"تامین‌کننده میانگین".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"AVG-1".into(),quantity:1,unit_price:40}]}).unwrap();
+        let prices:(i64,i64)=c.query_row("SELECT buy_price,average_cost FROM products WHERE id=?1",[pid],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(prices,(40,30));
+        assert_eq!(c.query_row("SELECT unit_cost FROM invoice_items WHERE invoice_id=?1",[sale],|r|r.get::<_,i64>(0)).unwrap(),20);
+    }
+
+    #[test]
+    fn sale_return_restores_inventory_at_original_saved_average_cost() {
+        let mut c=database();
+        create_contact(&c,&ContactInput{name:"تامین‌کننده برگشت".into(),kind:"supplier".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        create_contact(&c,&ContactInput{name:"مشتری برگشت هزینه".into(),kind:"customer".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        let pid=create_product(&c,&ProductInput{name:"کالای برگشت".into(),code:"AVG-RET".into(),barcode:String::new(),buy_price:10,sell_price:50,quantity:1,min_quantity:0}).unwrap();
+        create_invoice(&mut c,&InvoiceInput{kind:"purchase".into(),contact_name:"تامین‌کننده برگشت".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"AVG-RET".into(),quantity:1,unit_price:30}]}).unwrap();
+        let sale=create_invoice(&mut c,&InvoiceInput{kind:"sale".into(),contact_name:"مشتری برگشت هزینه".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"AVG-RET".into(),quantity:1,unit_price:50}]}).unwrap();
+        create_invoice(&mut c,&InvoiceInput{kind:"purchase".into(),contact_name:"تامین‌کننده برگشت".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"AVG-RET".into(),quantity:1,unit_price:40}]}).unwrap();
+        return_sale_items(&mut c,sale,&[ReturnLineInput{product_lookup:"AVG-RET".into(),quantity:1}],"cash").unwrap();
+        let result:(i64,i64)=c.query_row("SELECT quantity,average_cost FROM products WHERE id=?1",[pid],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(result,(3,27));
+    }
 
 }
