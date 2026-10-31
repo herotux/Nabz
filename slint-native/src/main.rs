@@ -79,8 +79,10 @@ fn refresh_ui(ui: &MainWindow, c: &Connection) -> Result<(), String> {
     };
     ui.set_inventory_adjustment_history(if history.is_empty(){"هنوز سابقه‌ای ثبت نشده است.".into()}else{history.into()});
     let valuation = nabz_core::accounting::inventory_valuation(c)?;
-    let total_units = valuation.iter().map(|p| p.quantity).sum::<i64>();
-    let total_value = valuation.iter().map(|p| p.stock_value).sum::<i64>();
+    let total_units = valuation.iter().try_fold(0_i64, |sum, p| sum.checked_add(p.quantity))
+        .ok_or("جمع تعداد موجودی بیش از ظرفیت عددی است")?;
+    let total_value = valuation.iter().try_fold(0_i64, |sum, p| sum.checked_add(p.stock_value))
+        .ok_or("ارزش کل انبار بیش از ظرفیت عددی است")?
     let low_stock = valuation.iter().filter(|p| p.quantity <= p.min_quantity).count();
     let zero_stock = valuation.iter().filter(|p| p.quantity == 0).count();
     ui.set_inventory_report_summary(format!(
