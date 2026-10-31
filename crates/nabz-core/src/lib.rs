@@ -12,7 +12,7 @@ use std::process::{Child, Command};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz.webprototype";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// Normalize Persian and English contact roles consistently across frontends.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -454,12 +454,54 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         tx.commit().map_err(|e|e.to_string())?;
     }
 
+    if version < 4 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS inventory_adjustments_no_update
+               BEFORE UPDATE ON inventory_adjustments
+               BEGIN
+                 SELECT RAISE(ABORT, 'inventory adjustment history is immutable');
+               END;
+             CREATE TRIGGER IF NOT EXISTS inventory_adjustments_no_delete
+               BEFORE DELETE ON inventory_adjustments
+               BEGIN
+                 SELECT RAISE(ABORT, 'inventory adjustment history is immutable');
+               END;"
+        ).map_err(|e| e.to_string())?;
+        tx.pragma_update(None, "user_version", 4).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inventory_adjustment_audit_is_immutable_after_v4_migration() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO products(name,code,quantity) VALUES('کالا','IMM-1',5)", []
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO inventory_adjustments(product_id,product_name,previous_quantity,new_quantity,delta,reason)
+             VALUES(1,'کالا',4,5,1,'انبارگردانی')", []
+        ).unwrap();
+
+        let update = connection.execute(
+            "UPDATE inventory_adjustments SET reason='تغییر' WHERE id=1", []
+        );
+        let delete = connection.execute("DELETE FROM inventory_adjustments WHERE id=1", []);
+        assert!(update.is_err());
+        assert!(delete.is_err());
+        let count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM inventory_adjustments", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
 
     #[test]
     fn contact_roles_are_normalized_consistently() {
