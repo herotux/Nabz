@@ -493,7 +493,7 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     if version < 6 {
         let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
         tx.execute_batch(
-            "ALTER TABLE products ADD COLUMN average_cost INTEGER NOT NULL DEFAULT 0 CHECK(average_cost>=0);
+            "ALTER TABLE products ADD COLUMN average_cost INTEGER NOT NULL DEFAULT 0;
              -- Existing stock has no complete cost-layer history. Preserve the current
              -- recorded purchase price as its opening-cost estimate; new purchases
              -- use perpetual moving weighted-average costing from this point onward.
