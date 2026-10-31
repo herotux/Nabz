@@ -803,16 +803,17 @@ mod tests {
         c.execute_batch(
             "PRAGMA foreign_keys=ON;
              CREATE TABLE invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '');
-             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE);
+             CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),item_name TEXT NOT NULL);"
         ).unwrap();
         c.execute("INSERT INTO invoices(id,number,kind,contact_name,subtotal,total) VALUES(1,1,'sale','Legacy',100,100)", []).unwrap();
         migrate_database(&mut c).unwrap();
         assert_eq!(scalar(&c, "SELECT voided FROM invoices WHERE id=1"), 0);
-        assert_eq!(scalar(&c, "PRAGMA user_version"), 1);
+        assert_eq!(scalar(&c, "PRAGMA user_version"), nabz_core::SCHEMA_VERSION);
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('sales_returns','sales_return_items','sales_refunds')"), 3);
+        assert_eq!(scalar(&c, "SELECT COUNT(*) FROM pragma_table_info('products') WHERE name='average_cost'"), 1);
         migrate_database(&mut c).unwrap();
-        assert_eq!(scalar(&c, "PRAGMA user_version"), 1);
+        assert_eq!(scalar(&c, "PRAGMA user_version"), nabz_core::SCHEMA_VERSION);
         assert_eq!(scalar(&c, "SELECT COUNT(*) FROM invoices"), 1);
     }
 
