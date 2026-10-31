@@ -12,7 +12,7 @@ use std::process::{Child, Command};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz.webprototype";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// Normalize Persian and English contact roles consistently across frontends.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -469,6 +469,24 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                END;"
         ).map_err(|e| e.to_string())?;
         tx.pragma_update(None, "user_version", 4).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 5 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "ALTER TABLE invoice_items ADD COLUMN unit_cost INTEGER CHECK(unit_cost IS NULL OR unit_cost>=0);
+             CREATE TABLE IF NOT EXISTS expenses(
+               id INTEGER PRIMARY KEY,
+               category TEXT NOT NULL CHECK(length(trim(category))>0),
+               description TEXT NOT NULL CHECK(length(trim(description))>0),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               expense_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date DESC,id DESC);"
+        ).map_err(|e| e.to_string())?;
+        tx.pragma_update(None, "user_version", 5).map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
     }
 
