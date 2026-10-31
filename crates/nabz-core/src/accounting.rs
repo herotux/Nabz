@@ -970,24 +970,32 @@ mod tests {
     #[test]
     fn inventory_adjustment_updates_stock_and_writes_audit_atomically() {
         let mut c=database();
-        let result=adjust_inventory(&mut c,1,17,"شمارش دستی انبار").unwrap();
+        let product_id = create_product(&c, &ProductInput {
+            name: "Pen".into(), code: "PEN-ADJUST".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 10, min_quantity: 0,
+        }).unwrap();
+        let result=adjust_inventory(&mut c,product_id,17,"شمارش دستی انبار").unwrap();
         assert_eq!((result.previous_quantity,result.new_quantity,result.delta),(10,17,7));
         let audit:(String,i64,i64,i64,String)=c.query_row(
-            "SELECT product_name,previous_quantity,new_quantity,delta,reason FROM inventory_adjustments WHERE product_id=1",
-            [],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
+            "SELECT product_name,previous_quantity,new_quantity,delta,reason FROM inventory_adjustments WHERE product_id=?1",
+            [product_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
         ).unwrap();
         assert_eq!(audit,("Pen".into(),10,17,7,"شمارش دستی انبار".into()));
-        assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=1",[],|r|r.get::<_,i64>(0)).unwrap(),17);
+        assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=?1",[product_id],|r|r.get::<_,i64>(0)).unwrap(),17);
     }
 
     #[test]
     fn inventory_adjustment_rejects_invalid_input_without_mutation() {
         let mut c=database();
-        assert!(adjust_inventory(&mut c,1,-1,"شمارش دستی").is_err());
-        assert!(adjust_inventory(&mut c,1,10,"").is_err());
-        assert!(adjust_inventory(&mut c,1,10,"تغییر").is_err());
+        let product_id = create_product(&c, &ProductInput {
+            name: "Pen".into(), code: "PEN-INVALID-ADJUST".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 10, min_quantity: 0,
+        }).unwrap();
+        assert!(adjust_inventory(&mut c,product_id,-1,"شمارش دستی").is_err());
+        assert!(adjust_inventory(&mut c,product_id,10,"").is_err());
+        assert!(adjust_inventory(&mut c,product_id,10,"تغییر").is_err());
         assert!(adjust_inventory(&mut c,999,3,"شمارش دستی").is_err());
-        assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=1",[],|r|r.get::<_,i64>(0)).unwrap(),10);
+        assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=?1",[product_id],|r|r.get::<_,i64>(0)).unwrap(),10);
         assert_eq!(c.query_row("SELECT COUNT(*) FROM inventory_adjustments",[],|r|r.get::<_,i64>(0)).unwrap(),0);
     }
 
