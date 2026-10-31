@@ -1074,4 +1074,66 @@ mod tests {
         let duplicate = ProductInput { code: "SKU-2".into(), ..edited };
         assert!(create_product(&connection, &duplicate).is_err());
     }
+
+    #[test]
+    fn inventory_ledger_reconciles_purchases_sales_returns_and_adjustments() {
+        let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "مشتری گزارش".into(), kind: "customer".into(),
+            phone: String::new(), opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        create_contact(&connection, &ContactInput {
+            name: "تأمین‌کننده گزارش".into(), kind: "supplier".into(),
+            phone: String::new(), opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        let product_id = create_product(&connection, &ProductInput {
+            name: "کالای گزارش".into(), code: "LEDGER-1".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 30, quantity: 10, min_quantity: 2,
+        }).unwrap();
+
+        let purchase_id = create_invoice(&mut connection, &InvoiceInput {
+            kind: "purchase".into(), contact_name: "تأمین‌کننده گزارش".into(),
+            date: "2026-10-29".into(), discount: 0, paid: 0, method: "cash".into(),
+            notes: String::new(), lines: vec![InvoiceLineInput {
+                product_lookup: "LEDGER-1".into(), quantity: 5, unit_price: 20,
+            }],
+        }).unwrap();
+        let sale_id = create_invoice(&mut connection, &InvoiceInput {
+            kind: "sale".into(), contact_name: "مشتری گزارش".into(),
+            date: "2026-10-30".into(), discount: 0, paid: 0, method: "cash".into(),
+            notes: String::new(), lines: vec![InvoiceLineInput {
+                product_lookup: "LEDGER-1".into(), quantity: 3, unit_price: 30,
+            }],
+        }).unwrap();
+        return_sale_items(&mut connection, sale_id, &[ReturnLineInput {
+            product_lookup: "LEDGER-1".into(), quantity: 1,
+        }], "cash").unwrap();
+        return_purchase_items(&mut connection, purchase_id, &[ReturnLineInput {
+            product_lookup: "LEDGER-1".into(), quantity: 1,
+        }], "cash").unwrap();
+        adjust_inventory(&mut connection, product_id, 11, "انبارگردانی دوره‌ای").unwrap();
+
+        let valuation = inventory_valuation(&connection).unwrap();
+        assert_eq!(valuation.len(), 1);
+        assert_eq!((valuation[0].quantity, valuation[0].buy_price, valuation[0].stock_value), (11, 20, 220));
+
+        let movements = inventory_movements(&connection).unwrap();
+        assert_eq!(movements.len(), 5);
+        let delta_sum: i64 = movements.iter().map(|m| m.quantity_delta).sum();
+        assert_eq!(delta_sum, 1);
+        assert_eq!(movements[0].movement_type, "اصلاح موجودی");
+        assert_eq!(movements[0].balance_after, 11);
+        let opening = movements.last().unwrap().balance_after - movements.last().unwrap().quantity_delta;
+        assert_eq!(opening, 10);
+    }
+
+    #[test]
+    fn inventory_valuation_detects_integer_overflow() {
+        let connection = database();
+        connection.execute(
+            "INSERT INTO products(name,code,quantity,buy_price) VALUES('کالای بزرگ','BIG-1',9223372036854775807,2)",
+            []
+        ).unwrap();
+        assert!(inventory_valuation(&connection).unwrap_err().contains("ظرفیت عددی"));
+    }
 }
