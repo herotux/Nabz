@@ -66,6 +66,8 @@ jobs:
           dpkg-deb --build --root-owner-group "$package" slint-native/target/nabz-slint_0.1.0_amd64.deb
           dpkg-deb --info slint-native/target/nabz-slint_0.1.0_amd64.deb
           test -s slint-native/target/nabz-slint_0.1.0_amd64.deb
+      - name: Verify package cannot remove shared user data
+        run: bash scripts/verify-deb-data-safety.sh slint-native/target/nabz-slint_0.1.0_amd64.deb
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
