@@ -38,6 +38,6 @@ package() {
   install -Dm755 slint-native/target/release/nabz-slint "$pkgdir/usr/bin/nabz-slint"
   install -Dm644 slint-native/README.md "$pkgdir/usr/share/doc/nabz-slint/README.md"
   install -Dm644 packaging/arch/nabz-slint.desktop "$pkgdir/usr/share/applications/nabz-slint.desktop"
-  install -Dm644 tauri-web/src-tauri/icons/icon.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/nabz-slint.png"
+  install -Dm644 assets/nabz.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/nabz-slint.svg"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
