@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Nabz (Slint)
+Comment=Native Persian accounting application
+Exec=nabz-slint
+Icon=nabz-slint
+Terminal=false
+Categories=Office;Finance;
