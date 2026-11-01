@@ -40,7 +40,7 @@ case "$FRONTEND" in slint|tauri|both) ;; *) fail "پارامتر معتبر: sli
 
 PACKAGES=(base-devel git rust pkgconf fontconfig freetype2 libglvnd libx11 libxcb libxkbcommon wayland)
 if [[ "$FRONTEND" == tauri || "$FRONTEND" == both ]]; then
-  PACKAGES+=(nodejs npm gtk3 libayatana-appindicator librsvg openssl webkit2gtk-4.1)
+  PACKAGES+=(nodejs npm python gtk3 libayatana-appindicator librsvg openssl webkit2gtk-4.1)
 fi
 
 log "نصب ابزارهای ساخت و وابستگی‌های رابط انتخاب‌شده"
