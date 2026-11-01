@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Nabz (Tauri Web)
+Comment=Persian accounting application with the web UI
+Exec=nabz-tauri
+Icon=nabz-tauri
+Terminal=false
+Categories=Office;Finance;
