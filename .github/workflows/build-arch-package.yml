@@ -1,0 +1,59 @@
+name: Build native Arch package
+
+on:
+  pull_request:
+    paths:
+      - "PKGBUILD"
+      - "install.sh"
+      - "scripts/**"
+      - "src/**"
+      - "Cargo.toml"
+      - "assets/**"
+      - "packaging/**"
+      - ".github/workflows/build-arch-package.yml"
+  push:
+    branches: [main]
+    paths:
+      - "PKGBUILD"
+      - "install.sh"
+      - "scripts/**"
+      - "src/**"
+      - "Cargo.toml"
+      - "assets/**"
+      - "packaging/**"
+      - ".github/workflows/build-arch-package.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build package in a clean Arch Linux environment
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            archlinux:base-devel \
+            bash -euxo pipefail -c '
+              pacman -Syu --noconfirm --needed \
+                git rust pkgconf gcc-libs glibc libglvnd \
+                libx11 libxcb libxkbcommon libxkbcommon-x11 \
+                libxrandr libxi libxcursor libxinerama libxfixes \
+                libxrender libxext wayland fontconfig freetype2 cups
+              useradd --create-home builder
+              chown -R builder:builder /workspace
+              su builder -s /bin/bash -c "makepkg --noconfirm --cleanbuild"
+            '
+
+      - name: Upload built Arch package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nabz-arch-x86_64
+          path: "*.pkg.tar.zst"
+          if-no-files-found: error
+          retention-days: 14
