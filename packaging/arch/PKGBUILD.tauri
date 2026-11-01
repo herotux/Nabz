@@ -16,7 +16,7 @@ sha256sums=('SKIP')
 pkgver() {
   cd "$srcdir/nabz"
   local version count revision
-  version="$(sed -n 's/^version = "\([^"]*\)".*/\1/p' tauri-web/src-tauri/Cargo.toml | head -n1)"
+  version="$(node -p 'require("./tauri-web/package.json").version')"
   count="$(git rev-list --count HEAD)"
   revision="$(git rev-parse --short=7 HEAD)"
   printf '%s.r%s.g%s' "${version//-/_}" "$count" "$revision"
