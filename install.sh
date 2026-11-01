@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 REPO="https://github.com/herotux/Nabz.git"
-BRANCH="main"
+BRANCH="installer/manjaro-arch"
 APP_NAME="نبض"
 
 log() { printf '\n\033[1;32m[nabz]\033[0m %s\n' "$*"; }
