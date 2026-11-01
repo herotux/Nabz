@@ -10,7 +10,7 @@ depends=('gcc-libs' 'glibc' 'gtk3' 'libayatana-appindicator' 'librsvg' 'openssl'
 makedepends=('git' 'rust' 'nodejs' 'npm' 'pkgconf' 'base-devel')
 provides=('nabz-tauri')
 conflicts=('nabz-tauri-git')
-source=("nabz::git+https://github.com/herotux/Nabz.git#branch=feature/shared-core-ui-switching")
+source=("nabz::git+https://github.com/herotux/Nabz.git#branch=packaging/slint-tauri-arch")
 sha256sums=('SKIP')
 
 pkgver() {
