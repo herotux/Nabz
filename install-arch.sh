@@ -3,7 +3,6 @@ set -Eeuo pipefail
 
 REPO="https://github.com/herotux/Nabz.git"
 PACKAGING_BRANCH="packaging/slint-tauri-arch"
-APP_BRANCH="feature/shared-core-ui-switching"
 TMP_DIR=""
 
 log() { printf '\n\033[1;32m[nabz]\033[0m %s\n' "$*"; }
@@ -38,7 +37,7 @@ if [[ -z "$FRONTEND" ]]; then
 fi
 case "$FRONTEND" in slint|tauri|both) ;; *) fail "پارامتر معتبر: slint یا tauri یا both" ;; esac
 
-PACKAGES=(base-devel git rust pkgconf)
+PACKAGES=(base-devel git rust pkgconf fontconfig freetype2 libglvnd libx11 libxcb libxkbcommon wayland)
 if [[ "$FRONTEND" == tauri || "$FRONTEND" == both ]]; then
   PACKAGES+=(nodejs npm gtk3 libayatana-appindicator librsvg openssl webkit2gtk-4.1)
 fi
@@ -55,7 +54,7 @@ build_install() {
   local build_dir="$TMP_DIR/build-$frontend"
   mkdir -p "$build_dir"
   cp "$TMP_DIR/packaging/packaging/arch/PKGBUILD.$frontend" "$build_dir/PKGBUILD"
-  log "ساخت و نصب رابط $frontend از شاخه $APP_BRANCH"
+  log "ساخت و نصب رابط $frontend از سورس معماری دو رابطی نبض"
   (
     cd "$build_dir"
     makepkg -si --noconfirm
