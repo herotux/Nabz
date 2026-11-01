@@ -27,7 +27,8 @@ if [[ -z "$FRONTEND" ]]; then
   printf '  1) Slint (بومی و سبک)\n'
   printf '  2) Tauri (رابط Web)\n'
   printf '  3) هر دو رابط\n'
-  read -r -p 'انتخاب [1-3]: ' choice
+  [[ -r /dev/tty ]] || fail "در اجرای بدون ترمینال، یکی از پارامترهای slint، tauri یا both را بده." 
+  read -r -p 'انتخاب [1-3]: ' choice </dev/tty
   case "$choice" in
     1) FRONTEND=slint ;;
     2) FRONTEND=tauri ;;
