@@ -6,7 +6,7 @@ pkgdesc="Persian RTL accounting and shop-management application"
 arch=('x86_64')
 url="https://github.com/herotux/Nabz"
 license=('MIT')
-depends=('gcc-libs' 'glibc' 'libglvnd' 'libx11' 'libxcb' 'libxkbcommon' 'wayland' 'fontconfig' 'freetype2')
+depends=('gcc-libs' 'glibc' 'libglvnd' 'libx11' 'libxcb' 'libxkbcommon' 'libxkbcommon-x11' 'libxrandr' 'libxi' 'libxcursor' 'libxinerama' 'libxfixes' 'libxrender' 'libxext' 'wayland' 'fontconfig' 'freetype2')
 makedepends=('git' 'rust' 'pkgconf')
 optdepends=('cups: printer discovery and printing')
 provides=('nabz')
@@ -30,12 +30,12 @@ prepare() {
 
 build() {
   cd "$srcdir/nabz"
-  cargo build --release --locked
+  cargo build --release
 }
 
 check() {
   cd "$srcdir/nabz"
-  cargo test --locked
+  cargo test
 }
 
 package() {
