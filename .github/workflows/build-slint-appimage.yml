@@ -1,0 +1,149 @@
+name: Build Slint AppImage
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nabz-slint-appimage-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify Slint AppImage (x86_64)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v4
+
+      - name: Install build and smoke-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config curl file patchelf \
+            libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libx11-dev \
+            libfontconfig1-dev libfreetype6-dev libssl-dev \
+            libgl1-mesa-dev libwayland-dev xvfb
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            slint-native
+            crates/nabz-core
+
+      - name: Test shared accounting core
+        run: cargo test --manifest-path crates/nabz-core/Cargo.toml
+
+      - name: Test Slint application
+        run: cargo test --manifest-path slint-native/Cargo.toml
+
+      - name: Build optimized Slint binary
+        run: cargo build --release --manifest-path slint-native/Cargo.toml
+
+      - name: Smoke-test native binary with isolated database
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/nabz-smoke"
+          set +e
+          timeout 8s xvfb-run -a env \
+            NABZ_DB_PATH="$RUNNER_TEMP/nabz-smoke/nabz.sqlite3" \
+            ./slint-native/target/release/nabz-slint
+          status=$?
+          set -e
+          if [ "$status" -ne 124 ] && [ "$status" -ne 0 ]; then
+            echo "Slint application failed during startup (exit $status)." >&2
+            exit "$status"
+          fi
+          test -s "$RUNNER_TEMP/nabz-smoke/nabz.sqlite3"
+
+      - name: Prepare AppDir
+        run: |
+          set -euo pipefail
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications \
+            AppDir/usr/share/icons/hicolor/scalable/apps
+          install -m 0755 slint-native/target/release/nabz-slint AppDir/usr/bin/nabz-slint
+          cat > AppDir/nabz-slint.desktop <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=Nabz (Slint)
+          Comment=Native Persian accounting application
+          Exec=nabz-slint
+          Icon=nabz-slint
+          Terminal=false
+          Categories=Office;Finance;
+          StartupNotify=true
+          DESKTOP
+          cp AppDir/nabz-slint.desktop AppDir/usr/share/applications/nabz-slint.desktop
+          cat > AppDir/usr/share/icons/hicolor/scalable/apps/nabz-slint.svg <<'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+            <rect x="12" y="12" width="232" height="232" rx="48" fill="#16865b"/>
+            <path d="M66 70h124v22H91v27h88v22H91v45H66z" fill="#fff"/>
+            <path d="M116 141h74v22h-74z" fill="#c8f2df"/>
+          </svg>
+          SVG
+
+      - name: Bundle runtime libraries
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+            -o "$RUNNER_TEMP/linuxdeploy"
+          chmod +x "$RUNNER_TEMP/linuxdeploy"
+          "$RUNNER_TEMP/linuxdeploy" --appimage-extract-and-run \
+            --appdir AppDir \
+            --executable AppDir/usr/bin/nabz-slint \
+            --desktop-file AppDir/nabz-slint.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/nabz-slint.svg
+
+      - name: Create AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o "$RUNNER_TEMP/appimagetool"
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          ARCH=x86_64 "$RUNNER_TEMP/appimagetool" --appimage-extract-and-run \
+            AppDir Nabz-Slint-x86_64.AppImage
+          chmod +x Nabz-Slint-x86_64.AppImage
+          file Nabz-Slint-x86_64.AppImage
+          test -s Nabz-Slint-x86_64.AppImage
+
+      - name: Smoke-test packaged AppImage
+        shell: bash
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/nabz-appimage-smoke"
+          set +e
+          timeout 8s xvfb-run -a env \
+            NABZ_DB_PATH="$RUNNER_TEMP/nabz-appimage-smoke/nabz.sqlite3" \
+            APPIMAGE_EXTRACT_AND_RUN=1 \
+            ./Nabz-Slint-x86_64.AppImage
+          status=$?
+          set -e
+          if [ "$status" -ne 124 ] && [ "$status" -ne 0 ]; then
+            echo "Packaged AppImage failed during startup (exit $status)." >&2
+            exit "$status"
+          fi
+          test -s "$RUNNER_TEMP/nabz-appimage-smoke/nabz.sqlite3"
+
+      - name: Upload verified AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Slint-AppImage-x86_64
+          path: Nabz-Slint-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 14
