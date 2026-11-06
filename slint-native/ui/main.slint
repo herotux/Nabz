@@ -24,8 +24,10 @@ component SummaryCard inherits Rectangle {
 
 export component MainWindow inherits Window {
     title: "نبض | حسابداری فروشگاهی";
-    width: 1220px;
-    height: 820px;
+    width: 1100px;
+    height: 700px;
+    min-width: 960px;
+    min-height: 640px;
     background: #f4f6f8;
 
     in-out property <string> active-page: "داشبورد";
@@ -131,23 +133,6 @@ export component MainWindow inherits Window {
         }
         HorizontalLayout {
             spacing: 0px;
-            Rectangle {
-                width: 190px; background: #ffffff;
-                VerticalLayout {
-                    padding: 12px; spacing: 7px;
-                    Text { text: "منوی اصلی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
-                    Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; root.refresh-requested(); } }
-                    Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
-                    Button { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; root.refresh-requested(); } }
-                    Button { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; root.refresh-requested(); } }
-                    Button { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; root.refresh-requested(); } }
-                    Button { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; root.refresh-requested(); } }
-                    Button { text: "چاپ و بارکد"; clicked => { root.active-page = "چاپ و بارکد"; } }
-                    Button { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; root.refresh-requested(); } }
-                    Rectangle { background: transparent; vertical-stretch: 1; }
-                    Text { text: root.status-message; color: #667085; font-size: 11px; wrap: word-wrap; horizontal-alignment: right; }
-                }
-            }
             Rectangle {
                 background: #f4f6f8; horizontal-stretch: 1;
                 VerticalLayout {
@@ -380,6 +365,23 @@ export component MainWindow inherits Window {
                             }
                         }
                     }
+                }
+            }
+            Rectangle {
+                width: 190px; background: #ffffff;
+                VerticalLayout {
+                    padding: 12px; spacing: 7px;
+                    Text { text: "منوی اصلی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
+                    Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; root.refresh-requested(); } }
+                    Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
+                    Button { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; root.refresh-requested(); } }
+                    Button { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; root.refresh-requested(); } }
+                    Button { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; root.refresh-requested(); } }
+                    Button { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; root.refresh-requested(); } }
+                    Button { text: "چاپ و بارکد"; clicked => { root.active-page = "چاپ و بارکد"; } }
+                    Button { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; root.refresh-requested(); } }
+                    Rectangle { background: transparent; vertical-stretch: 1; }
+                    Text { text: root.status-message; color: #667085; font-size: 11px; wrap: word-wrap; horizontal-alignment: right; }
                 }
             }
         }
