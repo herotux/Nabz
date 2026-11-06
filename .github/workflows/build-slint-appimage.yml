@@ -57,13 +57,14 @@ jobs:
           ./slint-native/target/release/nabz-slint >"$RUNNER_TEMP/nabz-native.log" 2>&1 &
           app_pid=$!
           trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" 2>/dev/null || true' EXIT
+          read -r screen_width screen_height <<<"$(xdotool getdisplaygeometry)"
           window=""
           for attempt in $(seq 1 20); do
             for id in $(xdotool search --onlyvisible --name '.*' 2>/dev/null || true); do
               xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-geometry" 2>/dev/null || continue
               width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-geometry")
               height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-geometry")
-              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then
+              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ] && [ "${width:-0}" -lt "$screen_width" ] && [ "${height:-0}" -lt "$screen_height" ]; then
                 window="$id"
                 echo "Detected native window: $(xdotool getwindowname "$id" 2>/dev/null || true) (${width}x${height})"
                 break
@@ -154,13 +155,14 @@ jobs:
           ./Nabz-Slint-x86_64.AppImage >"$RUNNER_TEMP/nabz-appimage.log" 2>&1 &
           app_pid=$!
           trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" 2>/dev/null || true' EXIT
+          read -r screen_width screen_height <<<"$(xdotool getdisplaygeometry)"
           window=""
           for attempt in $(seq 1 25); do
             for id in $(xdotool search --onlyvisible --name '.*' 2>/dev/null || true); do
               xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-appimage-geometry" 2>/dev/null || continue
               width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
               height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
-              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then
+              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ] && [ "${width:-0}" -lt "$screen_width" ] && [ "${height:-0}" -lt "$screen_height" ]; then
                 window="$id"
                 echo "Detected packaged window: $(xdotool getwindowname "$id" 2>/dev/null || true) (${width}x${height})"
                 break
