@@ -59,13 +59,13 @@ jobs:
             trap "kill $app_pid 2>/dev/null || true; wait $app_pid 2>/dev/null || true" EXIT
             window=""
             for attempt in $(seq 1 20); do
-              window="$(xdotool search --onlyvisible --name "نبض" 2>/dev/null | head -n1 || true)"
+              window="$(xdotool search --onlyvisible --name ".*" 2>/dev/null | while read -r id; do\n                name="$(xdotool getwindowname "$id" 2>/dev/null || true)"\n                geometry="$(xdotool getwindowgeometry --shell "$id" 2>/dev/null || true)"\n                width="$(printf "%s\\n" "$geometry" | sed -n "s/^WIDTH=//p")"\n                height="$(printf "%s\\n" "$geometry" | sed -n "s/^HEIGHT=//p")"\n                if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then\n                  echo "$id"\n                  echo "Detected window: $name (${width}x${height})" >&2\n                  break\n                fi\n              done)"
               [ -n "$window" ] && break
               kill -0 "$app_pid" 2>/dev/null || break
               sleep 1
             done
             if [ -z "$window" ]; then
-              echo "Native app did not create a visible Nabz window." >&2
+              echo "Native app did not create a visible window (minimum 400x300)." >&2\n              xdotool search --onlyvisible --name ".*" 2>/dev/null | while read -r id; do xdotool getwindowname "$id" 2>/dev/null || true; done\n              xwininfo -root -tree >&2 || true
               cat "$RUNNER_TEMP/nabz-native.log" >&2 || true
               exit 1
             fi
@@ -152,7 +152,7 @@ jobs:
               sleep 1
             done
             if [ -z "$window" ]; then
-              echo "Packaged AppImage did not create a visible Nabz window." >&2
+              echo "Packaged AppImage did not create a visible window (minimum 400x300)." >&2\n              xdotool search --onlyvisible --name ".*" 2>/dev/null | while read -r id; do xdotool getwindowname "$id" 2>/dev/null || true; done\n              xwininfo -root -tree >&2 || true
               cat "$RUNNER_TEMP/nabz-appimage.log" >&2 || true
               exit 1
             fi
