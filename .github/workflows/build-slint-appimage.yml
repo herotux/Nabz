@@ -162,6 +162,19 @@ jobs:
             test -s "$NABZ_DB_PATH"
           '
 
+      - name: Preserve GUI smoke-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Slint-GUI-Test-Evidence
+          path: |
+            ${{ runner.temp }}/nabz-native.log
+            ${{ runner.temp }}/nabz-native.png
+            ${{ runner.temp }}/nabz-appimage.log
+            ${{ runner.temp }}/nabz-appimage.png
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload verified AppImage
         uses: actions/upload-artifact@v4
         with:
