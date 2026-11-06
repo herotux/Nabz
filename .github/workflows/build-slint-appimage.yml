@@ -52,28 +52,38 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/nabz-smoke"
-          xvfb-run -a bash -euo pipefail -c '
-            export NABZ_DB_PATH="$RUNNER_TEMP/nabz-smoke/nabz.sqlite3"
-            ./slint-native/target/release/nabz-slint >"$RUNNER_TEMP/nabz-native.log" 2>&1 &
-            app_pid=$!
-            trap "kill $app_pid 2>/dev/null || true; wait $app_pid 2>/dev/null || true" EXIT
-            window=""
-            for attempt in $(seq 1 20); do
-              window="$(xdotool search --onlyvisible --name ".*" 2>/dev/null | while read -r id; do\n                name="$(xdotool getwindowname "$id" 2>/dev/null || true)"\n                geometry="$(xdotool getwindowgeometry --shell "$id" 2>/dev/null || true)"\n                width="$(printf "%s\\n" "$geometry" | sed -n "s/^WIDTH=//p")"\n                height="$(printf "%s\\n" "$geometry" | sed -n "s/^HEIGHT=//p")"\n                if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then\n                  echo "$id"\n                  echo "Detected window: $name (${width}x${height})" >&2\n                  break\n                fi\n              done)"
-              [ -n "$window" ] && break
-              kill -0 "$app_pid" 2>/dev/null || break
-              sleep 1
+          xvfb-run -a bash -euo pipefail <<'SMOKE'
+          export NABZ_DB_PATH="$RUNNER_TEMP/nabz-smoke/nabz.sqlite3"
+          ./slint-native/target/release/nabz-slint >"$RUNNER_TEMP/nabz-native.log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" 2>/dev/null || true' EXIT
+          window=""
+          for attempt in $(seq 1 20); do
+            for id in $(xdotool search --onlyvisible --name '.*' 2>/dev/null || true); do
+              xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-geometry" 2>/dev/null || continue
+              width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-geometry")
+              height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-geometry")
+              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then
+                window="$id"
+                echo "Detected native window: $(xdotool getwindowname "$id" 2>/dev/null || true) (${width}x${height})"
+                break
+              fi
             done
-            if [ -z "$window" ]; then
-              echo "Native app did not create a visible window (minimum 400x300)." >&2\n              xdotool search --onlyvisible --name ".*" 2>/dev/null | while read -r id; do xdotool getwindowname "$id" 2>/dev/null || true; done\n              xwininfo -root -tree >&2 || true
-              cat "$RUNNER_TEMP/nabz-native.log" >&2 || true
-              exit 1
-            fi
-            import -window "$window" "$RUNNER_TEMP/nabz-native.png"
-            identify "$RUNNER_TEMP/nabz-native.png"
-            test -s "$RUNNER_TEMP/nabz-native.png"
-            test -s "$NABZ_DB_PATH"
-          '
+            [ -n "$window" ] && break
+            kill -0 "$app_pid" 2>/dev/null || break
+            sleep 1
+          done
+          if [ -z "$window" ]; then
+            echo "Native app did not create a visible window (minimum 400x300)." >&2
+            xwininfo -root -tree >&2 || true
+            cat "$RUNNER_TEMP/nabz-native.log" >&2 || true
+            exit 1
+          fi
+          import -window "$window" "$RUNNER_TEMP/nabz-native.png"
+          identify "$RUNNER_TEMP/nabz-native.png"
+          test -s "$RUNNER_TEMP/nabz-native.png"
+          test -s "$NABZ_DB_PATH"
+          SMOKE
 
       - name: Prepare AppDir
         run: |
@@ -138,29 +148,39 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/nabz-appimage-smoke"
-          xvfb-run -a bash -euo pipefail -c '
-            export APPIMAGE_EXTRACT_AND_RUN=1
-            export NABZ_DB_PATH="$RUNNER_TEMP/nabz-appimage-smoke/nabz.sqlite3"
-            ./Nabz-Slint-x86_64.AppImage >"$RUNNER_TEMP/nabz-appimage.log" 2>&1 &
-            app_pid=$!
-            trap "kill $app_pid 2>/dev/null || true; wait $app_pid 2>/dev/null || true" EXIT
-            window=""
-            for attempt in $(seq 1 25); do
-              window="$(xdotool search --onlyvisible --name "نبض" 2>/dev/null | head -n1 || true)"
-              [ -n "$window" ] && break
-              kill -0 "$app_pid" 2>/dev/null || break
-              sleep 1
+          xvfb-run -a bash -euo pipefail <<'SMOKE'
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export NABZ_DB_PATH="$RUNNER_TEMP/nabz-appimage-smoke/nabz.sqlite3"
+          ./Nabz-Slint-x86_64.AppImage >"$RUNNER_TEMP/nabz-appimage.log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" 2>/dev/null || true' EXIT
+          window=""
+          for attempt in $(seq 1 25); do
+            for id in $(xdotool search --onlyvisible --name '.*' 2>/dev/null || true); do
+              xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-appimage-geometry" 2>/dev/null || continue
+              width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
+              height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
+              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then
+                window="$id"
+                echo "Detected packaged window: $(xdotool getwindowname "$id" 2>/dev/null || true) (${width}x${height})"
+                break
+              fi
             done
-            if [ -z "$window" ]; then
-              echo "Packaged AppImage did not create a visible window (minimum 400x300)." >&2\n              xdotool search --onlyvisible --name ".*" 2>/dev/null | while read -r id; do xdotool getwindowname "$id" 2>/dev/null || true; done\n              xwininfo -root -tree >&2 || true
-              cat "$RUNNER_TEMP/nabz-appimage.log" >&2 || true
-              exit 1
-            fi
-            import -window "$window" "$RUNNER_TEMP/nabz-appimage.png"
-            identify "$RUNNER_TEMP/nabz-appimage.png"
-            test -s "$RUNNER_TEMP/nabz-appimage.png"
-            test -s "$NABZ_DB_PATH"
-          '
+            [ -n "$window" ] && break
+            kill -0 "$app_pid" 2>/dev/null || break
+            sleep 1
+          done
+          if [ -z "$window" ]; then
+            echo "Packaged AppImage did not create a visible window (minimum 400x300)." >&2
+            xwininfo -root -tree >&2 || true
+            cat "$RUNNER_TEMP/nabz-appimage.log" >&2 || true
+            exit 1
+          fi
+          import -window "$window" "$RUNNER_TEMP/nabz-appimage.png"
+          identify "$RUNNER_TEMP/nabz-appimage.png"
+          test -s "$RUNNER_TEMP/nabz-appimage.png"
+          test -s "$NABZ_DB_PATH"
+          SMOKE
 
       - name: Preserve GUI smoke-test evidence
         if: always()
