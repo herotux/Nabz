@@ -53,6 +53,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/nabz-smoke"
           xvfb-run -a bash -euo pipefail <<'SMOKE'
+          export SLINT_BACKEND=winit-software
           export NABZ_DB_PATH="$RUNNER_TEMP/nabz-smoke/nabz.sqlite3"
           ./slint-native/target/release/nabz-slint >"$RUNNER_TEMP/nabz-native.log" 2>&1 &
           app_pid=$!
@@ -127,6 +128,17 @@ jobs:
             --desktop-file AppDir/nabz-slint.desktop \
             --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/nabz-slint.svg
 
+      - name: Configure reliable AppImage launcher
+        run: |
+          set -euo pipefail
+          cat > AppDir/AppRun <<'APPRUN'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export SLINT_BACKEND="${SLINT_BACKEND:-winit-software}"
+          exec "$HERE/usr/bin/nabz-slint" "$@"
+          APPRUN
+          chmod 0755 AppDir/AppRun
+
       - name: Create AppImage
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
@@ -151,6 +163,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/nabz-appimage-smoke"
           xvfb-run -a bash -euo pipefail <<'SMOKE'
           export APPIMAGE_EXTRACT_AND_RUN=1
+          export SLINT_BACKEND=winit-software
           export NABZ_DB_PATH="$RUNNER_TEMP/nabz-appimage-smoke/nabz.sqlite3"
           ./Nabz-Slint-x86_64.AppImage >"$RUNNER_TEMP/nabz-appimage.log" 2>&1 &
           app_pid=$!
