@@ -133,9 +133,18 @@ jobs:
           set -euo pipefail
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
-          HERE="$(dirname "$(readlink -f "$0")")"
+          SELF="$(readlink -f "$0")"
+          HERE="$(dirname "$SELF")"
+          if [ -x "$HERE/nabz-slint" ]; then
+            APP="$HERE/nabz-slint"
+          elif [ -x "$HERE/usr/bin/nabz-slint" ]; then
+            APP="$HERE/usr/bin/nabz-slint"
+          else
+            echo "Nabz executable not found relative to AppRun: $HERE" >&2
+            exit 127
+          fi
           export SLINT_BACKEND="${SLINT_BACKEND:-winit-software}"
-          exec "$HERE/usr/bin/nabz-slint" "$@"
+          exec "$APP" "$@"
           APPRUN
           chmod 0755 AppDir/AppRun
 
