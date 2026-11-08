@@ -2,6 +2,11 @@ name: Build Slint AppImage
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - packaging/slint-tauri-arch
+    paths:
+      - .github/workflows/build-slint-appimage.yml
 
 permissions:
   contents: read
