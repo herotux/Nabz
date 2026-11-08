@@ -136,16 +136,16 @@ jobs:
       - name: Configure reliable AppImage launcher
         run: |
           set -euo pipefail
+          # appimagetool creates AppRun as a symlink to usr/bin/nabz-slint.
+          # Remove that symlink before writing, otherwise shell redirection follows it
+          # and overwrites the actual ELF executable with this launcher script.
+          rm -f AppDir/AppRun
           cat > AppDir/AppRun <<'APPRUN'
           #!/bin/sh
-          SELF="$(readlink -f "$0")"
-          HERE="$(dirname "$SELF")"
-          if [ -x "$HERE/nabz-slint" ]; then
-            APP="$HERE/nabz-slint"
-          elif [ -x "$HERE/usr/bin/nabz-slint" ]; then
-            APP="$HERE/usr/bin/nabz-slint"
-          else
-            echo "Nabz executable not found relative to AppRun: $HERE" >&2
+          HERE="$(dirname "$(readlink -f "$0")")"
+          APP="$HERE/usr/bin/nabz-slint"
+          if [ ! -x "$APP" ]; then
+            echo "Nabz executable not found: $APP" >&2
             exit 127
           fi
           export SLINT_BACKEND="${SLINT_BACKEND:-winit-software}"
