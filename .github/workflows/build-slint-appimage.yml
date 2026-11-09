@@ -134,7 +134,8 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"
         run: |
           set -euo pipefail
-          curl -fL --retry 3 \
+          curl -fL --retry 8 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 600 \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
             -o "$RUNNER_TEMP/linuxdeploy"
           chmod +x "$RUNNER_TEMP/linuxdeploy"
@@ -169,7 +170,8 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"
         run: |
           set -euo pipefail
-          curl -fL --retry 3 \
+          curl -fL --retry 8 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 600 \
             https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
             -o "$RUNNER_TEMP/appimagetool"
           chmod +x "$RUNNER_TEMP/appimagetool"
