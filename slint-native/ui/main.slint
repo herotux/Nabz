@@ -161,7 +161,7 @@ export component MainWindow inherits Window {
                 Rectangle { width: 40px; height: 40px; border-radius: 12px; background: #e8f5ee; Text { text: "ن"; color: #138354; font-size: 24px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; } }
                 Text { text: "نبض"; color: #176b4b; font-size: 25px; font-weight: 800; }
                 VerticalLayout { spacing: 2px; horizontal-stretch: 1; Text { text: "حسابداری فروشگاهی"; color: #263c34; font-size: 15px; font-weight: 600; horizontal-alignment: right; } Text { text: "مدیریت هوشمند فروشگاه"; color: #98a6a0; font-size: 10px; horizontal-alignment: right; } }
-                AppAppButton { text: "رابط Tauri"; clicked => { root.switch-ui-requested(); } }
+                AppButton { text: "رابط Tauri"; clicked => { root.switch-ui-requested(); } }
                 AppButton { text: "تازه‌سازی"; clicked => { root.refresh-requested(); } }
             }
         }
