@@ -46,6 +46,8 @@ jobs:
           print(f"Wrote valid {size}x{size} RGBA PNG: {target} ({len(png)} bytes)")
           PY
           file tauri-web/src-tauri/icons/icon.png
+      - name: Install bundled Persian font
+        run: bash scripts/fetch-font.sh
       - name: Run Nabz accounting regression tests
         working-directory: tauri-web
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib

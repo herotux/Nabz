@@ -1,4 +1,5 @@
 import { LineEdit, ListView, TextEdit } from "std-widgets.slint";
+import "../../assets/Vazirmatn.ttf";
 
 export struct ContactRow { id: int, name: string, kind: string, phone: string, balance: string }
 export struct ProductRow { id: int, name: string, code: string, quantity: string, price: string, stock: string }
@@ -15,16 +16,27 @@ component AppButton inherits Rectangle {
     background: root.enabled ? button-background : #eef1f0;
     border-color: button-border;
     border-width: 1px;
-    border-radius: 8px;
-    min-height: 40px;
+    border-radius: 9px;
+    min-width: 88px;
+    min-height: 42px;
     opacity: root.enabled ? 1 : 0.55;
-    Text {
-        text: root.text;
-        color: root.enabled ? root.button-foreground : #84918c;
-        font-size: 13px;
-        font-weight: 600;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    HorizontalLayout {
+        padding-left: 13px;
+        padding-right: 13px;
+        padding-top: 5px;
+        padding-bottom: 5px;
+        alignment: center;
+        Text {
+            text: root.text;
+            color: root.enabled ? root.button-foreground : #84918c;
+            font-size: 13px;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            wrap: word-wrap;
+            max-lines: 2;
+            overflow: elide;
+        }
     }
     TouchArea {
         enabled: root.enabled;
@@ -32,6 +44,42 @@ component AppButton inherits Rectangle {
     }
 }
 
+component RtlField inherits Rectangle {
+    in-out property <string> value;
+    in property <string> label;
+    in property <string> placeholder;
+    background: transparent;
+    min-width: 112px;
+    min-height: 68px;
+    VerticalLayout {
+        spacing: 4px;
+        Text {
+            text: root.label;
+            color: #53675f;
+            font-size: 12px;
+            font-weight: 600;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            height: 19px;
+            overflow: elide;
+        }
+        Rectangle {
+            height: 41px;
+            background: #ffffff;
+            border-color: #dce6e1;
+            border-width: 1px;
+            border-radius: 8px;
+            LineEdit {
+                width: 100%;
+                height: 100%;
+                text <=> root.value;
+                placeholder-text: root.placeholder;
+                horizontal-alignment: right;
+                font-size: 13px;
+            }
+        }
+    }
+}
 component SummaryCard inherits Rectangle {
     in property <string> title;
     in property <string> value;
@@ -57,8 +105,13 @@ component SummaryCard inherits Rectangle {
 
 export component MainWindow inherits Window {
     title: "نبض | حسابداری فروشگاهی";
-    width: 1280px;
-    height: 820px;
+    width: 1180px;
+    height: 760px;
+    min-width: 980px;
+    min-height: 640px;
+    default-font-family: "Vazirmatn";
+    default-font-size: 14px;
+    default-font-weight: 400;
     background: #f3f6f5;
 
     in-out property <string> active-page: "داشبورد";
@@ -208,9 +261,9 @@ export component MainWindow inherits Window {
                                             height: 44px; background: #ffffff;
                                             HorizontalLayout {
                                                 padding: 6px; alignment: center; spacing: 8px;
-                                                Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #344c43; }
-                                                Text { text: row.total; color: #138354; horizontal-alignment: right; }
-                                                Text { text: row.status; color: #71817b; horizontal-alignment: right; }
+                                                Text { text: row.label; layout-order: 4; horizontal-stretch: 1; horizontal-alignment: right; color: #344c43; }
+                                                Text { text: row.total; layout-order: 1; color: #138354; horizontal-alignment: right; }
+                                                Text { text: row.status; layout-order: 0; color: #71817b; horizontal-alignment: right; }
                                             }
                                         }
                                     }
@@ -241,9 +294,9 @@ export component MainWindow inherits Window {
                                 Text { text: "ثبت طرف‌حساب"; color: #20372f; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                                 HorizontalLayout {
                                     spacing: 8px;
-                                    LineEdit { text <=> root.contact-name; placeholder-text: "نام طرف‌حساب"; }
-                                    LineEdit { text <=> root.contact-phone; placeholder-text: "تلفن"; }
-                                    LineEdit { text <=> root.contact-balance; placeholder-text: "ماندهٔ اولیه"; }
+                                    RtlField { value <=> root.contact-name; label: "نام طرف‌حساب"; placeholder: "نام طرف‌حساب"; horizontal-stretch: 1; }
+                                    RtlField { value <=> root.contact-phone; label: "تلفن"; placeholder: "تلفن"; horizontal-stretch: 1; }
+                                    RtlField { value <=> root.contact-balance; label: "ماندهٔ اولیه"; placeholder: "ماندهٔ اولیه"; horizontal-stretch: 1; }
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
@@ -260,18 +313,18 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 10px;
                                 spacing: 8px;
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.contact-search; placeholder-text: "جست‌وجوی نام، تلفن یا نوع"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } AppButton { text: "پاک‌کردن"; clicked => { root.contact-search = ""; root.refresh-requested(); } } }
-                                HorizontalLayout { padding: 8px; Text { text: "نام"; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } Text { text: "نوع"; width: 100px; horizontal-alignment: right; color: #71817b; } Text { text: "تلفن"; width: 120px; horizontal-alignment: right; color: #71817b; } Text { text: "مانده"; width: 120px; horizontal-alignment: right; color: #71817b; } }
+                                HorizontalLayout { spacing: 8px; RtlField { value <=> root.contact-search; label: "جست‌وجو"; placeholder: "جست‌وجوی نام، تلفن یا نوع"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } AppButton { text: "پاک‌کردن"; clicked => { root.contact-search = ""; root.refresh-requested(); } } }
+                                HorizontalLayout { padding: 8px; Text { text: "نام"; layout-order: 4; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } Text { text: "نوع"; layout-order: 3; width: 100px; horizontal-alignment: right; color: #71817b; } Text { text: "تلفن"; layout-order: 2; width: 120px; horizontal-alignment: right; color: #71817b; } Text { text: "مانده"; layout-order: 1; width: 120px; horizontal-alignment: right; color: #71817b; } }
                                 ListView {
                                     
                                     for row in root.contacts: Rectangle {
                                         height: 42px; background: #ffffff;
                                         HorizontalLayout {
                                             padding: 8px; alignment: center;
-                                            Text { text: row.name; horizontal-stretch: 1; horizontal-alignment: right; color: #20372f; }
-                                            Text { text: row.kind; width: 100px; horizontal-alignment: right; color: #53675f; }
-                                            Text { text: row.phone; width: 120px; horizontal-alignment: right; color: #53675f; }
-                                            Text { text: row.balance; width: 120px; horizontal-alignment: right; color: #53675f; } AppButton { text: "ویرایش"; clicked => { root.edit-contact-requested(row.id); } }
+                                            Text { text: row.name; layout-order: 4; horizontal-stretch: 1; horizontal-alignment: right; color: #20372f; }
+                                            Text { text: row.kind; layout-order: 3; width: 100px; horizontal-alignment: right; color: #53675f; }
+                                            Text { text: row.phone; layout-order: 2; width: 120px; horizontal-alignment: right; color: #53675f; }
+                                            Text { text: row.balance; layout-order: 1; width: 120px; horizontal-alignment: right; color: #53675f; } AppButton { text: "ویرایش"; clicked => { root.edit-contact-requested(row.id); } }
                                         }
                                     }
                                 }
@@ -287,8 +340,8 @@ export component MainWindow inherits Window {
                                 padding: 14px;
                                 spacing: 10px;
                                 Text { text: "ثبت کالا"; color: #20372f; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.product-name; placeholder-text: "نام کالا"; } LineEdit { text <=> root.product-code; placeholder-text: "کد کالا"; } LineEdit { text <=> root.product-barcode; placeholder-text: "بارکد"; } }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.product-quantity; placeholder-text: "موجودی"; } LineEdit { text <=> root.product-buy-price; placeholder-text: "قیمت خرید"; } LineEdit { text <=> root.product-sell-price; placeholder-text: "قیمت فروش"; } LineEdit { text <=> root.product-minimum; placeholder-text: "حداقل موجودی"; } AppButton { text: root.edit-product-id > 0 ? "ذخیرهٔ ویرایش" : "ثبت کالا"; clicked => { root.save-product-requested(); } } AppButton { text: "لغو ویرایش"; clicked => { root.edit-product-id = 0; root.product-name = ""; root.product-code = ""; root.product-barcode = ""; root.product-quantity = "0"; root.product-buy-price = "0"; root.product-sell-price = "0"; root.product-minimum = "0"; } } }
+                                HorizontalLayout { spacing: 8px; RtlField { value <=> root.product-name; label: "نام کالا"; placeholder: "نام کالا"; horizontal-stretch: 1; } RtlField { value <=> root.product-code; label: "کد کالا"; placeholder: "کد کالا"; horizontal-stretch: 1; } RtlField { value <=> root.product-barcode; label: "بارکد"; placeholder: "بارکد"; horizontal-stretch: 1; } }
+                                HorizontalLayout { spacing: 8px; RtlField { value <=> root.product-quantity; label: "موجودی"; placeholder: "موجودی"; horizontal-stretch: 1; } RtlField { value <=> root.product-buy-price; label: "قیمت خرید"; placeholder: "قیمت خرید"; horizontal-stretch: 1; } RtlField { value <=> root.product-sell-price; label: "قیمت فروش"; placeholder: "قیمت فروش"; horizontal-stretch: 1; } RtlField { value <=> root.product-minimum; label: "حداقل موجودی"; placeholder: "حداقل موجودی"; horizontal-stretch: 1; } AppButton { text: root.edit-product-id > 0 ? "ذخیرهٔ ویرایش" : "ثبت کالا"; clicked => { root.save-product-requested(); } } AppButton { text: "لغو ویرایش"; clicked => { root.edit-product-id = 0; root.product-name = ""; root.product-code = ""; root.product-barcode = ""; root.product-quantity = "0"; root.product-buy-price = "0"; root.product-sell-price = "0"; root.product-minimum = "0"; } } }
                             }
                         }
                         Rectangle {
@@ -298,8 +351,8 @@ export component MainWindow inherits Window {
                                 spacing: 10px;
                                 Text { text: "اصلاح موجودی انبار"; color: #20372f; font-size: 15px; font-weight: 600; horizontal-alignment: right; }
                                 HorizontalLayout { spacing: 8px;
-                                    LineEdit { text <=> root.adjustment-new-quantity; placeholder-text: "موجودی واقعی جدید"; }
-                                    LineEdit { text <=> root.adjustment-reason; placeholder-text: "علت تغییر (مثلاً انبارگردانی)"; horizontal-stretch: 1; }
+                                    RtlField { value <=> root.adjustment-new-quantity; label: "موجودی واقعی جدید"; placeholder: "موجودی واقعی جدید"; horizontal-stretch: 1; }
+                                    RtlField { value <=> root.adjustment-reason; label: "علت تغییر"; placeholder: "علت تغییر (مثلاً انبارگردانی)"; horizontal-stretch: 1; }
                                     AppButton { text: "ثبت اصلاح موجودی"; enabled: root.adjustment-product-id > 0; clicked => { root.save-inventory-adjustment-requested(); } }
                                 }
                                 Text { text: "موجودی قبل و بعد، اختلاف و علت تغییر به‌صورت دائمی در سابقه ثبت می‌شود."; color: #71817b; font-size: 12px; horizontal-alignment: right; }
@@ -311,17 +364,17 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 10px;
                                 spacing: 8px;
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.product-search; placeholder-text: "جست‌وجوی نام، کد یا بارکد"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } AppButton { text: "پاک‌کردن"; clicked => { root.product-search = ""; root.refresh-requested(); } } }
-                                HorizontalLayout { padding: 8px; Text { text: "نام کالا"; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } Text { text: "کد"; width: 110px; horizontal-alignment: right; color: #71817b; } Text { text: "موجودی"; width: 90px; horizontal-alignment: right; color: #71817b; } Text { text: "قیمت فروش"; width: 130px; horizontal-alignment: right; color: #71817b; } }
+                                HorizontalLayout { spacing: 8px; RtlField { value <=> root.product-search; label: "جست‌وجو"; placeholder: "جست‌وجوی نام، کد یا بارکد"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } AppButton { text: "پاک‌کردن"; clicked => { root.product-search = ""; root.refresh-requested(); } } }
+                                HorizontalLayout { padding: 8px; Text { text: "نام کالا"; layout-order: 4; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } Text { text: "کد"; layout-order: 3; width: 110px; horizontal-alignment: right; color: #71817b; } Text { text: "موجودی"; layout-order: 2; width: 90px; horizontal-alignment: right; color: #71817b; } Text { text: "قیمت فروش"; layout-order: 1; width: 130px; horizontal-alignment: right; color: #71817b; } }
                                 ListView {
                                     
                                     for row in root.products: Rectangle {
                                         height: 42px; background: #ffffff;
                                         HorizontalLayout { padding: 8px; alignment: center;
-                                            Text { text: row.name; horizontal-stretch: 1; horizontal-alignment: right; color: #20372f; }
-                                            Text { text: row.code; width: 110px; horizontal-alignment: right; color: #53675f; }
-                                            Text { text: row.quantity; width: 90px; horizontal-alignment: right; color: #53675f; }
-                                            Text { text: row.price; width: 130px; horizontal-alignment: right; color: #53675f; } AppButton { text: "ویرایش"; clicked => { root.edit-product-requested(row.id); } } AppButton { text: "اصلاح موجودی"; clicked => { root.adjustment-product-id = row.id; root.adjust-inventory-requested(row.id); } }
+                                            Text { text: row.name; layout-order: 4; horizontal-stretch: 1; horizontal-alignment: right; color: #20372f; }
+                                            Text { text: row.code; layout-order: 3; width: 110px; horizontal-alignment: right; color: #53675f; }
+                                            Text { text: row.quantity; layout-order: 2; width: 90px; horizontal-alignment: right; color: #53675f; }
+                                            Text { text: row.price; layout-order: 1; width: 130px; horizontal-alignment: right; color: #53675f; } AppButton { text: "ویرایش"; clicked => { root.edit-product-requested(row.id); } } AppButton { text: "اصلاح موجودی"; clicked => { root.adjustment-product-id = row.id; root.adjust-inventory-requested(row.id); } }
                                         }
                                     }
                                 }
@@ -338,23 +391,25 @@ export component MainWindow inherits Window {
                                 spacing: 10px;
                                 Text { text: "ثبت فاکتور"; color: #20372f; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                                 HorizontalLayout { spacing: 8px; AppButton { text: "فروش"; clicked => { root.invoice-kind = "sale"; } } AppButton { text: "خرید"; clicked => { root.invoice-kind = "purchase"; } } Text { text: "نوع: " + root.invoice-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-contact; placeholder-text: "نام مشتری یا تأمین‌کننده"; } LineEdit { text <=> root.invoice-discount; placeholder-text: "تخفیف کل فاکتور"; } LineEdit { text <=> root.invoice-paid; placeholder-text: "مبلغ دریافتی (فروش)"; } LineEdit { text <=> root.invoice-method; placeholder-text: "روش پرداخت"; } }
+                                HorizontalLayout { spacing: 8px; RtlField { value <=> root.invoice-contact; label: "نام مشتری یا تأمین‌کننده"; placeholder: "نام مشتری یا تأمین‌کننده"; horizontal-stretch: 1; } RtlField { value <=> root.invoice-discount; label: "تخفیف"; placeholder: "تخفیف کل فاکتور"; horizontal-stretch: 1; } RtlField { value <=> root.invoice-paid; label: "مبلغ دریافتی"; placeholder: "مبلغ دریافتی (فروش)"; horizontal-stretch: 1; } RtlField { value <=> root.invoice-method; label: "روش پرداخت"; placeholder: "روش پرداخت"; horizontal-stretch: 1; } }
                                 Text { text: "هر ردیف: کد یا نام کالا | تعداد | قیمت واحد"; color: #71817b; font-size: 13px; horizontal-alignment: right; }
-                                TextEdit { text <=> root.invoice-items-text; height: 150px; } 
+                                Text { text: "ردیف‌های فاکتور (هر ردیف: کد یا نام کالا | تعداد | قیمت واحد)"; color: #53675f; font-size: 12px; font-weight: 600; horizontal-alignment: right; }
+                                TextEdit { text <=> root.invoice-items-text; height: 150px; horizontal-alignment: right; } 
                                 HorizontalLayout { spacing: 8px; AppButton { text: "ثبت فاکتور چندردیفه"; button-background: #138354; button-foreground: #ffffff; button-border: #138354; clicked => { root.save-invoice-requested(); } } }
                             }
                         }
                         Rectangle {
                             background: #ffffff; border-color: #e3ebe7; border-width: 1px; border-radius: 14px;
                             VerticalLayout {
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-search; placeholder-text: "جست‌وجو با شماره، طرف‌حساب یا توضیحات"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } }
+                                HorizontalLayout { spacing: 8px; RtlField { value <=> root.invoice-search; label: "جست‌وجو"; placeholder: "جست‌وجو با شماره، طرف‌حساب یا توضیحات"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } }
                                 HorizontalLayout { spacing: 6px; Text { text: "فیلتر:"; color: #71817b; vertical-alignment: center; } AppButton { text: "همه"; clicked => { root.invoice-filter-kind = "همه"; root.refresh-requested(); } } AppButton { text: "فروش"; clicked => { root.invoice-filter-kind = "فروش"; root.refresh-requested(); } } AppButton { text: "خرید"; clicked => { root.invoice-filter-kind = "خرید"; root.refresh-requested(); } } AppButton { text: "باطل‌شده"; clicked => { root.invoice-filter-kind = "باطل‌شده"; root.refresh-requested(); } } Text { text: "فیلتر فعال: " + root.invoice-filter-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } }
-                                HorizontalLayout { padding: 8px; Text { text: "فاکتور"; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } Text { text: "نوع"; width: 90px; horizontal-alignment: right; color: #71817b; } Text { text: "مبلغ"; width: 120px; horizontal-alignment: right; color: #71817b; } Text { text: "وضعیت"; width: 120px; horizontal-alignment: right; color: #71817b; } }
-                                ListView {  for row in root.invoices: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #20372f; } Text { text: row.kind; width: 90px; horizontal-alignment: right; color: #53675f; } Text { text: row.total; width: 120px; horizontal-alignment: right; color: #53675f; } Text { text: row.status; width: 120px; horizontal-alignment: right; color: #53675f; } AppButton { text: "جزئیات"; clicked => { root.selected-invoice-id = row.id; root.invoice-detail-requested(row.id); } } } } }
+                                HorizontalLayout { padding: 8px; Text { text: "فاکتور"; layout-order: 4; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } Text { text: "نوع"; layout-order: 3; width: 90px; horizontal-alignment: right; color: #71817b; } Text { text: "مبلغ"; layout-order: 2; width: 120px; horizontal-alignment: right; color: #71817b; } Text { text: "وضعیت"; layout-order: 1; width: 120px; horizontal-alignment: right; color: #71817b; } }
+                                ListView {  for row in root.invoices: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; layout-order: 4; horizontal-stretch: 1; horizontal-alignment: right; color: #20372f; } Text { text: row.kind; layout-order: 3; width: 90px; horizontal-alignment: right; color: #53675f; } Text { text: row.total; layout-order: 2; width: 120px; horizontal-alignment: right; color: #53675f; } Text { text: row.status; layout-order: 1; width: 120px; horizontal-alignment: right; color: #53675f; } AppButton { text: "جزئیات"; clicked => { root.selected-invoice-id = row.id; root.invoice-detail-requested(row.id); } } } } }
                                 if root.invoice-detail != "": Rectangle { background: #ffffff; border-color: #e3ebe7; border-width: 1px; border-radius: 10px; VerticalLayout { spacing: 6px; Text { text: "جزئیات فاکتور انتخاب‌شده"; color: #20372f; font-size: 16px; font-weight: 600; horizontal-alignment: right; } Text { text: root.invoice-detail; color: #53675f; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } Text { text: "برگشت جزئی کالا (فقط فاکتور فروش انتخاب‌شده)"; color: #b54708; font-size: 13px; horizontal-alignment: right; }
-                                TextEdit { text <=> root.return-items-text; height: 72px; }
+                                Text { text: "اقلام برگشتی"; color: #53675f; font-size: 12px; font-weight: 600; horizontal-alignment: right; }
+                                TextEdit { text <=> root.return-items-text; height: 72px; horizontal-alignment: right; }
                                 Text { text: "هر ردیف: کد یا نام دقیق کالا | تعداد برگشتی"; color: #71817b; font-size: 12px; horizontal-alignment: right; }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.return-refund-method; placeholder-text: "روش بازپرداخت (cash / کارت / انتقال)"; horizontal-stretch: 1; } AppButton { text: "ثبت برگشت و بازپرداخت"; clicked => { root.invoice-return-requested(root.selected-invoice-id, root.return-items-text, root.return-refund-method); } } }
+                                HorizontalLayout { spacing: 8px; RtlField { value <=> root.return-refund-method; label: "روش بازپرداخت"; placeholder: "روش بازپرداخت (cash / کارت / انتقال)"; horizontal-stretch: 1; } AppButton { text: "ثبت برگشت و بازپرداخت"; clicked => { root.invoice-return-requested(root.selected-invoice-id, root.return-items-text, root.return-refund-method); } } }
                                 HorizontalLayout { spacing: 8px; AppButton { text: "ابطال فاکتور"; clicked => { root.void-confirmation-id = root.selected-invoice-id; root.void-confirmation-message = "برای تأیید نهایی، دکمهٔ تأیید ابطال را بزنید. این کار موجودی و دریافت اولیه را اصلاح می‌کند."; } } if root.void-confirmation-id == root.selected-invoice-id && root.void-confirmation-id > 0: AppButton { text: "تأیید ابطال"; clicked => { root.invoice-void-requested(root.selected-invoice-id); root.void-confirmation-id = 0; root.void-confirmation-message = ""; } } } if root.void-confirmation-message != "": Text { text: root.void-confirmation-message; color: #b54708; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } } }
                             }
                         }
@@ -369,15 +424,15 @@ export component MainWindow inherits Window {
                                 spacing: 10px;
                                 Text { text: "ثبت دریافت یا پرداخت"; color: #20372f; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                                 HorizontalLayout { spacing: 8px; AppButton { text: "دریافت از مشتری"; clicked => { root.payment-kind = "receipt"; } } AppButton { text: "پرداخت به تأمین‌کننده"; clicked => { root.payment-kind = "payment"; } } Text { text: "نوع: " + root.payment-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.payment-contact; placeholder-text: "نام طرف‌حساب"; } LineEdit { text <=> root.payment-amount; placeholder-text: "مبلغ"; } LineEdit { text <=> root.payment-method; placeholder-text: "روش پرداخت"; } LineEdit { text <=> root.payment-notes; placeholder-text: "شرح"; } AppButton { text: "ثبت گردش"; button-background: #138354; button-foreground: #ffffff; button-border: #138354; clicked => { root.save-payment-requested(); } } }
+                                HorizontalLayout { spacing: 8px; RtlField { value <=> root.payment-contact; label: "نام طرف‌حساب"; placeholder: "نام طرف‌حساب"; horizontal-stretch: 1; } RtlField { value <=> root.payment-amount; label: "مبلغ"; placeholder: "مبلغ"; horizontal-stretch: 1; } RtlField { value <=> root.payment-method; label: "روش پرداخت"; placeholder: "روش پرداخت"; horizontal-stretch: 1; } RtlField { value <=> root.payment-notes; label: "شرح"; placeholder: "شرح"; horizontal-stretch: 1; } AppButton { text: "ثبت گردش"; button-background: #138354; button-foreground: #ffffff; button-border: #138354; clicked => { root.save-payment-requested(); } } }
                             }
                         }
                         Rectangle {
                             background: #ffffff; border-color: #e3ebe7; border-width: 1px; border-radius: 10px;
                             VerticalLayout {
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.payment-search; placeholder-text: "جست‌وجوی طرف‌حساب، روش، شرح یا تاریخ"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } AppButton { text: "پاک‌کردن"; clicked => { root.payment-search = ""; root.refresh-requested(); } } }
-                                HorizontalLayout { padding: 8px; Text { text: "طرف‌حساب"; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } Text { text: "نوع"; width: 90px; horizontal-alignment: right; color: #71817b; } Text { text: "مبلغ"; width: 120px; horizontal-alignment: right; color: #71817b; } Text { text: "روش"; width: 100px; horizontal-alignment: right; color: #71817b; } }
-                                ListView {  for row in root.payments: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #20372f; } Text { text: row.kind; width: 90px; horizontal-alignment: right; color: #53675f; } Text { text: row.amount; width: 120px; horizontal-alignment: right; color: #53675f; } Text { text: row.method; width: 100px; horizontal-alignment: right; color: #53675f; } } } }
+                                HorizontalLayout { spacing: 8px; RtlField { value <=> root.payment-search; label: "جست‌وجو"; placeholder: "جست‌وجوی طرف‌حساب، روش، شرح یا تاریخ"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } AppButton { text: "پاک‌کردن"; clicked => { root.payment-search = ""; root.refresh-requested(); } } }
+                                HorizontalLayout { padding: 8px; Text { text: "طرف‌حساب"; layout-order: 4; horizontal-stretch: 1; horizontal-alignment: right; color: #71817b; } Text { text: "نوع"; width: 90px; horizontal-alignment: right; color: #71817b; } Text { text: "مبلغ"; width: 120px; horizontal-alignment: right; color: #71817b; } Text { text: "روش"; layout-order: 1; width: 100px; horizontal-alignment: right; color: #71817b; } }
+                                ListView {  for row in root.payments: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; layout-order: 4; horizontal-stretch: 1; horizontal-alignment: right; color: #20372f; } Text { text: row.kind; layout-order: 3; width: 90px; horizontal-alignment: right; color: #53675f; } Text { text: row.amount; layout-order: 2; width: 120px; horizontal-alignment: right; color: #53675f; } Text { text: row.method; layout-order: 1; width: 100px; horizontal-alignment: right; color: #53675f; } } } }
                             }
                         }
                     }
@@ -400,9 +455,9 @@ export component MainWindow inherits Window {
                             Text { text: "سود و زیان"; color: #20372f; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                             Text { text: root.profit-loss-summary; color: #53675f; font-size: 13px; horizontal-alignment: right; wrap: word-wrap; }
                             Text { text: "ثبت هزینهٔ جاری"; color: #20372f; font-size: 15px; font-weight: 600; horizontal-alignment: right; }
-                            LineEdit { text <=> root.expense-category; placeholder-text: "دسته‌بندی هزینه"; }
-                            LineEdit { text <=> root.expense-description; placeholder-text: "شرح هزینه"; }
-                            LineEdit { text <=> root.expense-amount; placeholder-text: "مبلغ به تومان"; }
+                            RtlField { value <=> root.expense-category; label: "دسته‌بندی هزینه"; placeholder: "دسته‌بندی هزینه"; horizontal-stretch: 1; }
+                            RtlField { value <=> root.expense-description; label: "شرح هزینه"; placeholder: "شرح هزینه"; horizontal-stretch: 1; }
+                            RtlField { value <=> root.expense-amount; label: "مبلغ به تومان"; placeholder: "مبلغ به تومان"; horizontal-stretch: 1; }
                             AppButton { text: "ثبت هزینه"; button-background: #138354; button-foreground: #ffffff; button-border: #138354; clicked => { root.save-expense-requested(); } }
                         }
                     }
@@ -419,8 +474,8 @@ export component MainWindow inherits Window {
                         background: #ffffff; border-color: #e3ebe7; border-width: 1px; border-radius: 12px;
                         VerticalLayout { padding: 18px; spacing: 14px;
                             Text { text: "تنظیمات فروشگاه"; color: #20372f; font-size: 18px; font-weight: 600; horizontal-alignment: right; }
-                            LineEdit { text <=> root.settings-store-name; placeholder-text: "نام فروشگاه"; }
-                            LineEdit { text <=> root.settings-currency; placeholder-text: "واحد پول"; }
+                            RtlField { value <=> root.settings-store-name; label: "نام فروشگاه"; placeholder: "نام فروشگاه"; horizontal-stretch: 1; }
+                            RtlField { value <=> root.settings-currency; label: "واحد پول"; placeholder: "واحد پول"; horizontal-stretch: 1; }
                             AppButton { text: "ذخیرهٔ تنظیمات"; button-background: #138354; button-foreground: #ffffff; button-border: #138354; clicked => { root.save-settings-requested(); } }
                             Text { text: "تنظیمات این نسخه در SQLite ذخیره می‌شوند."; color: #71817b; font-size: 13px; horizontal-alignment: right; }
                             Rectangle { height: 1px; background: #e3ebe7; }

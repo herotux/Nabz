@@ -45,6 +45,9 @@ jobs:
             slint-native
             crates/nabz-core
 
+      - name: Install bundled Persian font
+        run: bash scripts/fetch-font.sh
+
       - name: Test shared accounting core
         run: cargo test --manifest-path crates/nabz-core/Cargo.toml
 
