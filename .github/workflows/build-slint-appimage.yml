@@ -68,7 +68,7 @@ jobs:
           read -r screen_width screen_height <<<"$(xdotool getdisplaygeometry)"
           window=""
           for attempt in $(seq 1 20); do
-            for id in $(xdotool search --onlyvisible --name '.*' 2>/dev/null || true); do
+            for id in $(xdotool search --onlyvisible --pid "$app_pid" 2>/dev/null || true); do
               xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-geometry" 2>/dev/null || continue
               width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-geometry")
               height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-geometry")
@@ -90,7 +90,7 @@ jobs:
           fi
           # Capture every page through the real right-side navigation.
           page_names=(dashboard contacts inventory invoices payments reports printing settings)
-          page_y=(120 159 198 237 276 315 354 393)
+          page_y=(131 172 213 254 295 336 377 418)
           for i in "${!page_names[@]}"; do
             xdotool mousemove --window "$window" 1180 "${page_y[$i]}" click 1
             sleep 0.7
@@ -100,6 +100,8 @@ jobs:
             test -s "$screenshot"
             echo "Captured Slint page: ${page_names[$i]}"
           done
+          unique_count=$(sha256sum "$RUNNER_TEMP"/nabz-native-*.png | awk '{print $1}' | sort -u | wc -l)
+          test "$unique_count" -eq 8
           test -s "$NABZ_DB_PATH"
           SMOKE
 
@@ -221,7 +223,7 @@ jobs:
           read -r screen_width screen_height <<<"$(xdotool getdisplaygeometry)"
           window=""
           for attempt in $(seq 1 25); do
-            for id in $(xdotool search --onlyvisible --name '.*' 2>/dev/null || true); do
+            for id in $(xdotool search --onlyvisible --pid "$app_pid" 2>/dev/null || true); do
               xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-appimage-geometry" 2>/dev/null || continue
               width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
               height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
@@ -243,7 +245,7 @@ jobs:
           fi
           # Capture every page through the real right-side navigation.
           page_names=(dashboard contacts inventory invoices payments reports printing settings)
-          page_y=(120 159 198 237 276 315 354 393)
+          page_y=(131 172 213 254 295 336 377 418)
           for i in "${!page_names[@]}"; do
             xdotool mousemove --window "$window" 1180 "${page_y[$i]}" click 1
             sleep 0.7
@@ -253,6 +255,8 @@ jobs:
             test -s "$screenshot"
             echo "Captured packaged Slint page: ${page_names[$i]}"
           done
+          unique_count=$(sha256sum "$RUNNER_TEMP"/nabz-appimage-*.png | awk '{print $1}' | sort -u | wc -l)
+          test "$unique_count" -eq 8
           test -s "$NABZ_DB_PATH"
           SMOKE
 
