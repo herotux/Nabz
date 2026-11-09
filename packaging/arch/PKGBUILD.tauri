@@ -24,7 +24,9 @@ pkgver() {
 
 prepare() {
   cd "$srcdir/nabz/tauri-web"
-  npm install --no-audit --no-fund\n  cd "$srcdir/nabz"\n  python packaging/arch/generate-tauri-icon.py
+  npm install --no-audit --no-fund
+  cd "$srcdir/nabz"
+  python packaging/arch/generate-tauri-icon.py
 }
 
 build() {
