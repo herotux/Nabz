@@ -86,9 +86,18 @@ jobs:
             cat "$RUNNER_TEMP/nabz-native.log" >&2 || true
             exit 1
           fi
-          import -window "$window" "$RUNNER_TEMP/nabz-native.png"
-          identify "$RUNNER_TEMP/nabz-native.png"
-          test -s "$RUNNER_TEMP/nabz-native.png"
+          # Capture every page through the real right-side navigation.
+          page_names=(dashboard contacts inventory invoices payments reports printing settings)
+          page_y=(120 159 198 237 276 315 354 393)
+          for i in "${!page_names[@]}"; do
+            xdotool mousemove --window "$window" 1000 "${page_y[$i]}" click 1
+            sleep 0.7
+            screenshot="$RUNNER_TEMP/nabz-native-${page_names[$i]}.png"
+            import -window "$window" "$screenshot"
+            identify "$screenshot"
+            test -s "$screenshot"
+            echo "Captured Slint page: ${page_names[$i]}"
+          done
           test -s "$NABZ_DB_PATH"
           SMOKE
 
@@ -205,9 +214,18 @@ jobs:
             cat "$RUNNER_TEMP/nabz-appimage.log" >&2 || true
             exit 1
           fi
-          import -window "$window" "$RUNNER_TEMP/nabz-appimage.png"
-          identify "$RUNNER_TEMP/nabz-appimage.png"
-          test -s "$RUNNER_TEMP/nabz-appimage.png"
+          # Capture every page through the real right-side navigation.
+          page_names=(dashboard contacts inventory invoices payments reports printing settings)
+          page_y=(120 159 198 237 276 315 354 393)
+          for i in "${!page_names[@]}"; do
+            xdotool mousemove --window "$window" 1000 "${page_y[$i]}" click 1
+            sleep 0.7
+            screenshot="$RUNNER_TEMP/nabz-appimage-${page_names[$i]}.png"
+            import -window "$window" "$screenshot"
+            identify "$screenshot"
+            test -s "$screenshot"
+            echo "Captured packaged Slint page: ${page_names[$i]}"
+          done
           test -s "$NABZ_DB_PATH"
           SMOKE
 
@@ -218,9 +236,9 @@ jobs:
           name: Nabz-Slint-GUI-Test-Evidence
           path: |
             ${{ runner.temp }}/nabz-native.log
-            ${{ runner.temp }}/nabz-native.png
+            ${{ runner.temp }}/nabz-native-*.png
             ${{ runner.temp }}/nabz-appimage.log
-            ${{ runner.temp }}/nabz-appimage.png
+            ${{ runner.temp }}/nabz-appimage-*.png
           if-no-files-found: ignore
           retention-days: 14
 
