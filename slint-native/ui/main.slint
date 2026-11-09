@@ -1,24 +1,57 @@
-import { Button, LineEdit, ListView, TextEdit } from "std-widgets.slint";
+import { LineEdit, ListView, TextEdit } from "std-widgets.slint";
 
 export struct ContactRow { id: int, name: string, kind: string, phone: string, balance: string }
 export struct ProductRow { id: int, name: string, code: string, quantity: string, price: string, stock: string }
 export struct InvoiceRow { id: int, label: string, kind: string, total: string, status: string, date: string }
 export struct PaymentRow { id: int, label: string, kind: string, amount: string, method: string, date: string }
 
+component AppButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <color> button-background: #f7faf9;
+    in property <color> button-foreground: #29443d;
+    in property <color> button-border: #d8e5df;
+    callback clicked();
+    background: root.enabled ? button-background : #eef1f0;
+    border-color: button-border;
+    border-width: 1px;
+    border-radius: 8px;
+    min-height: 40px;
+    opacity: root.enabled ? 1 : 0.55;
+    Text {
+        text: root.text;
+        color: root.enabled ? root.button-foreground : #84918c;
+        font-size: 13px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
 component SummaryCard inherits Rectangle {
     in property <string> title;
     in property <string> value;
     in property <color> accent;
     background: #ffffff;
-    border-color: #e4e7ec;
+    border-color: #e3ebe7;
     border-width: 1px;
-    border-radius: 12px;
-    min-height: 118px;
-    VerticalLayout {
-        padding: 18px;
-        spacing: 12px;
-        Text { text: title; color: #667085; font-size: 14px; horizontal-alignment: right; }
-        Text { text: value; color: accent; font-size: 22px; font-weight: 700; horizontal-alignment: right; }
+    border-radius: 14px;
+    min-height: 122px;
+    HorizontalLayout {
+        spacing: 0px;
+        Rectangle { width: 4px; background: accent; }
+        VerticalLayout {
+            padding: 18px;
+            spacing: 12px;
+            Text { text: title; color: #71817b; font-size: 13px; horizontal-alignment: right; }
+            Text { text: value; color: #1d332c; font-size: 23px; font-weight: 700; horizontal-alignment: right; }
+            Rectangle { height: 1px; background: #f0f3f1; }
+            Text { text: "بر اساس اطلاعات ثبت‌شده"; color: #98a6a0; font-size: 10px; horizontal-alignment: right; }
+        }
     }
 }
 
@@ -26,7 +59,7 @@ export component MainWindow inherits Window {
     title: "نبض | حسابداری فروشگاهی";
     width: 1280px;
     height: 820px;
-    background: #f4f6f8;
+    background: #f3f6f5;
 
     in-out property <string> active-page: "داشبورد";
     in-out property <string> status-message: "آماده";
@@ -120,14 +153,14 @@ export component MainWindow inherits Window {
         Rectangle {
             background: #ffffff;
             height: 76px;
-            border-color: #e4e7ec;
+            border-color: #e3ebe7;
             border-width: 1px;
             HorizontalLayout {
-                padding-left: 26px; padding-right: 26px;
+                padding-left: 28px; padding-right: 28px;
                 alignment: center; spacing: 14px;
-                Text { text: "نبض"; color: #18864b; font-size: 27px; font-weight: 700; }
-                Text { text: "حسابداری فروشگاهی"; color: #344054; font-size: 16px; horizontal-stretch: 1; horizontal-alignment: right; }
-                Button { text: "رابط Tauri"; clicked => { root.switch-ui-requested(); } }
+                Rectangle { width: 40px; height: 40px; border-radius: 12px; background: #e8f5ee; Text { text: "ن"; color: #138354; font-size: 24px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; } }\n                Text { text: "نبض"; color: #176b4b; font-size: 25px; font-weight: 800; }
+                VerticalLayout { spacing: 2px; horizontal-stretch: 1; Text { text: "حسابداری فروشگاهی"; color: #263c34; font-size: 15px; font-weight: 600; horizontal-alignment: right; } Text { text: "مدیریت هوشمند فروشگاه"; color: #98a6a0; font-size: 10px; horizontal-alignment: right; } }
+                AppButton { text: "رابط Tauri"; clicked => { root.switch-ui-requested(); } }
                 Button { text: "تازه‌سازی"; clicked => { root.refresh-requested(); } }
             }
         }
@@ -136,15 +169,15 @@ export component MainWindow inherits Window {
             Rectangle {
                 background: #f4f6f8; horizontal-stretch: 1;
                 VerticalLayout {
-                    padding: 24px; spacing: 18px;
-                    Text { text: root.active-page; color: #101828; font-size: 25px; font-weight: 700; horizontal-alignment: right; }
+                    padding: 26px; spacing: 18px;
+                    Text { text: root.active-page; color: #20372f; font-size: 26px; font-weight: 800; horizontal-alignment: right; }
 
                     if root.active-page == "داشبورد": VerticalLayout {
                         spacing: 14px;
-                        Text { text: "خلاصهٔ وضعیت فروشگاه"; color: #667085; font-size: 14px; horizontal-alignment: right; }
+                        Text { text: "خلاصهٔ وضعیت فروشگاه"; color: #71817b; font-size: 14px; horizontal-alignment: right; }
                         HorizontalLayout {
                             spacing: 12px;
-                            SummaryCard { title: "فروش امروز"; value: root.sales-today; accent: #16834a; }
+                            SummaryCard { title: "فروش امروز"; value: root.sales-today; accent: #138354; }
                             SummaryCard { title: "دریافت امروز"; value: root.receipts-today; accent: #2876c7; }
                         }
                         HorizontalLayout {
@@ -153,11 +186,11 @@ export component MainWindow inherits Window {
                             SummaryCard { title: "ارزش موجودی"; value: root.inventory-value; accent: #6941c6; }
                         }
                         Rectangle {
-                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 12px;
+                            background: #ffffff; border-color: #e3ebe7; border-width: 1px; border-radius: 14px;
                             VerticalLayout {
                                 spacing: 8px;
                                 Text { text: "اطلاعات پایگاه داده"; color: #101828; font-size: 17px; font-weight: 600; horizontal-alignment: right; }
-                                Text { text: "طرف‌حساب: " + root.contacts-count + "    کالا: " + root.products-count + "    فاکتور: " + root.invoices-count; color: #475467; font-size: 15px; horizontal-alignment: right; }
+                                Text { text: "طرف‌حساب: " + root.contacts-count + "    کالا: " + root.products-count + "    فاکتور: " + root.invoices-count; color: #53675f; font-size: 15px; horizontal-alignment: right; }
                                 Text { text: "داده‌ها از SQLite محلی خوانده می‌شوند؛ این رابط بومی است و مرورگر داخلی ندارد."; color: #667085; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; }
                             }
                         }
@@ -174,7 +207,7 @@ export component MainWindow inherits Window {
                                             height: 44px; background: #ffffff;
                                             HorizontalLayout {
                                                 padding: 6px; alignment: center; spacing: 8px;
-                                                Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #344054; }
+                                                Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #344c43; }
                                                 Text { text: row.total; color: #16834a; horizontal-alignment: right; }
                                                 Text { text: row.status; color: #667085; horizontal-alignment: right; }
                                             }
@@ -258,7 +291,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         Rectangle {
-                            background: #ffffff; border-color: #d0d5dd; border-width: 1px; border-radius: 12px;
+                            background: #ffffff; border-color: #e3ebe7; border-width: 1px; border-radius: 14px;
                             VerticalLayout {
                                 padding: 14px;
                                 spacing: 10px;
@@ -311,7 +344,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         Rectangle {
-                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px;
+                            background: #ffffff; border-color: #e3ebe7; border-width: 1px; border-radius: 14px;
                             VerticalLayout {
                                 HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-search; placeholder-text: "جست‌وجو با شماره، طرف‌حساب یا توضیحات"; horizontal-stretch: 1; } Button { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } }
                                 HorizontalLayout { spacing: 6px; Text { text: "فیلتر:"; color: #667085; vertical-alignment: center; } Button { text: "همه"; clicked => { root.invoice-filter-kind = "همه"; root.refresh-requested(); } } Button { text: "فروش"; clicked => { root.invoice-filter-kind = "فروش"; root.refresh-requested(); } } Button { text: "خرید"; clicked => { root.invoice-filter-kind = "خرید"; root.refresh-requested(); } } Button { text: "باطل‌شده"; clicked => { root.invoice-filter-kind = "باطل‌شده"; root.refresh-requested(); } } Text { text: "فیلتر فعال: " + root.invoice-filter-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
@@ -409,9 +442,9 @@ export component MainWindow inherits Window {
                 }
             }
             Rectangle {
-                width: 208px; background: #ffffff; border-color: #e4e7ec; border-width: 1px;
+                width: 224px; background: #ffffff; border-color: #e3ebe7; border-width: 1px;
                 VerticalLayout {
-                    padding: 16px; spacing: 9px;
+                    padding: 18px; spacing: 8px;
                     Text { text: "منوی اصلی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
                     Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; root.refresh-requested(); } }
                     Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
