@@ -29,7 +29,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential pkg-config curl file patchelf xdotool imagemagick \
+            build-essential pkg-config curl file patchelf xdotool imagemagick x11-utils \
             libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxkbcommon-dev libxkbcommon-x11-dev libx11-dev \
             libfontconfig1-dev libfreetype6-dev libssl-dev \
@@ -72,7 +72,7 @@ jobs:
               xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-geometry" 2>/dev/null || continue
               width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-geometry")
               height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-geometry")
-              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ] && [ "${width:-0}" -lt "$screen_width" ] && [ "${height:-0}" -lt "$screen_height" ]; then
+              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then
                 window="$id"
                 echo "Detected native window: $(xdotool getwindowname "$id" 2>/dev/null || true) (${width}x${height})"
                 break
@@ -200,7 +200,7 @@ jobs:
               xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-appimage-geometry" 2>/dev/null || continue
               width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
               height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
-              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ] && [ "${width:-0}" -lt "$screen_width" ] && [ "${height:-0}" -lt "$screen_height" ]; then
+              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then
                 window="$id"
                 echo "Detected packaged window: $(xdotool getwindowname "$id" 2>/dev/null || true) (${width}x${height})"
                 break
