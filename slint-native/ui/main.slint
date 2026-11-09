@@ -160,8 +160,8 @@ export component MainWindow inherits Window {
                 alignment: center; spacing: 14px;
                 Rectangle { width: 40px; height: 40px; border-radius: 12px; background: #e8f5ee; Text { text: "ن"; color: #138354; font-size: 24px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; } }\n                Text { text: "نبض"; color: #176b4b; font-size: 25px; font-weight: 800; }
                 VerticalLayout { spacing: 2px; horizontal-stretch: 1; Text { text: "حسابداری فروشگاهی"; color: #263c34; font-size: 15px; font-weight: 600; horizontal-alignment: right; } Text { text: "مدیریت هوشمند فروشگاه"; color: #98a6a0; font-size: 10px; horizontal-alignment: right; } }
-                AppButton { text: "رابط Tauri"; clicked => { root.switch-ui-requested(); } }
-                Button { text: "تازه‌سازی"; clicked => { root.refresh-requested(); } }
+                AppAppButton { text: "رابط Tauri"; clicked => { root.switch-ui-requested(); } }
+                AppButton { text: "تازه‌سازی"; clicked => { root.refresh-requested(); } }
             }
         }
         HorizontalLayout {
@@ -221,10 +221,10 @@ export component MainWindow inherits Window {
                                 VerticalLayout {
                                     padding: 16px; spacing: 10px;
                                     Text { text: "دسترسی سریع"; color: #101828; font-size: 17px; font-weight: 600; horizontal-alignment: right; }
-                                    Button { text: "ثبت فاکتور جدید"; clicked => { root.active-page = "فاکتورها"; } }
-                                    Button { text: "افزودن کالا"; clicked => { root.active-page = "کالا و انبار"; } }
-                                    Button { text: "ثبت طرف‌حساب"; clicked => { root.active-page = "طرف‌حساب‌ها"; } }
-                                    Button { text: "ثبت دریافت یا پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; } }
+                                    AppButton { text: "ثبت فاکتور جدید"; clicked => { root.active-page = "فاکتورها"; } }
+                                    AppButton { text: "افزودن کالا"; clicked => { root.active-page = "کالا و انبار"; } }
+                                    AppButton { text: "ثبت طرف‌حساب"; clicked => { root.active-page = "طرف‌حساب‌ها"; } }
+                                    AppButton { text: "ثبت دریافت یا پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; } }
                                 }
                             }
                         }
@@ -246,11 +246,11 @@ export component MainWindow inherits Window {
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
-                                    Button { text: "مشتری"; clicked => { root.contact-kind = "customer"; } }
-                                    Button { text: "تأمین‌کننده"; clicked => { root.contact-kind = "supplier"; } }
-                                    Button { text: "هر دو"; clicked => { root.contact-kind = "both"; } }
+                                    AppButton { text: "مشتری"; clicked => { root.contact-kind = "customer"; } }
+                                    AppButton { text: "تأمین‌کننده"; clicked => { root.contact-kind = "supplier"; } }
+                                    AppButton { text: "هر دو"; clicked => { root.contact-kind = "both"; } }
                                     Text { text: "نوع انتخاب‌شده: " + root.contact-kind; color: #667085; horizontal-stretch: 1; horizontal-alignment: right; }
-                                    Button { text: root.edit-contact-id > 0 ? "ذخیرهٔ ویرایش" : "ثبت طرف‌حساب"; clicked => { root.save-contact-requested(); } } Button { text: "لغو ویرایش"; clicked => { root.edit-contact-id = 0; root.contact-name = ""; root.contact-phone = ""; } }
+                                    AppButton { text: root.edit-contact-id > 0 ? "ذخیرهٔ ویرایش" : "ثبت طرف‌حساب"; clicked => { root.save-contact-requested(); } } AppButton { text: "لغو ویرایش"; clicked => { root.edit-contact-id = 0; root.contact-name = ""; root.contact-phone = ""; } }
                                 }
                             }
                         }
@@ -259,7 +259,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 10px;
                                 spacing: 8px;
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.contact-search; placeholder-text: "جست‌وجوی نام، تلفن یا نوع"; horizontal-stretch: 1; } Button { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } Button { text: "پاک‌کردن"; clicked => { root.contact-search = ""; root.refresh-requested(); } } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.contact-search; placeholder-text: "جست‌وجوی نام، تلفن یا نوع"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } AppButton { text: "پاک‌کردن"; clicked => { root.contact-search = ""; root.refresh-requested(); } } }
                                 HorizontalLayout { padding: 8px; Text { text: "نام"; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } Text { text: "نوع"; width: 100px; horizontal-alignment: right; color: #667085; } Text { text: "تلفن"; width: 120px; horizontal-alignment: right; color: #667085; } Text { text: "مانده"; width: 120px; horizontal-alignment: right; color: #667085; } }
                                 ListView {
                                     
@@ -270,7 +270,7 @@ export component MainWindow inherits Window {
                                             Text { text: row.name; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; }
                                             Text { text: row.kind; width: 100px; horizontal-alignment: right; color: #475467; }
                                             Text { text: row.phone; width: 120px; horizontal-alignment: right; color: #475467; }
-                                            Text { text: row.balance; width: 120px; horizontal-alignment: right; color: #475467; } Button { text: "ویرایش"; clicked => { root.edit-contact-requested(row.id); } }
+                                            Text { text: row.balance; width: 120px; horizontal-alignment: right; color: #475467; } AppButton { text: "ویرایش"; clicked => { root.edit-contact-requested(row.id); } }
                                         }
                                     }
                                 }
@@ -287,7 +287,7 @@ export component MainWindow inherits Window {
                                 spacing: 10px;
                                 Text { text: "ثبت کالا"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                                 HorizontalLayout { spacing: 8px; LineEdit { text <=> root.product-name; placeholder-text: "نام کالا"; } LineEdit { text <=> root.product-code; placeholder-text: "کد کالا"; } LineEdit { text <=> root.product-barcode; placeholder-text: "بارکد"; } }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.product-quantity; placeholder-text: "موجودی"; } LineEdit { text <=> root.product-buy-price; placeholder-text: "قیمت خرید"; } LineEdit { text <=> root.product-sell-price; placeholder-text: "قیمت فروش"; } LineEdit { text <=> root.product-minimum; placeholder-text: "حداقل موجودی"; } Button { text: root.edit-product-id > 0 ? "ذخیرهٔ ویرایش" : "ثبت کالا"; clicked => { root.save-product-requested(); } } Button { text: "لغو ویرایش"; clicked => { root.edit-product-id = 0; root.product-name = ""; root.product-code = ""; root.product-barcode = ""; root.product-quantity = "0"; root.product-buy-price = "0"; root.product-sell-price = "0"; root.product-minimum = "0"; } } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.product-quantity; placeholder-text: "موجودی"; } LineEdit { text <=> root.product-buy-price; placeholder-text: "قیمت خرید"; } LineEdit { text <=> root.product-sell-price; placeholder-text: "قیمت فروش"; } LineEdit { text <=> root.product-minimum; placeholder-text: "حداقل موجودی"; } AppButton { text: root.edit-product-id > 0 ? "ذخیرهٔ ویرایش" : "ثبت کالا"; clicked => { root.save-product-requested(); } } AppButton { text: "لغو ویرایش"; clicked => { root.edit-product-id = 0; root.product-name = ""; root.product-code = ""; root.product-barcode = ""; root.product-quantity = "0"; root.product-buy-price = "0"; root.product-sell-price = "0"; root.product-minimum = "0"; } } }
                             }
                         }
                         Rectangle {
@@ -299,7 +299,7 @@ export component MainWindow inherits Window {
                                 HorizontalLayout { spacing: 8px;
                                     LineEdit { text <=> root.adjustment-new-quantity; placeholder-text: "موجودی واقعی جدید"; }
                                     LineEdit { text <=> root.adjustment-reason; placeholder-text: "علت تغییر (مثلاً انبارگردانی)"; horizontal-stretch: 1; }
-                                    Button { text: "ثبت اصلاح موجودی"; enabled: root.adjustment-product-id > 0; clicked => { root.save-inventory-adjustment-requested(); } }
+                                    AppButton { text: "ثبت اصلاح موجودی"; enabled: root.adjustment-product-id > 0; clicked => { root.save-inventory-adjustment-requested(); } }
                                 }
                                 Text { text: "موجودی قبل و بعد، اختلاف و علت تغییر به‌صورت دائمی در سابقه ثبت می‌شود."; color: #667085; font-size: 12px; horizontal-alignment: right; }
                                 Text { text: root.inventory-adjustment-history; color: #475467; font-size: 12px; horizontal-alignment: right; wrap: word-wrap; }
@@ -310,7 +310,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 10px;
                                 spacing: 8px;
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.product-search; placeholder-text: "جست‌وجوی نام، کد یا بارکد"; horizontal-stretch: 1; } Button { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } Button { text: "پاک‌کردن"; clicked => { root.product-search = ""; root.refresh-requested(); } } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.product-search; placeholder-text: "جست‌وجوی نام، کد یا بارکد"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } AppButton { text: "پاک‌کردن"; clicked => { root.product-search = ""; root.refresh-requested(); } } }
                                 HorizontalLayout { padding: 8px; Text { text: "نام کالا"; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } Text { text: "کد"; width: 110px; horizontal-alignment: right; color: #667085; } Text { text: "موجودی"; width: 90px; horizontal-alignment: right; color: #667085; } Text { text: "قیمت فروش"; width: 130px; horizontal-alignment: right; color: #667085; } }
                                 ListView {
                                     
@@ -320,7 +320,7 @@ export component MainWindow inherits Window {
                                             Text { text: row.name; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; }
                                             Text { text: row.code; width: 110px; horizontal-alignment: right; color: #475467; }
                                             Text { text: row.quantity; width: 90px; horizontal-alignment: right; color: #475467; }
-                                            Text { text: row.price; width: 130px; horizontal-alignment: right; color: #475467; } Button { text: "ویرایش"; clicked => { root.edit-product-requested(row.id); } } Button { text: "اصلاح موجودی"; clicked => { root.adjustment-product-id = row.id; root.adjust-inventory-requested(row.id); } }
+                                            Text { text: row.price; width: 130px; horizontal-alignment: right; color: #475467; } AppButton { text: "ویرایش"; clicked => { root.edit-product-requested(row.id); } } AppButton { text: "اصلاح موجودی"; clicked => { root.adjustment-product-id = row.id; root.adjust-inventory-requested(row.id); } }
                                         }
                                     }
                                 }
@@ -336,25 +336,25 @@ export component MainWindow inherits Window {
                                 padding: 14px;
                                 spacing: 10px;
                                 Text { text: "ثبت فاکتور"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
-                                HorizontalLayout { spacing: 8px; Button { text: "فروش"; clicked => { root.invoice-kind = "sale"; } } Button { text: "خرید"; clicked => { root.invoice-kind = "purchase"; } } Text { text: "نوع: " + root.invoice-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
+                                HorizontalLayout { spacing: 8px; AppButton { text: "فروش"; clicked => { root.invoice-kind = "sale"; } } AppButton { text: "خرید"; clicked => { root.invoice-kind = "purchase"; } } Text { text: "نوع: " + root.invoice-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
                                 HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-contact; placeholder-text: "نام مشتری یا تأمین‌کننده"; } LineEdit { text <=> root.invoice-discount; placeholder-text: "تخفیف کل فاکتور"; } LineEdit { text <=> root.invoice-paid; placeholder-text: "مبلغ دریافتی (فروش)"; } LineEdit { text <=> root.invoice-method; placeholder-text: "روش پرداخت"; } }
                                 Text { text: "هر ردیف: کد یا نام کالا | تعداد | قیمت واحد"; color: #667085; font-size: 13px; horizontal-alignment: right; }
                                 TextEdit { text <=> root.invoice-items-text; height: 150px; } 
-                                HorizontalLayout { spacing: 8px; Button { text: "ثبت فاکتور چندردیفه"; clicked => { root.save-invoice-requested(); } } }
+                                HorizontalLayout { spacing: 8px; AppButton { text: "ثبت فاکتور چندردیفه"; clicked => { root.save-invoice-requested(); } } }
                             }
                         }
                         Rectangle {
                             background: #ffffff; border-color: #e3ebe7; border-width: 1px; border-radius: 14px;
                             VerticalLayout {
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-search; placeholder-text: "جست‌وجو با شماره، طرف‌حساب یا توضیحات"; horizontal-stretch: 1; } Button { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } }
-                                HorizontalLayout { spacing: 6px; Text { text: "فیلتر:"; color: #667085; vertical-alignment: center; } Button { text: "همه"; clicked => { root.invoice-filter-kind = "همه"; root.refresh-requested(); } } Button { text: "فروش"; clicked => { root.invoice-filter-kind = "فروش"; root.refresh-requested(); } } Button { text: "خرید"; clicked => { root.invoice-filter-kind = "خرید"; root.refresh-requested(); } } Button { text: "باطل‌شده"; clicked => { root.invoice-filter-kind = "باطل‌شده"; root.refresh-requested(); } } Text { text: "فیلتر فعال: " + root.invoice-filter-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.invoice-search; placeholder-text: "جست‌وجو با شماره، طرف‌حساب یا توضیحات"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } }
+                                HorizontalLayout { spacing: 6px; Text { text: "فیلتر:"; color: #667085; vertical-alignment: center; } AppButton { text: "همه"; clicked => { root.invoice-filter-kind = "همه"; root.refresh-requested(); } } AppButton { text: "فروش"; clicked => { root.invoice-filter-kind = "فروش"; root.refresh-requested(); } } AppButton { text: "خرید"; clicked => { root.invoice-filter-kind = "خرید"; root.refresh-requested(); } } AppButton { text: "باطل‌شده"; clicked => { root.invoice-filter-kind = "باطل‌شده"; root.refresh-requested(); } } Text { text: "فیلتر فعال: " + root.invoice-filter-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
                                 HorizontalLayout { padding: 8px; Text { text: "فاکتور"; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } Text { text: "نوع"; width: 90px; horizontal-alignment: right; color: #667085; } Text { text: "مبلغ"; width: 120px; horizontal-alignment: right; color: #667085; } Text { text: "وضعیت"; width: 120px; horizontal-alignment: right; color: #667085; } }
-                                ListView {  for row in root.invoices: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; } Text { text: row.kind; width: 90px; horizontal-alignment: right; color: #475467; } Text { text: row.total; width: 120px; horizontal-alignment: right; color: #475467; } Text { text: row.status; width: 120px; horizontal-alignment: right; color: #475467; } Button { text: "جزئیات"; clicked => { root.selected-invoice-id = row.id; root.invoice-detail-requested(row.id); } } } } }
+                                ListView {  for row in root.invoices: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; } Text { text: row.kind; width: 90px; horizontal-alignment: right; color: #475467; } Text { text: row.total; width: 120px; horizontal-alignment: right; color: #475467; } Text { text: row.status; width: 120px; horizontal-alignment: right; color: #475467; } AppButton { text: "جزئیات"; clicked => { root.selected-invoice-id = row.id; root.invoice-detail-requested(row.id); } } } } }
                                 if root.invoice-detail != "": Rectangle { background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; VerticalLayout { spacing: 6px; Text { text: "جزئیات فاکتور انتخاب‌شده"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; } Text { text: root.invoice-detail; color: #475467; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } Text { text: "برگشت جزئی کالا (فقط فاکتور فروش انتخاب‌شده)"; color: #b54708; font-size: 13px; horizontal-alignment: right; }
                                 TextEdit { text <=> root.return-items-text; height: 72px; }
                                 Text { text: "هر ردیف: کد یا نام دقیق کالا | تعداد برگشتی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.return-refund-method; placeholder-text: "روش بازپرداخت (cash / کارت / انتقال)"; horizontal-stretch: 1; } Button { text: "ثبت برگشت و بازپرداخت"; clicked => { root.invoice-return-requested(root.selected-invoice-id, root.return-items-text, root.return-refund-method); } } }
-                                HorizontalLayout { spacing: 8px; Button { text: "ابطال فاکتور"; clicked => { root.void-confirmation-id = root.selected-invoice-id; root.void-confirmation-message = "برای تأیید نهایی، دکمهٔ تأیید ابطال را بزنید. این کار موجودی و دریافت اولیه را اصلاح می‌کند."; } } if root.void-confirmation-id == root.selected-invoice-id && root.void-confirmation-id > 0: Button { text: "تأیید ابطال"; clicked => { root.invoice-void-requested(root.selected-invoice-id); root.void-confirmation-id = 0; root.void-confirmation-message = ""; } } } if root.void-confirmation-message != "": Text { text: root.void-confirmation-message; color: #b54708; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.return-refund-method; placeholder-text: "روش بازپرداخت (cash / کارت / انتقال)"; horizontal-stretch: 1; } AppButton { text: "ثبت برگشت و بازپرداخت"; clicked => { root.invoice-return-requested(root.selected-invoice-id, root.return-items-text, root.return-refund-method); } } }
+                                HorizontalLayout { spacing: 8px; AppButton { text: "ابطال فاکتور"; clicked => { root.void-confirmation-id = root.selected-invoice-id; root.void-confirmation-message = "برای تأیید نهایی، دکمهٔ تأیید ابطال را بزنید. این کار موجودی و دریافت اولیه را اصلاح می‌کند."; } } if root.void-confirmation-id == root.selected-invoice-id && root.void-confirmation-id > 0: AppButton { text: "تأیید ابطال"; clicked => { root.invoice-void-requested(root.selected-invoice-id); root.void-confirmation-id = 0; root.void-confirmation-message = ""; } } } if root.void-confirmation-message != "": Text { text: root.void-confirmation-message; color: #b54708; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; } } }
                             }
                         }
                     }
@@ -367,14 +367,14 @@ export component MainWindow inherits Window {
                                 padding: 14px;
                                 spacing: 10px;
                                 Text { text: "ثبت دریافت یا پرداخت"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
-                                HorizontalLayout { spacing: 8px; Button { text: "دریافت از مشتری"; clicked => { root.payment-kind = "receipt"; } } Button { text: "پرداخت به تأمین‌کننده"; clicked => { root.payment-kind = "payment"; } } Text { text: "نوع: " + root.payment-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.payment-contact; placeholder-text: "نام طرف‌حساب"; } LineEdit { text <=> root.payment-amount; placeholder-text: "مبلغ"; } LineEdit { text <=> root.payment-method; placeholder-text: "روش پرداخت"; } LineEdit { text <=> root.payment-notes; placeholder-text: "شرح"; } Button { text: "ثبت گردش"; clicked => { root.save-payment-requested(); } } }
+                                HorizontalLayout { spacing: 8px; AppButton { text: "دریافت از مشتری"; clicked => { root.payment-kind = "receipt"; } } AppButton { text: "پرداخت به تأمین‌کننده"; clicked => { root.payment-kind = "payment"; } } Text { text: "نوع: " + root.payment-kind; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.payment-contact; placeholder-text: "نام طرف‌حساب"; } LineEdit { text <=> root.payment-amount; placeholder-text: "مبلغ"; } LineEdit { text <=> root.payment-method; placeholder-text: "روش پرداخت"; } LineEdit { text <=> root.payment-notes; placeholder-text: "شرح"; } AppButton { text: "ثبت گردش"; clicked => { root.save-payment-requested(); } } }
                             }
                         }
                         Rectangle {
                             background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px;
                             VerticalLayout {
-                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.payment-search; placeholder-text: "جست‌وجوی طرف‌حساب، روش، شرح یا تاریخ"; horizontal-stretch: 1; } Button { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } Button { text: "پاک‌کردن"; clicked => { root.payment-search = ""; root.refresh-requested(); } } }
+                                HorizontalLayout { spacing: 8px; LineEdit { text <=> root.payment-search; placeholder-text: "جست‌وجوی طرف‌حساب، روش، شرح یا تاریخ"; horizontal-stretch: 1; } AppButton { text: "جست‌وجو"; clicked => { root.refresh-requested(); } } AppButton { text: "پاک‌کردن"; clicked => { root.payment-search = ""; root.refresh-requested(); } } }
                                 HorizontalLayout { padding: 8px; Text { text: "طرف‌حساب"; horizontal-stretch: 1; horizontal-alignment: right; color: #667085; } Text { text: "نوع"; width: 90px; horizontal-alignment: right; color: #667085; } Text { text: "مبلغ"; width: 120px; horizontal-alignment: right; color: #667085; } Text { text: "روش"; width: 100px; horizontal-alignment: right; color: #667085; } }
                                 ListView {  for row in root.payments: Rectangle { height: 42px; background: #ffffff; HorizontalLayout { padding: 8px; alignment: center; Text { text: row.label; horizontal-stretch: 1; horizontal-alignment: right; color: #101828; } Text { text: row.kind; width: 90px; horizontal-alignment: right; color: #475467; } Text { text: row.amount; width: 120px; horizontal-alignment: right; color: #475467; } Text { text: row.method; width: 100px; horizontal-alignment: right; color: #475467; } } } }
                             }
@@ -402,7 +402,7 @@ export component MainWindow inherits Window {
                             LineEdit { text <=> root.expense-category; placeholder-text: "دسته‌بندی هزینه"; }
                             LineEdit { text <=> root.expense-description; placeholder-text: "شرح هزینه"; }
                             LineEdit { text <=> root.expense-amount; placeholder-text: "مبلغ به تومان"; }
-                            Button { text: "ثبت هزینه"; clicked => { root.save-expense-requested(); } }
+                            AppButton { text: "ثبت هزینه"; clicked => { root.save-expense-requested(); } }
                         }
                     }
 
@@ -420,13 +420,13 @@ export component MainWindow inherits Window {
                             Text { text: "تنظیمات فروشگاه"; color: #101828; font-size: 18px; font-weight: 600; horizontal-alignment: right; }
                             LineEdit { text <=> root.settings-store-name; placeholder-text: "نام فروشگاه"; }
                             LineEdit { text <=> root.settings-currency; placeholder-text: "واحد پول"; }
-                            Button { text: "ذخیرهٔ تنظیمات"; clicked => { root.save-settings-requested(); } }
+                            AppButton { text: "ذخیرهٔ تنظیمات"; clicked => { root.save-settings-requested(); } }
                             Text { text: "تنظیمات این نسخه در SQLite ذخیره می‌شوند."; color: #667085; font-size: 13px; horizontal-alignment: right; }
                             Rectangle { height: 1px; background: #e4e7ec; }
                             Text { text: "پشتیبان کامل پایگاه داده"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
                             Text { text: "تمام جدول‌ها، فاکتورها، برگشت‌ها، پرداخت‌ها و تنظیمات در یک فایل SQLite ذخیره می‌شوند."; color: #667085; font-size: 12px; wrap: word-wrap; horizontal-alignment: right; }
-                            Button { text: "ساخت نسخهٔ پشتیبان"; clicked => { root.create-backup-requested(); } }
-                            Button {
+                            AppButton { text: "ساخت نسخهٔ پشتیبان"; clicked => { root.create-backup-requested(); } }
+                            AppButton {
                                 text: root.restore-confirmation ? "برای تأیید، دوباره کلیک کن" : "بازیابی آخرین نسخهٔ پشتیبان";
                                 clicked => {
                                     if root.restore-confirmation {
@@ -446,14 +446,14 @@ export component MainWindow inherits Window {
                 VerticalLayout {
                     padding: 18px; spacing: 8px;
                     Text { text: "منوی اصلی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
-                    Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; root.refresh-requested(); } }
-                    Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
-                    Button { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; root.refresh-requested(); } }
-                    Button { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; root.refresh-requested(); } }
-                    Button { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; root.refresh-requested(); } }
-                    Button { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; root.refresh-requested(); } }
-                    Button { text: "چاپ و بارکد"; clicked => { root.active-page = "چاپ و بارکد"; } }
-                    Button { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; root.refresh-requested(); } }
+                    AppButton { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; root.refresh-requested(); } }
+                    AppButton { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
+                    AppButton { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; root.refresh-requested(); } }
+                    AppButton { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; root.refresh-requested(); } }
+                    AppButton { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; root.refresh-requested(); } }
+                    AppButton { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; root.refresh-requested(); } }
+                    AppButton { text: "چاپ و بارکد"; clicked => { root.active-page = "چاپ و بارکد"; } }
+                    AppButton { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; root.refresh-requested(); } }
                     Rectangle { background: transparent; vertical-stretch: 1; }
                     Text { text: root.status-message; color: #667085; font-size: 11px; wrap: word-wrap; horizontal-alignment: right; }
                 }
