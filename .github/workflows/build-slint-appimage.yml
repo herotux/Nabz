@@ -7,6 +7,8 @@ on:
       - packaging/slint-tauri-arch
     paths:
       - .github/workflows/build-slint-appimage.yml
+      - 'slint-native/**'
+      - 'crates/nabz-core/**'
 
 permissions:
   contents: write
