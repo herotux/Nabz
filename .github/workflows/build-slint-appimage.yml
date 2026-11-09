@@ -9,7 +9,7 @@ on:
       - .github/workflows/build-slint-appimage.yml
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: nabz-slint-appimage-${{ github.ref }}
@@ -241,6 +241,35 @@ jobs:
             ${{ runner.temp }}/nabz-appimage-*.png
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Replace committed Slint screenshots
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Keep only the latest successful run's screenshots in the branch.
+          rm -rf shots
+          mkdir -p shots/native shots/appimage
+
+          cp "$RUNNER_TEMP"/nabz-native-*.png shots/native/
+          cp "$RUNNER_TEMP"/nabz-appimage-*.png shots/appimage/
+
+          native_count=$(find shots/native -maxdepth 1 -type f -name '*.png' | wc -l)
+          appimage_count=$(find shots/appimage -maxdepth 1 -type f -name '*.png' | wc -l)
+          test "$native_count" -eq 8
+          test "$appimage_count" -eq 8
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A shots
+
+          if git diff --cached --quiet; then
+            echo "Screenshots are unchanged; no commit is needed."
+          else
+            git commit -m "Update Slint page screenshots [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: Upload verified AppImage
         uses: actions/upload-artifact@v4
