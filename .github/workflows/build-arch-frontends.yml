@@ -29,7 +29,7 @@ jobs:
       - name: Install build dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --needed --noconfirm git rust pkgconf fontconfig freetype2 libglvnd libx11 libxcb libxkbcommon wayland nodejs npm python gtk3 libayatana-appindicator librsvg openssl webkit2gtk-4.1
+          pacman -S --needed --noconfirm git rust pkgconf fontconfig freetype2 libglvnd libx11 libxcb libxkbcommon wayland nodejs npm python sqlite gtk3 libayatana-appindicator librsvg openssl webkit2gtk-4.1
       - uses: actions/checkout@v4
       - name: Prepare unprivileged builder
         run: |
