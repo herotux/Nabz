@@ -90,7 +90,7 @@ jobs:
           page_names=(dashboard contacts inventory invoices payments reports printing settings)
           page_y=(120 159 198 237 276 315 354 393)
           for i in "${!page_names[@]}"; do
-            xdotool mousemove --window "$window" 1000 "${page_y[$i]}" click 1
+            xdotool mousemove --window "$window" 1180 "${page_y[$i]}" click 1
             sleep 0.7
             screenshot="$RUNNER_TEMP/nabz-native-${page_names[$i]}.png"
             import -window "$window" "$screenshot"
@@ -218,7 +218,7 @@ jobs:
           page_names=(dashboard contacts inventory invoices payments reports printing settings)
           page_y=(120 159 198 237 276 315 354 393)
           for i in "${!page_names[@]}"; do
-            xdotool mousemove --window "$window" 1000 "${page_y[$i]}" click 1
+            xdotool mousemove --window "$window" 1180 "${page_y[$i]}" click 1
             sleep 0.7
             screenshot="$RUNNER_TEMP/nabz-appimage-${page_names[$i]}.png"
             import -window "$window" "$screenshot"
