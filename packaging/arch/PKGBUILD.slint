@@ -22,20 +22,25 @@ pkgver() {
   printf '%s.r%s.g%s' "${version//-/_}" "$count" "$revision"
 }
 
+prepare() {
+  mkdir -p "$srcdir/slint-build"
+  cp -a "$srcdir/nabz/slint-native" "$srcdir/nabz/crates" "$srcdir/slint-build/"
+}
+
 build() {
-  cd "$srcdir/nabz"
+  cd "$srcdir/slint-build"
   cargo build --release --manifest-path slint-native/Cargo.toml
 }
 
 check() {
-  cd "$srcdir/nabz"
+  cd "$srcdir/slint-build"
   cargo test --manifest-path crates/nabz-core/Cargo.toml
   cargo test --manifest-path slint-native/Cargo.toml
 }
 
 package() {
   cd "$srcdir/nabz"
-  install -Dm755 slint-native/target/release/nabz-slint "$pkgdir/usr/bin/nabz-slint"
+  install -Dm755 "$srcdir/slint-build/slint-native/target/release/nabz-slint" "$pkgdir/usr/bin/nabz-slint"
   install -Dm644 slint-native/README.md "$pkgdir/usr/share/doc/nabz-slint/README.md"
   install -Dm644 packaging/arch/nabz-slint.desktop "$pkgdir/usr/share/applications/nabz-slint.desktop"
   install -Dm644 assets/nabz.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/nabz-slint.svg"
