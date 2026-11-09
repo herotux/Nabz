@@ -1,0 +1,48 @@
+# Maintainer: Hamid Saidy <herotux@users.noreply.github.com>
+pkgname=nabz-slint
+pkgver=0.1.0.r1.g0000000
+pkgrel=1
+pkgdesc="Nabz native Persian accounting UI (Slint)"
+arch=('x86_64')
+url="https://github.com/herotux/Nabz"
+license=('MIT')
+depends=('gcc-libs' 'glibc' 'sqlite' 'fontconfig' 'freetype2' 'libglvnd' 'libx11' 'libxcb' 'libxkbcommon' 'wayland')
+makedepends=('git' 'rust' 'pkgconf')
+provides=('nabz-slint')
+conflicts=('nabz-slint-git')
+source=("nabz::git+https://github.com/herotux/Nabz.git#branch=packaging/slint-tauri-arch")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$srcdir/nabz"
+  local version count revision
+  version="$(sed -n 's/^version = "\([^"]*\)".*/\1/p' slint-native/Cargo.toml | head -n1)"
+  count="$(git rev-list --count HEAD)"
+  revision="$(git rev-parse --short=7 HEAD)"
+  printf '%s.r%s.g%s' "${version//-/_}" "$count" "$revision"
+}
+
+prepare() {
+  mkdir -p "$srcdir/slint-build"
+  cp -a "$srcdir/nabz/slint-native" "$srcdir/nabz/crates" "$srcdir/nabz/assets" "$srcdir/nabz/scripts" "$srcdir/slint-build/"
+}
+
+build() {
+  cd "$srcdir/slint-build"
+  cargo build --release --manifest-path slint-native/Cargo.toml
+}
+
+check() {
+  cd "$srcdir/slint-build"
+  cargo test --manifest-path crates/nabz-core/Cargo.toml
+  cargo test --manifest-path slint-native/Cargo.toml
+}
+
+package() {
+  cd "$srcdir/nabz"
+  install -Dm755 "$srcdir/slint-build/slint-native/target/release/nabz-slint" "$pkgdir/usr/bin/nabz-slint"
+  install -Dm644 slint-native/README.md "$pkgdir/usr/share/doc/nabz-slint/README.md"
+  install -Dm644 packaging/arch/nabz-slint.desktop "$pkgdir/usr/share/applications/nabz-slint.desktop"
+  install -Dm644 assets/nabz.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/nabz-slint.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

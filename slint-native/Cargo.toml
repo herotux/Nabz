@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "nabz-slint"
 version = "0.1.0"
@@ -8,7 +10,7 @@ build = "build.rs"
 
 [dependencies]
 slint = "1.18.1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = "0.32"
 nabz-core = { path = "../crates/nabz-core" }
 
 [build-dependencies]

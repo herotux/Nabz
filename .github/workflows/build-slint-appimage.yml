@@ -1,0 +1,315 @@
+name: Build Slint AppImage
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - packaging/slint-tauri-arch
+    paths:
+      - .github/workflows/build-slint-appimage.yml
+      - 'slint-native/**'
+      - 'crates/nabz-core/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nabz-slint-appimage-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify Slint AppImage (x86_64)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v4
+
+      - name: Install build and smoke-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config curl file patchelf xdotool imagemagick x11-utils \
+            libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libx11-dev \
+            libfontconfig1-dev libfreetype6-dev libssl-dev \
+            libgl1-mesa-dev libwayland-dev libsqlite3-dev xvfb
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            slint-native
+            crates/nabz-core
+
+      - name: Install bundled Persian font
+        run: bash scripts/fetch-font.sh
+
+      - name: Test shared accounting core
+        run: cargo test --manifest-path crates/nabz-core/Cargo.toml
+
+      - name: Test Slint application
+        run: cargo test --manifest-path slint-native/Cargo.toml
+
+      - name: Build optimized Slint binary
+        run: cargo build --release --manifest-path slint-native/Cargo.toml
+
+      - name: Verify native window is actually visible
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/nabz-smoke"
+          xvfb-run -a bash -euo pipefail <<'SMOKE'
+          export SLINT_BACKEND=winit-software
+          export NABZ_DB_PATH="$RUNNER_TEMP/nabz-smoke/nabz.sqlite3"
+          ./slint-native/target/release/nabz-slint >"$RUNNER_TEMP/nabz-native.log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" 2>/dev/null || true' EXIT
+          read -r screen_width screen_height <<<"$(xdotool getdisplaygeometry)"
+          window=""
+          for attempt in $(seq 1 20); do
+            for id in $(xdotool search --onlyvisible --pid "$app_pid" 2>/dev/null || true); do
+              xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-geometry" 2>/dev/null || continue
+              width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-geometry")
+              height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-geometry")
+              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then
+                window="$id"
+                echo "Detected native window: $(xdotool getwindowname "$id" 2>/dev/null || true) (${width}x${height})"
+                break
+              fi
+            done
+            [ -n "$window" ] && break
+            kill -0 "$app_pid" 2>/dev/null || break
+            sleep 1
+          done
+          if [ -z "$window" ]; then
+            echo "Native app did not create a visible window (minimum 400x300)." >&2
+            xwininfo -root -tree >&2 || true
+            cat "$RUNNER_TEMP/nabz-native.log" >&2 || true
+            exit 1
+          fi
+          # Capture every page through the real right-side navigation.
+          page_names=(dashboard contacts inventory invoices payments reports printing settings)
+          page_y=(137 185 233 281 329 377 425 473)
+          for i in "${!page_names[@]}"; do
+            xdotool mousemove --window "$window" 1080 "${page_y[$i]}" click 1
+            sleep 0.7
+            screenshot="$RUNNER_TEMP/nabz-native-${page_names[$i]}.png"
+            import -window "$window" "$screenshot"
+            identify "$screenshot"
+            test -s "$screenshot"
+            echo "Captured Slint page: ${page_names[$i]}"
+          done
+          unique_count=$(sha256sum "$RUNNER_TEMP"/nabz-native-*.png | awk '{print $1}' | sort -u | wc -l)
+          test "$unique_count" -eq 8
+          test -s "$NABZ_DB_PATH"
+          SMOKE
+
+      - name: Prepare AppDir
+        run: |
+          set -euo pipefail
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications \
+            AppDir/usr/share/icons/hicolor/scalable/apps
+          install -m 0755 slint-native/target/release/nabz-slint AppDir/usr/bin/nabz-slint
+          cat > AppDir/nabz-slint.desktop <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=Nabz (Slint)
+          Comment=Native Persian accounting application
+          Exec=nabz-slint
+          Icon=nabz-slint
+          Terminal=false
+          Categories=Office;Finance;
+          StartupNotify=true
+          DESKTOP
+          cp AppDir/nabz-slint.desktop AppDir/usr/share/applications/nabz-slint.desktop
+          cat > AppDir/usr/share/icons/hicolor/scalable/apps/nabz-slint.svg <<'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+            <rect x="12" y="12" width="232" height="232" rx="48" fill="#16865b"/>
+            <path d="M66 70h124v22H91v27h88v22H91v45H66z" fill="#fff"/>
+            <path d="M116 141h74v22h-74z" fill="#c8f2df"/>
+          </svg>
+          SVG
+
+      - name: Bundle runtime libraries
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set -euo pipefail
+          # Use Tauri's pinned mirror of linuxdeploy first. The upstream
+          # continuous release endpoint has repeatedly returned HTTP 504
+          # from GitHub Actions runners.
+          if ! curl -fL --retry 4 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 30 --max-time 600 \
+            https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage \
+            -o "$RUNNER_TEMP/linuxdeploy"; then
+            echo "Pinned mirror unavailable; falling back to upstream linuxdeploy."
+            curl -fL --retry 4 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 30 --max-time 600 \
+              https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+              -o "$RUNNER_TEMP/linuxdeploy"
+          fi
+          test -s "$RUNNER_TEMP/linuxdeploy"
+          chmod +x "$RUNNER_TEMP/linuxdeploy"
+          "$RUNNER_TEMP/linuxdeploy" --appimage-extract-and-run \
+            --appdir AppDir \
+            --executable AppDir/usr/bin/nabz-slint \
+            --desktop-file AppDir/nabz-slint.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/nabz-slint.svg
+
+      - name: Configure reliable AppImage launcher
+        run: |
+          set -euo pipefail
+          # appimagetool creates AppRun as a symlink to usr/bin/nabz-slint.
+          # Remove that symlink before writing, otherwise shell redirection follows it
+          # and overwrites the actual ELF executable with this launcher script.
+          rm -f AppDir/AppRun
+          cat > AppDir/AppRun <<'APPRUN'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          APP="$HERE/usr/bin/nabz-slint"
+          if [ ! -x "$APP" ]; then
+            echo "Nabz executable not found: $APP" >&2
+            exit 127
+          fi
+          export SLINT_BACKEND="${SLINT_BACKEND:-winit-software}"
+          exec "$APP" "$@"
+          APPRUN
+          chmod 0755 AppDir/AppRun
+
+      - name: Create AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Fetch the release asset through GitHub's API first. This avoids
+          # the browser-download endpoint that returned repeated HTTP 504s.
+          if ! curl -fL --retry 4 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 30 --max-time 600 \
+            -H "Accept: application/octet-stream" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/AppImage/appimagetool/releases/assets/715388534 \
+            -o "$RUNNER_TEMP/appimagetool"; then
+            echo "GitHub API asset download failed; trying the official release URL."
+            curl -fL --retry 4 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 30 --max-time 600 \
+              https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+              -o "$RUNNER_TEMP/appimagetool"
+          fi
+          test -s "$RUNNER_TEMP/appimagetool"
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          ARCH=x86_64 "$RUNNER_TEMP/appimagetool" --appimage-extract-and-run \
+            AppDir Nabz-Slint-x86_64.AppImage
+          chmod +x Nabz-Slint-x86_64.AppImage
+          file Nabz-Slint-x86_64.AppImage
+          test -s Nabz-Slint-x86_64.AppImage
+
+      - name: Verify packaged AppImage window is actually visible
+        shell: bash
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/nabz-appimage-smoke"
+          xvfb-run -a bash -euo pipefail <<'SMOKE'
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export SLINT_BACKEND=winit-software
+          export NABZ_DB_PATH="$RUNNER_TEMP/nabz-appimage-smoke/nabz.sqlite3"
+          ./Nabz-Slint-x86_64.AppImage >"$RUNNER_TEMP/nabz-appimage.log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" 2>/dev/null || true' EXIT
+          read -r screen_width screen_height <<<"$(xdotool getdisplaygeometry)"
+          window=""
+          for attempt in $(seq 1 25); do
+            # AppImage may launch a child process; identify the actual visible
+            # top-level window by its title instead of the launcher PID.
+            for id in $(xdotool search --onlyvisible --name 'نبض' 2>/dev/null || true); do
+              xdotool getwindowgeometry --shell "$id" >"$RUNNER_TEMP/nabz-appimage-geometry" 2>/dev/null || continue
+              width=$(awk -F= '$1=="WIDTH" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
+              height=$(awk -F= '$1=="HEIGHT" {print $2}' "$RUNNER_TEMP/nabz-appimage-geometry")
+              if [ "${width:-0}" -ge 400 ] && [ "${height:-0}" -ge 300 ]; then
+                window="$id"
+                echo "Detected packaged window: $(xdotool getwindowname "$id" 2>/dev/null || true) (${width}x${height})"
+                break
+              fi
+            done
+            [ -n "$window" ] && break
+            sleep 1
+          done
+          if [ -z "$window" ]; then
+            echo "Packaged AppImage did not create a visible window (minimum 400x300)." >&2
+            xwininfo -root -tree >&2 || true
+            cat "$RUNNER_TEMP/nabz-appimage.log" >&2 || true
+            exit 1
+          fi
+          # Capture every page through the real right-side navigation.
+          page_names=(dashboard contacts inventory invoices payments reports printing settings)
+          page_y=(137 185 233 281 329 377 425 473)
+          for i in "${!page_names[@]}"; do
+            xdotool mousemove --window "$window" 1080 "${page_y[$i]}" click 1
+            sleep 0.7
+            screenshot="$RUNNER_TEMP/nabz-appimage-${page_names[$i]}.png"
+            import -window "$window" "$screenshot"
+            identify "$screenshot"
+            test -s "$screenshot"
+            echo "Captured packaged Slint page: ${page_names[$i]}"
+          done
+          unique_count=$(sha256sum "$RUNNER_TEMP"/nabz-appimage-*.png | awk '{print $1}' | sort -u | wc -l)
+          test "$unique_count" -eq 8
+          test -s "$NABZ_DB_PATH"
+          SMOKE
+
+      - name: Preserve GUI smoke-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Slint-GUI-Test-Evidence
+          path: |
+            ${{ runner.temp }}/nabz-native.log
+            ${{ runner.temp }}/nabz-native-*.png
+            ${{ runner.temp }}/nabz-appimage.log
+            ${{ runner.temp }}/nabz-appimage-*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Replace committed Slint screenshots
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Keep only the latest successful run's screenshots in the branch.
+          rm -rf shots
+          mkdir -p shots/native shots/appimage
+
+          cp "$RUNNER_TEMP"/nabz-native-*.png shots/native/
+          cp "$RUNNER_TEMP"/nabz-appimage-*.png shots/appimage/
+
+          native_count=$(find shots/native -maxdepth 1 -type f -name '*.png' | wc -l)
+          appimage_count=$(find shots/appimage -maxdepth 1 -type f -name '*.png' | wc -l)
+          test "$native_count" -eq 8
+          test "$appimage_count" -eq 8
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A shots
+
+          if git diff --cached --quiet; then
+            echo "Screenshots are unchanged; no commit is needed."
+          else
+            git commit -m "Update Slint page screenshots [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Upload verified AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Slint-AppImage-x86_64
+          path: Nabz-Slint-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 14

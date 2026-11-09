@@ -343,7 +343,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = match open_database() {
         Ok(c) => Rc::new(RefCell::new(c)),
         Err(e) => {
-            set_status(&ui, e);
+            let message = format!("Nabz database startup failed: {e}");
+            eprintln!("{message}");
+            if let Some(parent) = nabz_core::database_path().parent() {
+                let log_dir = parent.join("logs");
+                let _ = std::fs::create_dir_all(&log_dir);
+                let _ = std::fs::write(log_dir.join("startup-error.log"), format!("{message}\n"));
+            }
+            set_status(&ui, format!("خطای پایگاه داده: {e}"));
             return Err("Could not initialize Nabz SQLite database".into());
         }
     };

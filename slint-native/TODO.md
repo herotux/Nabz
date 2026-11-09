@@ -18,6 +18,15 @@ Updated: 2026-10-30
 - [ ] Define and test simultaneous-launch / write-conflict behavior.
 - [ ] Build and publish independently installable Tauri and Slint artifacts; uninstalling either must preserve shared data.
 
+## Arch / Manjaro distribution
+- [x] Add separate Arch PKGBUILDs for `nabz-slint` and `nabz-tauri`.
+- [x] Add a one-command Manjaro installer with Slint / Tauri / both selection.
+- [x] Add independent desktop launchers and shared-data-preserving package contents.
+- [x] Add an Arch Linux CI workflow definition for both packages.
+- [ ] Verify both package builds on the exact current branch in GitHub Actions.
+- [ ] Install each package on Manjaro and verify launch, switching, RTL, and shared database access.
+- [ ] Verify package removal/reinstallation preserves the database and the other frontend.
+
 ## Current CI / blocking issues
 - [x] Inspect the failed Slint Native UI CI run.
 - [x] Remove incompatible Window `min-width` / `min-height` constraints when explicit `width` / `height` are set.
