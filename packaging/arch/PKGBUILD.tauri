@@ -7,7 +7,7 @@ arch=('x86_64')
 url="https://github.com/herotux/Nabz"
 license=('MIT')
 depends=('gcc-libs' 'glibc' 'sqlite' 'gtk3' 'libayatana-appindicator' 'librsvg' 'openssl' 'webkit2gtk-4.1')
-makedepends=('git' 'rust' 'nodejs' 'npm' 'python' 'pkgconf')
+makedepends=('git' 'rust' 'nodejs' 'npm' 'python' 'pkgconf' 'curl')
 provides=('nabz-tauri')
 conflicts=('nabz-tauri-git')
 source=("nabz::git+https://github.com/herotux/Nabz.git#branch=packaging/slint-tauri-arch")
@@ -23,6 +23,8 @@ pkgver() {
 }
 
 prepare() {
+  cd "$srcdir/nabz"
+  bash scripts/fetch-font.sh
   cd "$srcdir/nabz/tauri-web"
   npm install --no-audit --no-fund
   cd "$srcdir/nabz"

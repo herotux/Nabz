@@ -24,7 +24,7 @@ pkgver() {
 
 prepare() {
   mkdir -p "$srcdir/slint-build"
-  cp -a "$srcdir/nabz/slint-native" "$srcdir/nabz/crates" "$srcdir/slint-build/"
+  cp -a "$srcdir/nabz/slint-native" "$srcdir/nabz/crates" "$srcdir/nabz/assets" "$srcdir/nabz/scripts" "$srcdir/slint-build/"
 }
 
 build() {
