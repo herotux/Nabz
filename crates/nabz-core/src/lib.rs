@@ -808,11 +808,11 @@ mod tests {
         ).unwrap();
         assert_eq!(count, 1);
 
-        second_frontend.execute(
+        second_instance.execute(
             "INSERT INTO products(name,code) VALUES('Shared item','SHARED-1')",
             [],
         ).unwrap();
-        let product_count: i64 = first_frontend.query_row(
+        let product_count: i64 = first_instance.query_row(
             "SELECT COUNT(*) FROM products WHERE code='SHARED-1'",
             [], |row| row.get(0)
         ).unwrap();
