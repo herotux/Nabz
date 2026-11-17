@@ -7,8 +7,10 @@
 نسخهٔ فعال محصول با **React + TypeScript + Vite + Tauri 2 + Rust + SQLite** توسعه داده می‌شود.
 
 - رابط کاربری: `tauri-web/src`
-- فرمان‌ها و دسترسی SQLite: `tauri-web/src-tauri`
+- adapter فرمان‌های Tauri: `tauri-web/src-tauri`
+- هستهٔ حسابداری، migration و SQLite: `crates/nabz-core`
 - بستهٔ لینوکس هدف: Arch/Manjaro با فرمت `.pkg.tar.zst`
+- هستهٔ حسابداری و دیتابیس: [گزارش فاز یک](docs/architecture/PHASE_ONE.md) و [تصمیم‌های معماری](docs/architecture/DECISIONS.md)
 - وضعیت و نقشهٔ راه: [وضعیت پیاده‌سازی](tauri-web/IMPLEMENTATION_STATUS.md) و [فهرست کارها](tauri-web/TODO.md)
 - تصمیم‌های معماری: [Architecture decisions](docs/architecture/DECISIONS.md)
 - گزارش فاز صفر: [Phase zero](docs/architecture/PHASE_ZERO.md)
