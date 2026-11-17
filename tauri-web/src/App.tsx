@@ -1,0 +1,224 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import {
+  Activity, ArrowDownLeft, ArrowUpRight, BarChart3, Bell, Boxes, CalendarDays,
+  Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Command, CreditCard,
+  FileText, LayoutDashboard, Menu, Package, Plus, Printer, Search, Settings,
+  ShoppingCart, SlidersHorizontal, Sparkles, Store, Users, Wallet, X, Trash2,
+  Download, Upload, RefreshCw, ScanBarcode
+} from 'lucide-react';
+
+type Page = 'dashboard'|'contacts'|'invoices'|'payments'|'products'|'reports'|'printing'|'settings';
+type Entry = 'contact'|'product'|'sale'|'purchase'|'receipt'|'payment';
+type RecordRow = {id:number;name:string;detail:string;amount:number;status:string;date:string};
+type Product = {id:number;name:string;code:string;barcode:string;quantity:number;buy_price:number;sell_price:number;min_quantity:number};
+type Summary = {sales_today:number;receipts_today:number;customer_balance:number;inventory_value:number;contacts:number;products:number;invoices:number};
+type Trend = {date:string;total:number};
+type InvoicePrint = {invoice:{id:number;number:number;kind:string;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string};items:{item_name:string;quantity:number;unit_price:number;line_total:number}[];shop:Record<string,string>};
+
+const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string}[] = [
+  {id:'dashboard',label:'نمای کلی',icon:LayoutDashboard,group:'مدیریت'},
+  {id:'contacts',label:'طرف‌حساب‌ها',icon:Users,group:'مدیریت'},
+  {id:'invoices',label:'فاکتورها',icon:FileText,group:'عملیات'},
+  {id:'payments',label:'دریافت و پرداخت',icon:Wallet,group:'عملیات'},
+  {id:'products',label:'کالا و انبار',icon:Boxes,group:'عملیات'},
+  {id:'reports',label:'گزارش‌ها',icon:BarChart3,group:'تحلیل'},
+  {id:'printing',label:'چاپ و بارکد',icon:ScanBarcode,group:'ابزارها'},
+  {id:'settings',label:'تنظیمات',icon:Settings,group:'ابزارها'},
+];
+const pageTitles:Record<Page,string> = {dashboard:'نمای کلی',contacts:'طرف‌حساب‌ها',invoices:'فاکتورها',payments:'دریافت و پرداخت',products:'کالا و انبار',reports:'گزارش‌ها',printing:'چاپ و بارکد',settings:'تنظیمات'};
+const money=(n:number)=>new Intl.NumberFormat('fa-IR').format(Number.isFinite(n)?n:0);
+const today=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{day:'numeric',month:'long',year:'numeric'}).format(new Date());
+const isoToday=new Date().toISOString().slice(0,10);
+const emptySummary:Summary={sales_today:0,receipts_today:0,customer_balance:0,inventory_value:0,contacts:0,products:0,invoices:0};
+
+function App(){
+  const [page,setPage]=useState<Page>('dashboard');
+  const [summary,setSummary]=useState<Summary>(emptySummary);
+  const [records,setRecords]=useState<RecordRow[]>([]);
+  const [products,setProducts]=useState<Product[]>([]);
+  const [trend,setTrend]=useState<Trend[]>([]);
+  const [days,setDays]=useState(7);
+  const [query,setQuery]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [toast,setToast]=useState('');
+  const [entry,setEntry]=useState<Entry|null>(null);
+  const [form,setForm]=useState<Record<string,string>>({});
+  const [lines,setLines]=useState([{item:'',qty:'1',price:'0'}]);
+  const [settings,setSettings]=useState<Record<string,string>>({});
+  const [mobileOpen,setMobileOpen]=useState(false);
+
+  const notify=useCallback((message:string)=>{setToast(message);window.setTimeout(()=>setToast(''),3200)},[]);
+  const load=useCallback(async()=>{
+    setBusy(true);setError('');
+    try{
+      if(page==='dashboard'){
+        const [s,t,inv,pay]=await Promise.all([
+          invoke<Summary>('dashboard_summary'),
+          invoke<Trend[]>('sales_trend',{days}),
+          invoke<RecordRow[]>('list_records',{kind:'invoices'}),
+          invoke<RecordRow[]>('list_records',{kind:'payments'})
+        ]);
+        setSummary(s);setTrend(t);
+        setRecords([...inv,...pay].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5));
+      }else if(page==='contacts'||page==='invoices'||page==='payments'){
+        const kind=page==='contacts'?'contacts':page==='invoices'?'invoices':'payments';
+        setRecords(await invoke<RecordRow[]>('list_records',{kind}));
+      }else if(page==='products'){
+        setProducts(await invoke<Product[]>('list_products'));
+      }else if(page==='reports'){
+        const r=await invoke<Summary & Record<string,number>>('reports_summary');
+        setSummary({...emptySummary,...r});
+      }else if(page==='settings'){
+        setSettings(await invoke<Record<string,string>>('get_settings'));
+      }
+    }catch(e){
+      setError('اتصال به پایگاه داده برقرار نشد. این بخش در نسخه دسکتاپ نبض فعال است.');
+      if(String(e).includes('dashboard_summary')) setSummary(emptySummary);
+    }finally{setBusy(false)}
+  },[page,days]);
+  useEffect(()=>{void load()},[load]);
+
+  const filteredRecords=useMemo(()=>records.filter(r=>(r.name+' '+r.detail+' '+r.status).toLocaleLowerCase().includes(query.toLocaleLowerCase())),[records,query]);
+  const filteredProducts=useMemo(()=>products.filter(p=>(p.name+' '+p.code+' '+p.barcode).toLocaleLowerCase().includes(query.toLocaleLowerCase())),[products,query]);
+  const openEntry=(kind:Entry)=>{
+    setEntry(kind);setQuery('');
+    setForm({name:'',kind:kind==='payment'?'supplier':kind==='receipt'?'customer':'',phone:'',balance:'0',notes:'',code:'',barcode:'',qty:'0',buy:'0',sell:'0',min:'0',customer:'',amount:'',method:'cash',date:isoToday,item:'',price:'0',discount:'0',status:'paid',paid:'',paper:'A4'});
+    setLines([{item:'',qty:'1',price:'0'}]);
+  };
+  const closeEntry=()=>setEntry(null);
+  const setField=(key:string,value:string)=>setForm(old=>({...old,[key]:value}));
+  const saveEntry=async(e:React.FormEvent)=>{
+    e.preventDefault();if(!entry)return;setBusy(true);
+    try{
+      let id:number|void=undefined;
+      if(entry==='contact'){
+        id=await invoke<number>('save_contact',{payload:{name:form.name,kind:form.kind,phone:form.phone,balance:Number(form.balance||0),notes:form.notes}});
+      }else if(entry==='product'){
+        id=await invoke<number>('save_product',{payload:{name:form.name,code:form.code,barcode:form.barcode,qty:Number(form.qty||0),buy:Number(form.buy||0),sell:Number(form.sell||0),min:Number(form.min||0)}});
+      }else if(entry==='sale'||entry==='purchase'){
+        const items=lines.filter(x=>x.item.trim()).map(x=>({item:x.item.trim(),qty:Number(x.qty),price:Number(x.price)}));
+        id=await invoke<number>('save_invoice',{payload:{kind:entry==='purchase'?'purchase':'sale',customer:form.customer,payment_status:form.status,paid_amount:Number(form.paid||0),method:form.method,items,discount:Number(form.discount||0),date:form.date,notes:form.notes}});
+      }else{
+        id=await invoke<number>('save_payment',{payload:{kind:entry==='payment'?'payment':'receipt',customer:form.customer,amount:Number(form.amount||0),method:form.method,date:form.date,notes:form.notes}});
+      }
+      notify('اطلاعات با موفقیت ثبت شد'+(id?' · شناسه '+id:''));
+      closeEntry();await load();
+    }catch(e){notify('ثبت انجام نشد: '+String(e))}
+    finally{setBusy(false)}
+  };
+  const removeRecord=async(kind:string,id:number)=>{
+    if(!window.confirm('این رکورد حذف شود؟'))return;
+    try{await invoke('delete_record',{kind,id});notify('رکورد حذف شد.');await load()}
+    catch(e){notify('حذف انجام نشد: '+String(e))}
+  };
+  const backup=async()=>{
+    try{const data=await invoke<Record<string,unknown>>('export_data');const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='nabz-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(url);notify('نسخه پشتیبان دریافت شد.')}
+    catch(e){notify('تهیه نسخه پشتیبان ناموفق بود: '+String(e))}
+  };
+  const restore=async(file?:File)=>{
+    if(!file)return;if(!window.confirm('بازیابی، اطلاعات فعلی را جایگزین می‌کند. ادامه می‌دهی؟'))return;
+    try{const data=JSON.parse(await file.text());await invoke('restore_data',{data});notify('بازیابی انجام شد.');await load()}
+    catch(e){notify('بازیابی انجام نشد: '+String(e))}
+  };
+  const printInvoice=async(id:number)=>{
+    try{
+      const data=await invoke<InvoicePrint>('get_invoice_print',{id});
+      const rows=data.items.map(x=>'<tr><td>'+x.item_name+'</td><td>'+money(x.quantity)+'</td><td>'+money(x.unit_price)+'</td><td>'+money(x.line_total)+'</td></tr>').join('');
+      const w=window.open('','_blank','width=900,height=700');if(!w)throw new Error('پنجره چاپ مسدود است');
+      w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>فاکتور '+data.invoice.number+'</title><style>body{font-family:Tahoma,sans-serif;padding:32px;color:#182536}h1{font-size:22px}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border:1px solid #ddd;padding:10px;text-align:right}footer{margin-top:25px;font-weight:bold}</style><h1>'+((data.shop.shop_name)||'نبض')+'</h1><h2>فاکتور '+(data.invoice.kind==='sale'?'فروش':'خرید')+' شماره '+money(data.invoice.number)+'</h2><p>طرف حساب: '+data.invoice.contact_name+'　 تاریخ: '+data.invoice.invoice_date+'</p><table><thead><tr><th>شرح</th><th>تعداد</th><th>فی</th><th>مبلغ</th></tr></thead><tbody>'+rows+'</tbody></table><footer>جمع کل: '+money(data.invoice.total)+' تومان　 تخفیف: '+money(data.invoice.discount)+'　 پرداخت‌شده: '+money(data.invoice.paid)+'</footer><script>window.onload=()=>window.print()<\/script></html>');
+      w.document.close();
+    }catch(e){notify('آماده‌سازی چاپ ناموفق بود: '+String(e))}
+  };
+  const saveSettings=async()=>{
+    try{await Promise.all(Object.entries(settings).map(([key,value])=>invoke('save_setting',{key,value})));notify('تنظیمات ذخیره شد.')}
+    catch(e){notify('ذخیره تنظیمات ناموفق بود: '+String(e))}
+  };
+
+  const active=pageTitles[page];
+  return <div className="app-shell">
+    <aside className={'sidebar '+(mobileOpen?'sidebar-open':'')}>
+      <div className="brand"><div className="brand-mark">ن</div><div><b>نبض</b><small>حسابداری فروشگاهی</small></div><button className="mobile-close icon-btn" onClick={()=>setMobileOpen(false)}><X size={18}/></button></div>
+      <button className="store-switch"><span className="store-icon"><Store size={18}/></span><span><b>{settings.shop_name||'فروشگاه من'}</b><small>فضای کاری فعال</small></span><ChevronDown size={15}/></button>
+      {['مدیریت','عملیات','تحلیل','ابزارها'].map(group=><div className="nav-group" key={group}><div className="nav-caption">{group}</div>{navigation.filter(n=>n.group===group).map(n=><button key={n.id} className={'nav-link '+(page===n.id?'active':'')} onClick={()=>{setPage(n.id);setQuery('');setMobileOpen(false)}}><n.icon size={18}/><span>{n.label}</span>{page===n.id&&<span className="active-dot"/>}</button>)}</div>)}
+      <div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><Sparkles size={16}/></div><b>همراه نبض</b><p>برای شروع سریع، از میانبرهای صفحه‌کلید استفاده کن.</p><span><Command size={12}/> Ctrl + K</span></div><div className="profile"><div className="avatar">م</div><div><b>مدیر فروشگاه</b><small>دسترسی کامل</small></div><button className="icon-btn" onClick={()=>setPage('settings')}><Settings size={17}/></button></div></div>
+    </aside>
+    {mobileOpen&&<button className="mobile-scrim" onClick={()=>setMobileOpen(false)} aria-label="بستن منو"/>}
+    <main className="main-area">
+      <header className="topbar">
+        <div className="topbar-right"><button className="mobile-menu icon-btn" onClick={()=>setMobileOpen(true)}><Menu size={20}/></button><div className="breadcrumbs"><span>فروشگاه</span><ChevronLeft size={14}/><b>{active}</b></div></div>
+        <div className="topbar-left"><div className="date-chip"><CalendarDays size={15}/>{today}</div><button className="icon-btn notification-btn" onClick={()=>notify('اعلان تازه‌ای وجود ندارد.')}><Bell size={18}/><i/></button><div className="top-avatar">م</div></div>
+      </header>
+      <section className="page-content">
+        {error&&<div className="error-banner">{error}<button onClick={()=>void load()}><RefreshCw size={14}/> تلاش دوباره</button></div>}
+        {page==='dashboard'&&<Dashboard summary={summary} trend={trend} days={days} setDays={setDays} records={records} busy={busy} onAction={openEntry} onNavigate={setPage} onPrint={printInvoice}/>}
+        {page==='contacts'&&<RecordsPage title="طرف‌حساب‌ها" subtitle="مدیریت مشتریان، تأمین‌کنندگان و مانده حساب آن‌ها" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('contact')} onDelete={id=>removeRecord('contacts',id)} columns={['نام طرف‌حساب','شماره تماس','مانده حساب','نوع','تاریخ ثبت']} />}
+        {page==='invoices'&&<RecordsPage title="فاکتورها" subtitle="فاکتورهای فروش و خرید ثبت‌شده در فروشگاه" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('sale')} onDelete={id=>removeRecord('invoices',id)} onPrint={printInvoice} columns={['شرح فاکتور','نوع','مبلغ کل','وضعیت','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('purchase')}><Plus size={15}/> خرید جدید</button></>} />}
+        {page==='payments'&&<RecordsPage title="دریافت و پرداخت" subtitle="ثبت و پیگیری دریافت وجه و پرداخت به تأمین‌کنندگان" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('receipt')} onDelete={id=>removeRecord('payments',id)} columns={['طرف‌حساب','نوع عملیات','مبلغ','روش','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('payment')}><ArrowUpRight size={15}/> ثبت پرداخت</button></>} />}
+        {page==='products'&&<ProductsPage products={filteredProducts} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('product')} onDelete={id=>removeRecord('products',id)}/>}
+        {page==='reports'&&<ReportsPage summary={summary}/>}
+        {page==='printing'&&<PrintingPage notify={notify}/>}
+        {page==='settings'&&<SettingsPage settings={settings} setSettings={setSettings} onSave={saveSettings} onBackup={backup} onRestore={restore}/>}
+        <footer className="page-footer"><span>نبض · مدیریت مالی هوشمند فروشگاه</span><span>نسخه آزمایشی رابط React</span></footer>
+      </section>
+    </main>
+    {entry&&<EntryModal entry={entry} form={form} setField={setField} lines={lines} setLines={setLines} onClose={closeEntry} onSubmit={saveEntry} busy={busy}/>}
+    {toast&&<div className="toast"><Check size={16}/>{toast}</div>}
+  </div>;
+}
+
+function PageHeading({eyebrow,title,subtitle,children}:{eyebrow?:string;title:string;subtitle:string;children?:React.ReactNode}){
+ return <div className="page-heading"><div><div className="eyebrow">{eyebrow||'مدیریت فروشگاه'}</div><h1>{title}</h1><p>{subtitle}</p></div><div className="heading-actions">{children}</div></div>;
+}
+function PrimaryButton({children,onClick}:{children:React.ReactNode;onClick:()=>void}){
+ return <button className="primary-btn" onClick={onClick}><Plus size={17}/>{children}</button>;
+}
+function Dashboard({summary,trend,days,setDays,records,busy,onAction,onNavigate,onPrint}:{summary:Summary;trend:Trend[];days:number;setDays:(n:number)=>void;records:RecordRow[];busy:boolean;onAction:(e:Entry)=>void;onNavigate:(p:Page)=>void;onPrint:(id:number)=>void}){
+ const max=Math.max(1,...trend.map(x=>x.total));
+ const coords=trend.map((x,i)=>({x:trend.length<2?50:i*100/(trend.length-1),y:92-(x.total/max)*76}));
+ const path=coords.map((p,i)=>(i?'L':'M')+p.x+' '+p.y).join(' ');
+ const cards=[{label:'فروش امروز',value:summary.sales_today,icon:ShoppingCart,tone:'blue',hint:'مجموع فاکتورهای فروش'},{label:'دریافت‌های امروز',value:summary.receipts_today,icon:ArrowDownLeft,tone:'green',hint:'وجوه دریافت‌شده'},{label:'مانده حساب مشتریان',value:summary.customer_balance,icon:Wallet,tone:'amber',hint:'مانده بدهی مشتریان'},{label:'ارزش موجودی انبار',value:summary.inventory_value,icon:Package,tone:'violet',hint:'بر اساس قیمت خرید'}];
+ return <><PageHeading title="خوش آمدی 👋" subtitle="نمایی روشن از وضعیت مالی فروشگاهت در یک نگاه."><span className="today-label"><CalendarDays size={15}/>{today}</span><PrimaryButton onClick={()=>onAction('sale')}>فاکتور فروش</PrimaryButton></PageHeading>
+  <div className="stat-grid">{cards.map(c=><article className="stat-card" key={c.label}><div className="stat-top"><span>{c.label}</span><i className={'stat-icon '+c.tone}><c.icon size={19}/></i></div><div className="stat-value">{money(c.value)}<small>تومان</small></div><div className="stat-foot"><span>{c.hint}</span><Activity size={14}/></div></article>)}</div>
+  <div className="dashboard-grid"><article className="surface chart-card"><div className="surface-heading"><div><h2>روند فروش</h2><p>مقایسه فروش در روزهای اخیر</p></div><select value={days} onChange={e=>setDays(Number(e.target.value))}><option value={7}>۷ روز اخیر</option><option value={30}>۳۰ روز اخیر</option></select></div><div className="chart-legend"><span><i/> فروش روزانه</span><b>{money(trend.reduce((a,b)=>a+b.total,0))} <small>تومان</small></b></div><div className="sales-chart"><div className="chart-y"><span>{money(max)}</span><span>{money(Math.round(max*.66))}</span><span>{money(Math.round(max*.33))}</span><span>۰</span></div><div className="chart-main"><div className="chart-grid"><i/><i/><i/><i/></div><svg viewBox="0 0 100 100" preserveAspectRatio="none"><defs><linearGradient id="salesFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#16a36b" stopOpacity=".20"/><stop offset="100%" stopColor="#16a36b" stopOpacity="0"/></linearGradient></defs><path d={path+' L100 100 L0 100 Z'} fill="url(#salesFill)"/><path d={path||'M0 92 L100 92'} fill="none" stroke="#159b67" strokeWidth="1.8" vectorEffect="non-scaling-stroke"/>{coords.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="1.4" fill="#fff" stroke="#159b67" strokeWidth=".8" vectorEffect="non-scaling-stroke"/>)}</svg><div className="chart-x">{trend.filter((_,i)=>i===0||i===trend.length-1||i%Math.max(1,Math.floor(trend.length/5))===0).map(p=><span key={p.date}>{new Date(p.date+'T12:00:00').toLocaleDateString('fa-IR-u-ca-persian',{day:'numeric',month:'short'})}</span>)}</div></div></div>{busy&&<div className="loading-line"/>}</article>
+   <article className="surface quick-card"><div className="surface-heading"><div><h2>دسترسی سریع</h2><p>کارهای روزمره فروشگاه</p></div><Sparkles size={18} className="muted-icon"/></div><div className="quick-list"><button onClick={()=>onAction('sale')}><i className="quick-icon green"><ShoppingCart size={18}/></i><span><b>فاکتور فروش</b><small>ثبت فروش جدید</small></span><ChevronLeft size={17}/></button><button onClick={()=>onAction('receipt')}><i className="quick-icon blue"><ArrowDownLeft size={18}/></i><span><b>ثبت دریافت</b><small>دریافت وجه از مشتری</small></span><ChevronLeft size={17}/></button><button onClick={()=>onAction('contact')}><i className="quick-icon violet"><Users size={18}/></i><span><b>طرف‌حساب جدید</b><small>افزودن مشتری یا تأمین‌کننده</small></span><ChevronLeft size={17}/></button><button onClick={()=>onAction('product')}><i className="quick-icon amber"><Package size={18}/></i><span><b>کالای جدید</b><small>ثبت کالا در انبار</small></span><ChevronLeft size={17}/></button></div></article></div>
+  <article className="surface recent-card"><div className="surface-heading"><div><h2>آخرین رویدادها</h2><p>آخرین فاکتورها و دریافت / پرداخت‌ها</p></div><button className="text-btn" onClick={()=>onNavigate('invoices')}>همه فاکتورها <ChevronLeft size={15}/></button></div><RecordsTable records={records} kind="recent" onPrint={onPrint}/></article>
+ </>;
+}
+function RecordsPage({title,subtitle,records,query,setQuery,busy,onAdd,onDelete,onPrint,columns,extra}:{title:string;subtitle:string;records:RecordRow[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onDelete:(id:number)=>void;onPrint?:(id:number)=>void;columns:string[];extra?:React.ReactNode}){
+ return <><PageHeading title={title} subtitle={subtitle}><div className="button-row">{extra}<PrimaryButton onClick={onAdd}>{title==='طرف‌حساب‌ها'?'طرف‌حساب جدید':title==='فاکتورها'?'فاکتور فروش':'ثبت دریافت'}</PrimaryButton></div></PageHeading><div className="surface list-surface"><div className="list-toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="جست‌وجو در فهرست..."/></div><div className="toolbar-meta"><span>{money(records.length)} مورد</span><button className="filter-btn"><SlidersHorizontal size={15}/> فیلتر</button></div></div><RecordsTable records={records} kind={title==='طرف‌حساب‌ها'?'contacts':title==='فاکتورها'?'invoices':'payments'} columns={columns} onDelete={onDelete} onPrint={onPrint}/>{busy&&<div className="table-loading">در حال دریافت اطلاعات...</div>}</div></>;
+}
+function RecordsTable({records,kind,columns,onDelete,onPrint}:{records:RecordRow[];kind:string;columns?:string[];onDelete?:(id:number)=>void;onPrint?:(id:number)=>void}){
+ const heads=columns||['شرح','جزئیات','مبلغ','وضعیت','تاریخ'];
+ return <div className="table-wrap"><table className="data-table"><thead><tr>{heads.map(h=><th key={h}>{h}</th>)}<th>عملیات</th></tr></thead><tbody>{records.map(r=><tr key={r.id}><td><b>{r.name}</b><small className="sub-cell">{r.detail}</small></td><td>{kind==='contacts'?(r.detail||'—'):kind==='invoices'?(r.detail==='sale'?'فروش':'خرید'):kind==='payments'?(r.detail==='receipt'?'دریافت':'پرداخت'):r.date}</td><td className="amount-cell">{money(r.amount)} <small>تومان</small></td><td><span className={'status '+(/بدهکار|کم‌موجود|در انتظار/.test(r.status)?'warning':/بستانکار/.test(r.status)?'info':'success')}>{r.status||'ثبت‌شده'}</span></td><td>{r.date}</td><td><div className="row-actions">{kind==='invoices'&&onPrint&&<button title="چاپ فاکتور" onClick={()=>onPrint(r.id)}><Printer size={16}/></button>}{onDelete&&<button title="حذف" onClick={()=>onDelete(r.id)}><Trash2 size={16}/></button>}</div></td></tr>)}{!records.length&&<tr><td colSpan={6} className="empty-cell">هنوز اطلاعاتی ثبت نشده است.</td></tr>}</tbody></table></div>;
+}
+function ProductsPage({products,query,setQuery,busy,onAdd,onDelete}:{products:Product[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onDelete:(id:number)=>void}){
+ return <><PageHeading title="کالا و انبار" subtitle="کنترل موجودی، بارکد و قیمت خرید و فروش"><PrimaryButton onClick={onAdd}>افزودن کالا</PrimaryButton></PageHeading><div className="mini-stat-grid"><MiniStat label="تعداد اقلام" value={products.length} icon={Boxes}/><MiniStat label="مجموع موجودی" value={products.reduce((n,p)=>n+p.quantity,0)} icon={Package}/><MiniStat label="نیازمند تأمین" value={products.filter(p=>p.quantity<=p.min_quantity).length} icon={Activity}/></div><div className="surface list-surface"><div className="list-toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="جست‌وجوی نام، کد یا بارکد..."/></div><span className="toolbar-meta">{money(products.length)} کالا</span></div><div className="table-wrap"><table className="data-table"><thead><tr>{['نام کالا','کد کالا','بارکد','موجودی','قیمت خرید','قیمت فروش','وضعیت','عملیات'].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{products.map(p=><tr key={p.id}><td><b>{p.name}</b></td><td>{p.code}</td><td className="mono">{p.barcode||'—'}</td><td>{money(p.quantity)}</td><td>{money(p.buy_price)}</td><td className="amount-cell">{money(p.sell_price)}</td><td><span className={'status '+(p.quantity<=p.min_quantity?'warning':'success')}>{p.quantity<=p.min_quantity?'کم‌موجود':'موجود'}</span></td><td><div className="row-actions"><button onClick={()=>onDelete(p.id)}><Trash2 size={16}/></button></div></td></tr>)}{!products.length&&<tr><td colSpan={8} className="empty-cell">{busy?'در حال دریافت...':'هنوز کالایی ثبت نشده است.'}</td></tr>}</tbody></table></div></div></>;
+}
+function MiniStat({label,value,icon:Icon}:{label:string;value:number;icon:typeof Boxes}){return <div className="mini-stat"><i><Icon size={18}/></i><span>{label}</span><b>{money(value)}</b></div>}
+function ReportsPage({summary}:{summary:Summary}){
+ return <><PageHeading title="گزارش‌ها" subtitle="خلاصه عملکرد مالی و موجودی فروشگاه"/><div className="report-grid">{[{label:'فروش امروز',value:summary.sales_today},{label:'دریافت امروز',value:summary.receipts_today},{label:'بدهی مشتریان',value:summary.customer_balance},{label:'ارزش موجودی',value:summary.inventory_value}].map(x=><div className="surface report-tile" key={x.label}><span>{x.label}</span><b>{money(x.value)} <small>تومان</small></b></div>)}</div><div className="surface report-note"><BarChart3 size={22}/><div><b>گزارش‌های مبتنی بر داده واقعی</b><p>مقادیر این صفحه از پایگاه داده محلی محاسبه می‌شوند. گزارش بازه‌ای و گردش تفصیلی در مرحله بعدی بازطراحی منتقل می‌شوند.</p></div></div></>;
+}
+function PrintingPage({notify}:{notify:(s:string)=>void}){
+ const [barcode,setBarcode]=useState('626000001');
+ return <><PageHeading title="چاپ و بارکد" subtitle="آماده‌سازی برچسب کالا و تنظیمات چاپ"/><div className="surface print-panel"><div><h2>پیش‌نمایش بارکد</h2><p>کد کالا را وارد کن تا پیش‌نمایش برچسب ساخته شود.</p><label className="field-label">کد بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr"/></label><button className="primary-btn" onClick={()=>{window.print();notify('پنجره چاپ باز شد.')}}><Printer size={16}/> چاپ برچسب</button></div><div className="barcode-preview"><div className="barcode-lines"/><b>{barcode||'626000001'}</b><small>نبض · محصول</small></div></div></>;
+}
+function SettingsPage({settings,setSettings,onSave,onBackup,onRestore}:{settings:Record<string,string>;setSettings:(v:Record<string,string>)=>void;onSave:()=>void;onBackup:()=>void;onRestore:(f?:File)=>void}){
+ const update=(k:string,v:string)=>setSettings({...settings,[k]:v});
+ return <><PageHeading title="تنظیمات" subtitle="اطلاعات فروشگاه، تنظیمات عمومی و حفاظت از داده‌ها"/><div className="settings-grid"><section className="surface settings-card"><h2><Store size={18}/> اطلاعات فروشگاه</h2><label className="field-label">نام فروشگاه<input value={settings.shop_name||''} onChange={e=>update('shop_name',e.target.value)} placeholder="نام فروشگاه"/></label><label className="field-label">شماره تماس<input value={settings.shop_phone||''} onChange={e=>update('shop_phone',e.target.value)} placeholder="شماره تماس"/></label><label className="field-label">نشانی<input value={settings.shop_address||''} onChange={e=>update('shop_address',e.target.value)} placeholder="نشانی فروشگاه"/></label><label className="field-label">شناسه مالیاتی<input value={settings.shop_tax||''} onChange={e=>update('shop_tax',e.target.value)} placeholder="اختیاری"/></label><button className="primary-btn" onClick={onSave}>ذخیره تنظیمات</button></section><section className="surface settings-card"><h2><ShieldIcon/> پشتیبان‌گیری و بازیابی</h2><p>برای جلوگیری از ازدست‌رفتن اطلاعات، به‌صورت منظم نسخه پشتیبان تهیه کن.</p><button className="secondary-btn wide" onClick={onBackup}><Download size={16}/> دریافت نسخه پشتیبان</button><label className="secondary-btn wide file-label"><Upload size={16}/> بازیابی از فایل پشتیبان<input type="file" accept=".json,application/json" onChange={e=>onRestore(e.target.files?.[0])}/></label></section></div></>;
+}
+function ShieldIcon(){return <CreditCard size={18}/>}
+function EntryModal({entry,form,setField,lines,setLines,onClose,onSubmit,busy}:{entry:Entry;form:Record<string,string>;setField:(k:string,v:string)=>void;lines:{item:string;qty:string;price:string}[];setLines:(v:{item:string;qty:string;price:string}[])=>void;onClose:()=>void;onSubmit:(e:React.FormEvent)=>void;busy:boolean}){
+ const titles:Record<Entry,string>={contact:'ثبت طرف‌حساب جدید',product:'ثبت کالای جدید',sale:'فاکتور فروش جدید',purchase:'فاکتور خرید جدید',receipt:'ثبت دریافت وجه',payment:'ثبت پرداخت وجه'};
+ const field=(key:string,label:string,placeholder='',type='text')=><label className="field-label">{label}<input type={type} value={form[key]||''} onChange={e=>setField(key,e.target.value)} placeholder={placeholder}/></label>;
+ return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><form className="entry-modal" onSubmit={onSubmit}><div className="modal-heading"><div><span className="eyebrow">فرم ثبت اطلاعات</span><h2>{titles[entry]}</h2></div><button type="button" className="icon-btn" onClick={onClose}><X size={20}/></button></div>
+  <div className="modal-fields">
+   {entry==='contact'&&<>{field('name','نام طرف‌حساب','نام و نام خانوادگی یا شرکت')}<div className="form-two">{<label className="field-label">نوع طرف‌حساب<select value={form.kind} onChange={e=>setField('kind',e.target.value)}><option value="customer">مشتری</option><option value="supplier">تأمین‌کننده</option><option value="both">هر دو</option></select></label>}{field('phone','شماره تماس','اختیاری')}</div>{field('balance','مانده افتتاحیه','۰','number')}{field('notes','یادداشت','توضیحات تکمیلی')}</>}
+   {entry==='product'&&<>{field('name','نام کالا','مثلاً کابل افشان')}<div className="form-two">{field('code','کد کالا','SKU-001')}{field('barcode','بارکد','اختیاری')}</div><div className="form-three">{field('qty','موجودی اولیه','۰','number')}{field('buy','قیمت خرید','۰','number')}{field('sell','قیمت فروش','۰','number')}</div>{field('min','حداقل موجودی','۰','number')}</>}
+   {(entry==='sale'||entry==='purchase')&&<>{field('customer',entry==='sale'?'نام مشتری':'نام تأمین‌کننده','برای فروش نقدی گذری خالی بگذار')}<div className="invoice-lines-title"><b>اقلام فاکتور</b><button type="button" className="text-btn" onClick={()=>setLines([...lines,{item:'',qty:'1',price:'0'}])}><Plus size={15}/> افزودن ردیف</button></div>{lines.map((line,i)=><div className="invoice-line" key={i}><input aria-label="نام کالا یا خدمت" placeholder="نام کالا یا خدمت" value={line.item} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,item:e.target.value}:x))}/><input aria-label="تعداد" type="number" min="1" value={line.qty} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,qty:e.target.value}:x))}/><input aria-label="قیمت واحد" type="number" min="0" value={line.price} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,price:e.target.value}:x))}/><button type="button" className="icon-btn" onClick={()=>setLines(lines.filter((_,j)=>j!==i))}><X size={16}/></button></div>)}<div className="form-two">{field('discount','تخفیف','۰','number')}{field('date','تاریخ میلادی','', 'date')}</div>{entry==='sale'&&<div className="form-two"><label className="field-label">وضعیت پرداخت<select value={form.status} onChange={e=>setField('status',e.target.value)}><option value="paid">تسویه کامل</option><option value="partial">پرداخت جزئی</option><option value="credit">نسیه</option></select></label>{form.status==='partial'&&field('paid','مبلغ دریافتی','۰','number')}</div>}{field('notes','یادداشت','اختیاری')}</>}
+   {(entry==='receipt'||entry==='payment')&&<>{field('customer','نام طرف‌حساب','ابتدا طرف‌حساب را ثبت کن')}{field('amount','مبلغ','۰','number')}<div className="form-two"><label className="field-label">روش پرداخت<select value={form.method} onChange={e=>setField('method',e.target.value)}><option value="cash">نقدی</option><option value="card">کارت</option><option value="transfer">انتقال بانکی</option></select></label>{field('date','تاریخ','', 'date')}</div>{field('notes','یادداشت','اختیاری')}</>}
+  </div><div className="modal-actions"><button type="button" className="secondary-btn" onClick={onClose}>انصراف</button><button type="submit" className="primary-btn" disabled={busy}>{busy?'در حال ثبت...':'ثبت اطلاعات'}</button></div>
+ </form></div>;
+}
+export default App;
