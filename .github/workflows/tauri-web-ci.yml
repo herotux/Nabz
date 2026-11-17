@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - tauri-web-prototype
+      - ui/react-tauri-redesign
     paths:
       - "tauri-web/**"
       - ".github/workflows/tauri-web-ci.yml"
