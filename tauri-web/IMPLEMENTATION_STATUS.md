@@ -21,12 +21,12 @@
 
 ## دیتابیس و مهاجرت
 
-- شناسهٔ برنامه: `com.herotux.nabz`؛ تا زمان برنامه‌ریزی مهاجرت داده تغییر نمی‌کند.
+- شناسهٔ پایدار برنامه: `com.herotux.nabz`؛ دیتابیس prototype از `com.herotux.nabz.webprototype` با backup و حفظ فایل مبدأ منتقل می‌شود.
 - مسیر Tauri در Linux: `~/.local/share/com.herotux.nabz/nabz.sqlite3`.
-- مسیر قدیمی egui: `~/.local/share/nabz/nabz.sqlite3`؛ جدا و دست‌نخورده باقی مانده است.
+- مسیر قدیمی egui: `~/.local/share/nabz/nabz.sqlite3`؛ جدا و دست‌نخورده باقی می‌ماند. اگر دیتابیس Tauri prototype هم وجود داشته باشد، آن دیتابیس اولویت دارد و egui خودکار merge نمی‌شود.
 - قبل از هر migration دیتابیس موجود SQLite backup می‌شود.
 - foreign keys، WAL، شاخص‌ها و transactionهای عملیات مالی فعال‌اند.
-- در اولین اجرا، دیتابیس egui فقط اگر مقصد Tauri خالی باشد و integrity check مبدأ موفق شود، با backup و بدون دست‌کاری فایل مبدأ import می‌شود.
+- در اولین اجرا، دیتابیس egui فقط اگر دیتابیس Tauri قبلی وجود نداشته باشد، مقصد خالی باشد و integrity check مبدأ موفق شود، با backup و بدون دست‌کاری فایل مبدأ import می‌شود.
 - فروش‌های egui به‌دلیل نبود وضعیت پرداخت در schema قدیمی به‌عنوان نقدی فرض می‌شوند؛ این فرض در یادداشت دریافت ثبت می‌شود.
 - میانگین بهای افتتاحیه از `buy_price` قدیمی برآورد می‌شود؛ ردیف‌های فروش بدون `sale_item_costs` بدون COGS باقی می‌مانند.
 
