@@ -16,8 +16,8 @@
 
 - frontend build و TypeScript check موفق.
 - اجرای قبلی schema v8 شامل ۴۹ تست `nabz-core`، ۲۴ تست backend Tauri و ساخت بستهٔ Arch بود؛ این اجراها شواهد نسخهٔ قبلی‌اند، نه تأیید تغییرات فعلی v10.
-- اجرای تست فاز یک روی commit `21c02e9` به‌علت خطای compile در `LegacyMovement: Clone` شکست خورد؛ خطا در commit `04a0c36` اصلاح شد.
-- پس از اصلاحات schema v10، import egui، backup/restore و گزارش‌های خالص، اجرای جدید CI هنوز در دسترس نیست؛ سبز بودن یا artifact جدید ادعا نمی‌شود.
+- اجرای Phase 1 روی commit `3d0da33`: هر ۵۳ تست `nabz-core` موفق شدند (run `44132274151`).
+- تست‌های یکپارچهٔ Tauri در همان workflow و build/package Arch در run `44132278091` هنوز در حال اجرا هستند؛ تا پایان آن‌ها وضعیت کلی CI نهایی نیست.
 
 ## دیتابیس و مهاجرت
 
