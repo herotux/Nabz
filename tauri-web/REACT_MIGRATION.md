@@ -31,7 +31,7 @@
 
 ## دیتابیس و حفظ داده
 
-شناسهٔ Tauri برابر `com.herotux.nabz.webprototype` باقی مانده و مسیر پیش‌فرض در Linux برابر `~/.local/share/com.herotux.nabz.webprototype/nabz.sqlite3` است.
+شناسهٔ پایدار Tauri برابر `com.herotux.nabz` است و مسیر پیش‌فرض در Linux برابر `~/.local/share/com.herotux.nabz/nabz.sqlite3` است. دیتابیس prototype از مسیر قدیمی `com.herotux.nabz.webprototype` در اولین اجرا با SQLite backup منتقل می‌شود؛ فایل مبدأ حذف نمی‌شود.
 
 دیتابیس egui قدیمی در `~/.local/share/nabz/nabz.sqlite3` قرار دارد. این دو دیتابیس جدا هستند؛ دیتابیس egui هنوز import نشده و باید با preview، backup و تأیید نگاشت مانده‌ها و پرداخت‌های قدیمی منتقل شود.
 
