@@ -54,7 +54,6 @@ struct LegacyInvoice {
 }
 
 struct LegacyLine {
-    id: i64,
     product_id: Option<i64>,
     name: String,
     quantity: i64,
@@ -107,26 +106,25 @@ fn legacy_lines(
     // call-site list; values remain bound parameters.
     let sql = match (table, parent_column, costs_table_exists) {
         ("sale_items", "sale_id", true) =>
-            "SELECT si.id,si.product_id,si.product_name,si.quantity,si.unit_price,si.line_total,sc.unit_cost
+            "SELECT si.product_id,si.product_name,si.quantity,si.unit_price,si.line_total,sc.unit_cost
              FROM sale_items si LEFT JOIN sale_item_costs sc ON sc.sale_item_id=si.id
              WHERE si.sale_id=?1 ORDER BY si.id",
         ("sale_items", "sale_id", false) =>
-            "SELECT id,product_id,product_name,quantity,unit_price,line_total,NULL
+            "SELECT product_id,product_name,quantity,unit_price,line_total,NULL
              FROM sale_items WHERE sale_id=?1 ORDER BY id",
         ("purchase_items", "purchase_id", _) =>
-            "SELECT id,product_id,product_name,quantity,unit_cost,line_total,unit_cost
+            "SELECT product_id,product_name,quantity,unit_cost,line_total,unit_cost
              FROM purchase_items WHERE purchase_id=?1 ORDER BY id",
         _ => return Err("ساختار ردیف‌های دیتابیس قدیمی پشتیبانی نمی‌شود".into()),
     };
     let mut statement = source.prepare(sql).map_err(|e| e.to_string())?;
     let rows = statement.query_map([parent_id], |row| Ok(LegacyLine {
-        id: row.get(0)?,
-        product_id: row.get(1)?,
-        name: row.get(2)?,
-        quantity: row.get(3)?,
-        unit_price: row.get(4)?,
-        line_total: row.get(5)?,
-        unit_cost: row.get(6)?,
+        product_id: row.get(0)?,
+        name: row.get(1)?,
+        quantity: row.get(2)?,
+        unit_price: row.get(3)?,
+        line_total: row.get(4)?,
+        unit_cost: row.get(5)?,
     })).map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
@@ -278,8 +276,7 @@ pub fn import_legacy_egui_database(
     backup_database_to(&source, &backup_path)
         .map_err(|e| format!("مهاجرت متوقف شد؛ پشتیبان دیتابیس قدیمی ساخته نشد: {e}"))?;
 
-    let mut products = Vec::new();
-    {
+    let products = {
         let mut statement = source.prepare(
             "SELECT id,name,sku,barcode,purchase_price,sale_price,stock FROM products ORDER BY id"
         ).map_err(|e| e.to_string())?;
@@ -287,33 +284,30 @@ pub fn import_legacy_egui_database(
             id: row.get(0)?, name: row.get(1)?, sku: row.get(2)?, barcode: row.get(3)?,
             purchase_price: row.get(4)?, sale_price: row.get(5)?, stock: row.get(6)?,
         })).map_err(|e| e.to_string())?;
-        products = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
-    }
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
 
-    let mut parties = Vec::new();
-    if table_exists(&source, "parties")? {
+    let parties = if table_exists(&source, "parties")? {
         let mut statement = source.prepare(
             "SELECT id,name,kind,phone,balance FROM parties ORDER BY id"
         ).map_err(|e| e.to_string())?;
         let rows = statement.query_map([], |row| Ok(LegacyParty {
             id: row.get(0)?, name: row.get(1)?, kind: row.get(2)?, phone: row.get(3)?, balance: row.get(4)?,
         })).map_err(|e| e.to_string())?;
-        parties = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
-    }
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    } else { Vec::new() };
 
-    let mut sales = Vec::new();
-    if table_exists(&source, "sales")? {
+    let sales = if table_exists(&source, "sales")? {
         let mut statement = source.prepare("SELECT id,date,total FROM sales ORDER BY date,id")
             .map_err(|e| e.to_string())?;
         let rows = statement.query_map([], |row| Ok(LegacyInvoice {
             id: row.get(0)?, date: row.get(1)?, total: row.get(2)?, paid: 0,
             party: String::new(), note: String::new(),
         })).map_err(|e| e.to_string())?;
-        sales = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
-    }
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    } else { Vec::new() };
 
-    let mut purchases = Vec::new();
-    if table_exists(&source, "purchases")? {
+    let purchases = if table_exists(&source, "purchases")? {
         let mut statement = source.prepare(
             "SELECT id,date,supplier_name,total,paid,note FROM purchases ORDER BY date,id"
         ).map_err(|e| e.to_string())?;
@@ -321,8 +315,8 @@ pub fn import_legacy_egui_database(
             id: row.get(0)?, date: row.get(1)?, party: row.get(2)?, total: row.get(3)?,
             paid: row.get(4)?, note: row.get(5)?,
         })).map_err(|e| e.to_string())?;
-        purchases = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
-    }
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    } else { Vec::new() };
 
     let movements = load_movements(&source)?;
     let has_sale_costs = table_exists(&source, "sale_item_costs")?;
@@ -348,6 +342,11 @@ pub fn import_legacy_egui_database(
                 product.purchase_price, product.sale_price, product.stock],
         ).map_err(|e| format!("انتقال کالای «{}» ناموفق بود: {e}", product.name))?;
         summary.products += 1;
+        if product.stock > 0 {
+            // The legacy schema stored only the latest purchase_price, not a
+            // moving-average history. This is an explicit opening-cost estimate.
+            summary.warnings += 1;
+        }
     }
 
     let mut contact_ids = HashMap::<String, i64>::new();
@@ -400,6 +399,9 @@ pub fn import_legacy_egui_database(
             ).map_err(|e| e.to_string())?;
             imported_line_sum = imported_line_sum.checked_add(line.line_total)
                 .ok_or("جمع ردیف‌های فروش قدیمی بیش از ظرفیت عددی است")?;
+            if line.unit_cost.is_none() {
+                summary.warnings += 1;
+            }
             summary.sale_items += 1;
         }
         if imported_line_sum < sale.total {
@@ -434,6 +436,11 @@ pub fn import_legacy_egui_database(
             return Err(format!("نام تأمین‌کنندهٔ خرید قدیمی #{} خالی است؛ مهاجرت مالی متوقف شد", purchase.id));
         }
         let contact_id = if let Some(id) = contact_ids.get(&supplier.to_lowercase()).copied() {
+            let role: String = tx.query_row("SELECT kind FROM contacts WHERE id=?1", [id], |row| row.get(0))
+                .map_err(|e| e.to_string())?;
+            if role != "supplier" && role != "both" {
+                return Err(format!("طرف‌حساب «{supplier}» در دیتابیس قدیمی مشتری است، نه تأمین‌کننده؛ مهاجرت برای جلوگیری از ثبت دفتر اشتباه متوقف شد"));
+            }
             id
         } else {
             tx.execute(
