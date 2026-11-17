@@ -1344,7 +1344,7 @@ mod tests {
             kind: "receipt".into(), contact_name: "مشتری پرداخت".into(),
             amount: 80, method: "cash".into(), date: "2026-01-03".into(), notes: String::new(),
         };
-        record_payment(&mut connection, &payment).unwrap();
+        let payment_id = record_payment(&mut connection, &payment).unwrap();
         let opening: i64 = connection.query_row(
             "SELECT opening_balance FROM contacts WHERE id=?1", [contact_id], |r| r.get(0)
         ).unwrap();
@@ -1355,6 +1355,14 @@ mod tests {
         };
         assert_eq!(opening, 0);
         assert_eq!(paid, vec![50, 0]);
+        let allocations: Vec<(String,i64)> = {
+            let mut statement = connection.prepare(
+                "SELECT allocation_type,amount FROM payment_allocations WHERE payment_id=?1 ORDER BY id"
+            ).unwrap();
+            let rows = statement.query_map([payment_id], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+            rows.collect::<Result<_,_>>().unwrap()
+        };
+        assert_eq!(allocations, vec![("opening_balance".into(),30),("invoice".into(),50)]);
     }
 
     #[test]
@@ -1369,13 +1377,21 @@ mod tests {
             kind: "receipt".into(), contact_name: "مشتری بدون بدهی".into(),
             amount: 21, method: "cash".into(), date: String::new(), notes: String::new(),
         };
-        record_payment(&mut connection, &payment).unwrap();
+        let payment_id = record_payment(&mut connection, &payment).unwrap();
         let (opening, credit, payments): (i64, i64, i64) = connection.query_row(
             "SELECT opening_balance,customer_credit_balance,(SELECT COUNT(*) FROM payments)
              FROM contacts WHERE name='مشتری بدون بدهی'",
             [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         ).unwrap();
         assert_eq!((opening, credit, payments), (0, 11, 1));
+        let allocations: Vec<(String,i64)> = {
+            let mut statement = connection.prepare(
+                "SELECT allocation_type,amount FROM payment_allocations WHERE payment_id=?1 ORDER BY id"
+            ).unwrap();
+            let rows = statement.query_map([payment_id], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+            rows.collect::<Result<_,_>>().unwrap()
+        };
+        assert_eq!(allocations, vec![("opening_balance".into(),10),("advance".into(),11)]);
         let product = create_product(&connection, &ProductInput {
             name: "قلم پیش‌پرداخت".into(), code: "ADV-1".into(), barcode: String::new(),
             buy_price: 5, sell_price: 20, quantity: 2, min_quantity: 0,
@@ -1393,6 +1409,11 @@ mod tests {
             "SELECT customer_credit_balance FROM contacts WHERE name='مشتری بدون بدهی'", [],
             |r| r.get(0)
         ).unwrap();
+        let advance_application: i64 = connection.query_row(
+            "SELECT amount FROM payment_allocations WHERE invoice_id=?1 AND allocation_type='advance_application'",
+            [invoice], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(advance_application, 11);
         assert_eq!((paid, credit_applied, remaining_credit), (11, 11, 0));
         assert!(product > 0);
     }
@@ -1648,6 +1669,44 @@ mod tests {
             [invoice], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
         ).unwrap();
         assert_eq!((credit, stock, voided), (30, 10, 1));
+        let (void_credit, cash_refund): (i64,i64) = connection.query_row(
+            "SELECT credit_refund,cash_refund FROM invoice_voids WHERE invoice_id=?1",
+            [invoice], |r| Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        assert_eq!((void_credit,cash_refund),(20,0));
+        let allocation_count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM payment_allocations WHERE invoice_id=?1 AND allocation_type='advance_application'",
+            [invoice], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(allocation_count,1);
+    }
+
+    #[test]
+    fn voiding_cash_sale_keeps_receipt_and_records_audited_reversal() {
+        let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "مشتری فروش نقدی".into(), kind: "customer".into(),
+            phone: String::new(), opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        create_product(&connection, &ProductInput {
+            name: "کالای نقدی".into(), code: "CASH-VOID".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 5, min_quantity: 0,
+        }).unwrap();
+        let invoice = create_invoice_with_payment_split(&mut connection, &InvoiceInput {
+            kind: "sale".into(), contact_name: "مشتری فروش نقدی".into(), date: "2026-11-17".into(),
+            discount: 0, paid: 20, method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "CASH-VOID".into(), quantity: 1, unit_price: 20 }],
+        }, 20, 0).unwrap();
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM payments", [], |r| r.get::<_,i64>(0)).unwrap(),1);
+        void_invoice(&mut connection, invoice).unwrap();
+        let (payments,refund,stock,voided):(i64,i64,i64,i64)=connection.query_row(
+            "SELECT (SELECT COUNT(*) FROM payments),
+                    (SELECT cash_refund FROM invoice_voids WHERE invoice_id=?1),
+                    (SELECT quantity FROM products WHERE code='CASH-VOID'),
+                    (SELECT voided FROM invoices WHERE id=?1)",
+            [invoice], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+        ).unwrap();
+        assert_eq!((payments,refund,stock,voided),(1,20,5,1));
     }
 
     #[test]
