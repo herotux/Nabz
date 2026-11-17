@@ -7,6 +7,7 @@ on:
       - ui/react-tauri-redesign
     paths:
       - "tauri-web/**"
+      - "crates/nabz-core/**"
       - "docs/architecture/**"
       - "README.md"
       - ".github/workflows/tauri-web-ci.yml"
@@ -99,11 +100,14 @@ jobs:
           from pathlib import Path
           frontend = json.loads(Path("package.json").read_text())["version"]
           tauri = json.loads(Path("src-tauri/tauri.conf.json").read_text())["version"]
+          core_toml = Path("../crates/nabz-core/Cargo.toml").read_text()
+          core_package = core_toml.split("[package]", 1)[1].split("\\n[", 1)[0]
+          core = next(line.split("=", 1)[1].strip().strip('"') for line in core_package.splitlines() if line.strip().startswith("version"))
           cargo_toml = Path("src-tauri/Cargo.toml").read_text()
           cargo_package = cargo_toml.split("[package]", 1)[1].split("\n[", 1)[0]
           cargo = next(line.split("=", 1)[1].strip().strip('"') for line in cargo_package.splitlines() if line.strip().startswith("version"))
           pkgbuild = next(line.split("=", 1)[1].strip() for line in Path("packaging/arch/PKGBUILD").read_text().splitlines() if line.startswith("pkgver="))
-          versions = {"package.json": frontend, "tauri.conf.json": tauri, "Cargo.toml": cargo, "PKGBUILD": pkgbuild}
+          versions = {"package.json": frontend, "tauri.conf.json": tauri, "Cargo.toml": cargo, "nabz-core": core, "PKGBUILD": pkgbuild}
           print(versions)
           assert len(set(versions.values())) == 1, "Version mismatch between app and Arch package"
           PY
