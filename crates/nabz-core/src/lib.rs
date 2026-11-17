@@ -816,10 +816,16 @@ mod tests {
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='payment_allocations'",
             [], |r| r.get(0)
         ).unwrap();
+        let catalog_columns: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('products')
+             WHERE name IN ('category','unit','wholesale_price','is_service')",
+            [], |r| r.get(0)
+        ).unwrap();
         assert_eq!(version, 11);
         assert_eq!(columns, 4);
         assert_eq!(credit, 2);
         assert_eq!((void_table,allocation_table),(1,1));
+        assert_eq!(catalog_columns,4);
     }
 
     #[test]
