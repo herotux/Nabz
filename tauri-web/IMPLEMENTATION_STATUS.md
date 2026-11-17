@@ -55,4 +55,4 @@
 - نصب بسته روی Manjaro واقعی، حفظ داده پس از upgrade واقعی، چاپگر فیزیکی و بارکدخوان فیزیکی هنوز آزمون نشده‌اند.
 - اتصال کامل فرمان‌های جدید برگشت/هزینه/سودوزیان به گردش‌های UI در فاز UI بعدی انجام می‌شود.
 
-جزئیات: [گزارش فاز یک](../architecture/PHASE_ONE.md) · [تصمیم‌های معماری](../architecture/DECISIONS.md) · [TODO](TODO.md)
+جزئیات: [گزارش فاز یک](../docs/architecture/PHASE_ONE.md) · [تصمیم‌های معماری](../docs/architecture/DECISIONS.md) · [TODO](TODO.md)
