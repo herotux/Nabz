@@ -212,12 +212,16 @@ fn import_stock_adjustments(
             |row| row.get(0),
         ).map_err(|e| e.to_string())?;
         for (previous, next, delta, reason, date) in pending {
+            let reason_text = if reason.trim().is_empty() {
+                "مهاجرت گردش قدیمی انبار"
+            } else {
+                reason.as_str()
+            };
             tx.execute(
                 "INSERT INTO inventory_adjustments(
                    product_id,product_name,previous_quantity,new_quantity,delta,reason,created_at
                  ) VALUES(?1,?2,?3,?4,?5,?6,COALESCE(NULLIF(?7,''),datetime('now','localtime')))",
-                params![product_id, product_name, previous, next, delta,
-                    if reason.trim().is_empty() { "مهاجرت گردش قدیمی انبار" } else { &reason }, date],
+                params![product_id, product_name, previous, next, delta, reason_text, date],
             ).map_err(|e| e.to_string())?;
             summary.stock_adjustments += 1;
         }
