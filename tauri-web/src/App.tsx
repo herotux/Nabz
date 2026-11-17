@@ -72,7 +72,7 @@ function App(){
         setProducts(await invoke<Product[]>('list_products'));
       }else if(page==='reports'){
         const r=await invoke<Summary & Record<string,number>>('reports_summary');
-        setSummary({...emptySummary,...r});
+        setSummary({...emptySummary,...r,customer_balance:r.customer_debt??r.customer_balance??0});
       }else if(page==='settings'){
         setSettings(await invoke<Record<string,string>>('get_settings'));
       }
