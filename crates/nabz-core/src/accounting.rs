@@ -964,20 +964,6 @@ pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Resu
     ).map_err(|e| e.to_string())?;
     let payment_id = tx.last_insert_rowid();
 
-    if excess > 0 {
-        let column = if input.kind == "receipt" { "customer_credit_balance" } else { "supplier_credit_balance" };
-        let current: i64 = tx.query_row(&format!("SELECT {column} FROM contacts WHERE id=?1"),
-            [contact_id], |r| r.get(0)).map_err(|e| e.to_string())?;
-        let next = current.checked_add(excess).ok_or("ماندهٔ پیش‌پرداخت بیش از ظرفیت عددی است")?;
-        tx.execute(&format!("UPDATE contacts SET {column}=?1 WHERE id=?2"),
-            params![next, contact_id]).map_err(|e| e.to_string())?;
-        tx.execute(
-            "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
-             VALUES(?1,NULL,?2,'advance',?3)",
-            params![payment_id, contact_id, excess],
-        ).map_err(|e| e.to_string())?;
-    }
-
     let mut remaining = applied_amount;
     let opening_applied = remaining.min(opening);
     if opening_applied > 0 {
@@ -1015,6 +1001,20 @@ pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Resu
             remaining -= applied;
         }
     }
+    if excess > 0 {
+        let column = if input.kind == "receipt" { "customer_credit_balance" } else { "supplier_credit_balance" };
+        let current: i64 = tx.query_row(&format!("SELECT {column} FROM contacts WHERE id=?1"),
+            [contact_id], |r| r.get(0)).map_err(|e| e.to_string())?;
+        let next = current.checked_add(excess).ok_or("ماندهٔ پیش‌پرداخت بیش از ظرفیت عددی است")?;
+        tx.execute(&format!("UPDATE contacts SET {column}=?1 WHERE id=?2"),
+            params![next, contact_id]).map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
+             VALUES(?1,NULL,?2,'advance',?3)",
+            params![payment_id, contact_id, excess],
+        ).map_err(|e| e.to_string())?;
+    }
+
     tx.commit().map_err(|e| e.to_string())?;
     Ok(payment_id)
 }
