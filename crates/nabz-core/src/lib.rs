@@ -5,6 +5,7 @@
 
 pub mod accounting;
 pub mod ai;
+pub mod legacy_migration;
 
 use rusqlite::{backup::Backup, Connection, OpenFlags};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -256,7 +257,27 @@ pub fn restore_latest_backup(connection: &mut Connection) -> Result<PathBuf, Str
 
 /// Open the canonical per-user database shared by all Nabz application instances.
 pub fn open_database() -> Result<Connection, String> {
-    open_database_at(database_path())
+    let path = database_path();
+    let mut connection = open_database_at(&path)?;
+
+    // The old egui app used ~/.local/share/nabz/nabz.sqlite3. Import only
+    // when the Tauri ledger is empty; an existing ledger is never merged.
+    // An explicit NABZ_DB_PATH is an administrator/test override and opts out.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("NABZ_DB_PATH").is_none() {
+        if let Some(home) = std::env::var_os("HOME") {
+            let legacy = PathBuf::from(home).join(".local/share/nabz/nabz.sqlite3");
+            if legacy != path && legacy.is_file() {
+                legacy_migration::import_legacy_egui_database(
+                    &mut connection,
+                    &legacy,
+                    &path,
+                )?;
+            }
+        }
+    }
+
+    Ok(connection)
 }
 
 /// Open a database at an explicit path and apply the canonical schema/migrations.
