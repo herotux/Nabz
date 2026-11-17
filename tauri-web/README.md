@@ -1,6 +1,8 @@
+`tauri-web/` is the active React + TypeScript + Vite frontend for the Tauri 2 desktop shell. The UI uses the existing Rust/SQLite Tauri commands; it does not yet provide a standalone web backend. See [REACT_MIGRATION.md](REACT_MIGRATION.md) for migration status and remaining work.
+
 # نبض — نسخهٔ دسکتاپ Tauri
 
-این شاخه نمونهٔ مستقل Tauri 2 + Vite + TypeScript است؛ برنامهٔ قدیمی Rust/egui در این شاخه جایگزین نشده است. رابط کاربری فارسی و راست‌چین است و داده‌های محلی از طریق فرمان‌های Rust و SQLite نگه‌داری می‌شوند.
+این شاخه رابط React + TypeScript + Vite را در پوسته Tauri 2 اجرا می‌کند؛ برنامهٔ قدیمی Rust/egui در این شاخه جایگزین نشده است. رابط کاربری فارسی و راست‌چین است و داده‌های محلی از طریق فرمان‌های Rust و SQLite نگه‌داری می‌شوند.
 
 ## بخش‌های رابط
 - داشبورد
