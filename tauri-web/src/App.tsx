@@ -5,7 +5,7 @@ import JsBarcode from 'jsbarcode';
 import {
   Activity, ArrowDownLeft, ArrowUpRight, BarChart3, Bell, Boxes, CalendarDays,
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Command, CreditCard,
-  FileText, LayoutDashboard, Menu, Package, Plus, Pencil, Printer, Search, Settings,
+  FileText, LayoutDashboard, Menu, Package, Plus, Pencil, Eye, Printer, Search, Settings,
   ShoppingCart, SlidersHorizontal, Sparkles, Store, Users, Wallet, X, Trash2,
   Download, Upload, RefreshCw, ScanBarcode
 } from 'lucide-react';
@@ -17,6 +17,7 @@ type Product = {id:number;name:string;code:string;barcode:string;quantity:number
 type Summary = {sales_today:number;receipts_today:number;customer_balance:number;inventory_value:number;contacts:number;products:number;invoices:number};
 type Trend = {date:string;total:number};
 type InvoicePrint = {invoice:{id:number;number:number;kind:string;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string};items:{item_name:string;quantity:number;unit_price:number;line_total:number}[];shop:Record<string,string>};
+type ContactLedger = {contact:{id:number;name:string;kind:string;phone:string;opening_balance:number;customer_credit_balance:number;supplier_credit_balance:number};entries:{id:number;number?:number;entry_type:string;kind:string;date:string;amount:number;paid?:number;method?:string;notes:string}[]};
 
 const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string}[] = [
   {id:'dashboard',label:'نمای کلی',icon:LayoutDashboard,group:'مدیریت'},
@@ -47,6 +48,7 @@ function App(){
   const [toast,setToast]=useState('');
   const [entry,setEntry]=useState<Entry|null>(null);
   const [editingId,setEditingId]=useState<number|null>(null);
+  const [ledger,setLedger]=useState<ContactLedger|null>(null);
   const [form,setForm]=useState<Record<string,string>>({});
   const [lines,setLines]=useState([{item:'',qty:'1',price:'0'}]);
   const [settings,setSettings]=useState<Record<string,string>>({});
@@ -91,6 +93,15 @@ function App(){
     setLines([{item:'',qty:'1',price:'0'}]);
   };
   const closeEntry=()=>{setEntry(null);setEditingId(null)};
+  const openContactEdit=(r:RecordRow)=>{
+    setEditingId(r.id);setEntry('contact');setQuery('');
+    setForm({name:r.name,kind:r.status,phone:r.detail,balance:String(r.amount),notes:''});
+  };
+  const viewContactLedger=async(id:number)=>{
+    try{setLedger(await invoke<ContactLedger>('get_contact_ledger',{id}))}
+    catch(e){notify('دریافت گردش حساب ناموفق بود: '+String(e))}
+  };
+
   const openProductEdit=(p:Product)=>{
     setEditingId(p.id);setEntry('product');setQuery('');
     setForm({name:p.name,code:p.code,barcode:p.barcode,qty:String(p.quantity),buy:String(p.buy_price),sell:String(p.sell_price),min:String(p.min_quantity)});
@@ -101,7 +112,7 @@ function App(){
     try{
       let id:number|void=undefined;
       if(entry==='contact'){
-        id=await invoke<number>('save_contact',{payload:{name:form.name,kind:form.kind,phone:form.phone,balance:Number(form.balance||0),notes:form.notes}});
+        id=await invoke<number>('save_contact',{payload:{...(editingId?{id:editingId}:{}),name:form.name,kind:form.kind,phone:form.phone,balance:Number(form.balance||0),...(editingId?{}:{notes:form.notes})}});
       }else if(entry==='product'){
         id=await invoke<number>('save_product',{payload:{...(editingId?{id:editingId}:{}),name:form.name,code:form.code,barcode:form.barcode,qty:Number(form.qty||0),buy:Number(form.buy||0),sell:Number(form.sell||0),min:Number(form.min||0)}});
       }else if(entry==='sale'||entry==='purchase'){
@@ -160,7 +171,7 @@ function App(){
       <section className="page-content">
         {error&&<div className="error-banner">{error}<button onClick={()=>void load()}><RefreshCw size={14}/> تلاش دوباره</button></div>}
         {page==='dashboard'&&<Dashboard summary={summary} trend={trend} days={days} setDays={setDays} records={records} busy={busy} onAction={openEntry} onNavigate={setPage} onPrint={printInvoice}/>}
-        {page==='contacts'&&<RecordsPage title="طرف‌حساب‌ها" subtitle="مدیریت مشتریان، تأمین‌کنندگان و مانده حساب آن‌ها" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('contact')} onDelete={id=>removeRecord('contacts',id)} columns={['نام طرف‌حساب','شماره تماس','مانده حساب','نوع','تاریخ ثبت']} />}
+        {page==='contacts'&&<RecordsPage title="طرف‌حساب‌ها" subtitle="مدیریت مشتریان، تأمین‌کنندگان و مانده حساب آن‌ها" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('contact')} onDelete={id=>removeRecord('contacts',id)} onEdit={openContactEdit} onView={viewContactLedger} columns={['نام طرف‌حساب','شماره تماس','مانده حساب','نوع','تاریخ ثبت']} />}
         {page==='invoices'&&<RecordsPage title="فاکتورها" subtitle="فاکتورهای فروش و خرید ثبت‌شده در فروشگاه" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('sale')} onDelete={id=>removeRecord('invoices',id)} onPrint={printInvoice} columns={['شرح فاکتور','نوع','مبلغ کل','وضعیت','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('purchase')}><Plus size={15}/> خرید جدید</button></>} />}
         {page==='payments'&&<RecordsPage title="دریافت و پرداخت" subtitle="ثبت و پیگیری دریافت وجه و پرداخت به تأمین‌کنندگان" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('receipt')} columns={['طرف‌حساب','نوع عملیات','مبلغ','روش','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('payment')}><ArrowUpRight size={15}/> ثبت پرداخت</button></>} />}
         {page==='products'&&<ProductsPage products={filteredProducts} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('product')} onEdit={openProductEdit} onDelete={id=>removeRecord('products',id)}/>}
@@ -171,6 +182,7 @@ function App(){
       </section>
     </main>
     {entry&&<EntryModal entry={entry} form={form} setField={setField} lines={lines} setLines={setLines} onClose={closeEntry} onSubmit={saveEntry} busy={busy} editing={editingId!==null}/>}
+    {ledger&&<ContactLedgerModal ledger={ledger} onClose={()=>setLedger(null)}/>}
     {toast&&<div className="toast"><Check size={16}/>{toast}</div>}
   </div>;
 }
@@ -182,6 +194,11 @@ function jalaliParts(iso:string){
  const d=new Date(iso+'T12:00:00');
  const p=new Intl.DateTimeFormat('en-u-ca-persian',{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(d);
  return {year:Number(p.find(x=>x.type==='year')?.value),month:Number(p.find(x=>x.type==='month')?.value),day:Number(p.find(x=>x.type==='day')?.value)};
+}
+function formatJalaliDate(iso:string){
+ if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(iso))return iso||'—';
+ const p=gregorianToJalali(iso).split('/');
+ return p.map((v,i)=>new Intl.NumberFormat('fa-IR',{useGrouping:false,minimumIntegerDigits:i===0?4:2}).format(Number(v))).join('/');
 }
 function gregorianToJalali(iso:string){
  if(!iso)return '';
@@ -246,13 +263,13 @@ function Pagination({page,pages,onChange}:{page:number;pages:number;onChange:(p:
  if(pages<=1)return null;
  return <div className="pagination"><span>صفحه {money(page)} از {money(pages)}</span><div><button className="secondary-btn" disabled={page<=1} onClick={()=>onChange(page-1)}>قبلی</button><button className="secondary-btn" disabled={page>=pages} onClick={()=>onChange(page+1)}>بعدی</button></div></div>;
 }
-function RecordsPage({title,subtitle,records,query,setQuery,busy,onAdd,onDelete,onPrint,columns,extra}:{title:string;subtitle:string;records:RecordRow[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onDelete?:(id:number)=>void;onPrint?:(id:number)=>void;columns:string[];extra?:ReactNode}){
+function RecordsPage({title,subtitle,records,query,setQuery,busy,onAdd,onDelete,onPrint,onEdit,onView,columns,extra}:{title:string;subtitle:string;records:RecordRow[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onDelete?:(id:number)=>void;onPrint?:(id:number)=>void;onEdit?:(r:RecordRow)=>void;onView?:(id:number)=>void;columns:string[];extra?:ReactNode}){
  const [page,setPage]=useState(1);const pageSize=10;const pages=Math.max(1,Math.ceil(records.length/pageSize));
  useEffect(()=>setPage(1),[query,records.length]);
  const visible=records.slice((page-1)*pageSize,page*pageSize);
- return <><PageHeading title={title} subtitle={subtitle}><div className="button-row">{extra}<PrimaryButton onClick={onAdd}>{title==='طرف‌حساب‌ها'?'طرف‌حساب جدید':title==='فاکتورها'?'فاکتور فروش':'ثبت دریافت'}</PrimaryButton></div></PageHeading><div className="surface list-surface"><div className="list-toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="جست‌وجو در فهرست..."/></div><div className="toolbar-meta"><span>{money(records.length)} مورد</span></div></div><RecordsTable records={visible} kind={title==='طرف‌حساب‌ها'?'contacts':title==='فاکتورها'?'invoices':'payments'} columns={columns} onDelete={onDelete} onPrint={onPrint}/><Pagination page={page} pages={pages} onChange={setPage}/>{busy&&<div className="table-loading">در حال دریافت اطلاعات...</div>}</div></>;
+ return <><PageHeading title={title} subtitle={subtitle}><div className="button-row">{extra}<PrimaryButton onClick={onAdd}>{title==='طرف‌حساب‌ها'?'طرف‌حساب جدید':title==='فاکتورها'?'فاکتور فروش':'ثبت دریافت'}</PrimaryButton></div></PageHeading><div className="surface list-surface"><div className="list-toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="جست‌وجو در فهرست..."/></div><div className="toolbar-meta"><span>{money(records.length)} مورد</span></div></div><RecordsTable records={visible} kind={title==='طرف‌حساب‌ها'?'contacts':title==='فاکتورها'?'invoices':'payments'} columns={columns} onDelete={onDelete} onPrint={onPrint} onEdit={onEdit} onView={onView}/><Pagination page={page} pages={pages} onChange={setPage}/>{busy&&<div className="table-loading">در حال دریافت اطلاعات...</div>}</div></>;
 }
-function RecordsTable({records,kind,columns,onDelete,onPrint}:{records:RecordRow[];kind:string;columns?:string[];onDelete?:(id:number)=>void;onPrint?:(id:number)=>void}){
+function RecordsTable({records,kind,columns,onDelete,onPrint,onEdit,onView}:{records:RecordRow[];kind:string;columns?:string[];onDelete?:(id:number)=>void;onPrint?:(id:number)=>void;onEdit?:(r:RecordRow)=>void;onView?:(id:number)=>void}){
  const heads=columns||['شرح تراکنش','جزئیات','مبلغ','وضعیت','تاریخ'];
  const contactKind=(v:string)=>v==='customer'?'مشتری':v==='supplier'?'تأمین‌کننده':v==='both'?'مشتری و تأمین‌کننده':v;
  const paymentMethod=(v:string)=>v==='cash'?'نقدی':v==='card'?'کارت':v==='transfer'?'انتقال بانکی':v;
@@ -260,7 +277,7 @@ function RecordsTable({records,kind,columns,onDelete,onPrint}:{records:RecordRow
   const second=kind==='contacts'?(r.detail||'—'):kind==='invoices'?(r.detail==='sale'?'فروش':r.detail==='purchase'?'خرید':r.detail):kind==='payments'?(r.detail==='receipt'?'دریافت وجه':r.detail==='payment'?'پرداخت وجه':r.detail):r.detail;
   const status=kind==='contacts'?contactKind(r.status):kind==='payments'?paymentMethod(r.status):r.status||'ثبت‌شده';
   const statusClass=kind==='contacts'?'info':kind==='payments'?'success':(/بدهکار|کم‌موجود|در انتظار/.test(status)?'warning':/بستانکار/.test(status)?'info':'success');
-  return <tr key={r.id}><td><b>{r.name}</b>{kind==='recent'&&<small className="sub-cell">{second}</small>}</td><td>{kind==='recent'?'—':second}</td><td className="amount-cell">{money(r.amount)} <small>تومان</small></td><td><span className={'status '+statusClass}>{status}</span></td><td>{r.date}</td><td><div className="row-actions">{kind==='invoices'&&onPrint&&<button title="چاپ فاکتور" onClick={()=>onPrint(r.id)}><Printer size={16}/></button>}{onDelete&&<button title="حذف" onClick={()=>onDelete(r.id)}><Trash2 size={16}/></button>}</div></td></tr>;
+  return <tr key={r.id}><td><b>{r.name}</b>{kind==='recent'&&<small className="sub-cell">{second}</small>}</td><td>{kind==='recent'?'—':second}</td><td className="amount-cell">{money(r.amount)} <small>تومان</small></td><td><span className={'status '+statusClass}>{status}</span></td><td>{formatJalaliDate(r.date)}</td><td><div className="row-actions">{kind==='invoices'&&onPrint&&<button title="چاپ فاکتور" onClick={()=>onPrint(r.id)}><Printer size={16}/></button>}{kind==='contacts'&&onView&&<button title="گردش حساب" onClick={()=>onView(r.id)}><Eye size={16}/></button>}{kind==='contacts'&&onEdit&&<button title="ویرایش طرف‌حساب" onClick={()=>onEdit(r)}><Pencil size={16}/></button>}{onDelete&&<button title="حذف" onClick={()=>onDelete(r.id)}><Trash2 size={16}/></button>}</div></td></tr>;
  })}{!records.length&&<tr><td colSpan={6} className="empty-cell">هنوز اطلاعاتی ثبت نشده است.</td></tr>}</tbody></table></div>;
 }
 function ProductsPage({products,query,setQuery,busy,onAdd,onEdit,onDelete}:{products:Product[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onEdit:(p:Product)=>void;onDelete:(id:number)=>void}){
@@ -312,11 +329,11 @@ function SettingsPage({settings,setSettings,onSave,onBackup,onRestore}:{settings
 }
 function ShieldIcon(){return <CreditCard size={18}/>}
 function EntryModal({entry,form,setField,lines,setLines,onClose,onSubmit,busy,editing}:{entry:Entry;form:Record<string,string>;setField:(k:string,v:string)=>void;lines:{item:string;qty:string;price:string}[];setLines:(v:{item:string;qty:string;price:string}[])=>void;onClose:()=>void;onSubmit:(e:FormEvent)=>void;busy:boolean;editing:boolean}){
- const titles:Record<Entry,string>={contact:'ثبت طرف‌حساب جدید',product:editing?'ویرایش کالا':'ثبت کالای جدید',sale:'فاکتور فروش جدید',purchase:'فاکتور خرید جدید',receipt:'ثبت دریافت وجه',payment:'ثبت پرداخت وجه'};
+ const titles:Record<Entry,string>={contact:editing?'ویرایش طرف‌حساب':'ثبت طرف‌حساب جدید',product:editing?'ویرایش کالا':'ثبت کالای جدید',sale:'فاکتور فروش جدید',purchase:'فاکتور خرید جدید',receipt:'ثبت دریافت وجه',payment:'ثبت پرداخت وجه'};
  const field=(key:string,label:string,placeholder='',type='text')=><label className="field-label">{label}<input type={type} value={form[key]||''} onChange={e=>setField(key,e.target.value)} placeholder={placeholder}/></label>;
  return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><form className="entry-modal" onSubmit={onSubmit}><div className="modal-heading"><div><span className="eyebrow">فرم ثبت اطلاعات</span><h2>{titles[entry]}</h2></div><button type="button" className="icon-btn" onClick={onClose}><X size={20}/></button></div>
   <div className="modal-fields">
-   {entry==='contact'&&<>{field('name','نام طرف‌حساب','نام و نام خانوادگی یا شرکت')}<div className="form-two">{<label className="field-label">نوع طرف‌حساب<select value={form.kind} onChange={e=>setField('kind',e.target.value)}><option value="customer">مشتری</option><option value="supplier">تأمین‌کننده</option><option value="both">هر دو</option></select></label>}{field('phone','شماره تماس','اختیاری')}</div>{field('balance','مانده افتتاحیه','۰','number')}{field('notes','یادداشت','توضیحات تکمیلی')}</>}
+   {entry==='contact'&&<>{field('name','نام طرف‌حساب','نام و نام خانوادگی یا شرکت')}<div className="form-two">{<label className="field-label">نوع طرف‌حساب<select value={form.kind} onChange={e=>setField('kind',e.target.value)}><option value="customer">مشتری</option><option value="supplier">تأمین‌کننده</option><option value="both">هر دو</option></select></label>}{field('phone','شماره تماس','اختیاری')}</div>{field('balance','مانده افتتاحیه','۰','number')}{!editing&&field('notes','یادداشت','توضیحات تکمیلی')}</>}
    {entry==='product'&&<>{field('name','نام کالا','مثلاً کابل افشان')}<div className="form-two">{field('code','کد کالا','SKU-001')}{field('barcode','بارکد','اختیاری')}</div><div className="form-three">{field('qty','موجودی اولیه','۰','number')}{field('buy','قیمت خرید','۰','number')}{field('sell','قیمت فروش','۰','number')}</div>{field('min','حداقل موجودی','۰','number')}{editing&&<p className="edit-stock-note">برای حفظ سوابق، موجودی کالایی که در فاکتور ثبت شده از این فرم تغییر نمی‌کند؛ اصلاح موجودی را با فاکتور خرید یا فروش انجام بده.</p>}</>}
    {(entry==='sale'||entry==='purchase')&&<>{field('customer',entry==='sale'?'نام مشتری':'نام تأمین‌کننده','برای فروش نقدی گذری خالی بگذار')}<div className="invoice-lines-title"><b>اقلام فاکتور</b><button type="button" className="text-btn" onClick={()=>setLines([...lines,{item:'',qty:'1',price:'0'}])}><Plus size={15}/> افزودن ردیف</button></div>{lines.map((line,i)=><div className="invoice-line" key={i}><input aria-label="نام کالا یا خدمت" placeholder="نام کالا یا خدمت" value={line.item} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,item:e.target.value}:x))}/><input aria-label="تعداد" type="number" min="1" value={line.qty} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,qty:e.target.value}:x))}/><input aria-label="قیمت واحد" type="number" min="0" value={line.price} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,price:e.target.value}:x))}/><button type="button" className="icon-btn" onClick={()=>setLines(lines.filter((_,j)=>j!==i))}><X size={16}/></button></div>)}<div className="form-two">{field('discount','تخفیف','۰','number')}<JalaliDateField label="تاریخ فاکتور" value={form.date||isoToday} onChange={v=>setField('date',v)}/></div>{entry==='sale'&&<div className="form-two"><label className="field-label">وضعیت پرداخت<select value={form.status} onChange={e=>setField('status',e.target.value)}><option value="paid">تسویه کامل</option><option value="partial">پرداخت جزئی</option><option value="credit">نسیه</option></select></label>{form.status==='partial'&&field('paid','مبلغ دریافتی','۰','number')}</div>}{field('notes','یادداشت','اختیاری')}</>}
    {(entry==='receipt'||entry==='payment')&&<>{field('customer','نام طرف‌حساب','ابتدا طرف‌حساب را ثبت کن')}{field('amount','مبلغ','۰','number')}<div className="form-two"><label className="field-label">روش پرداخت<select value={form.method} onChange={e=>setField('method',e.target.value)}><option value="cash">نقدی</option><option value="card">کارت</option><option value="transfer">انتقال بانکی</option></select></label><JalaliDateField label="تاریخ تراکنش" value={form.date||isoToday} onChange={v=>setField('date',v)}/></div>{field('notes','یادداشت','اختیاری')}</>}
