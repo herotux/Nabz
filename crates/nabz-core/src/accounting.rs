@@ -1570,4 +1570,50 @@ mod tests {
         assert_eq!(voided, 0);
     }
 
+    #[test]
+    fn voiding_a_credit_paid_sale_restores_the_customer_advance() {
+        let mut connection = database();
+        connection.execute("UPDATE contacts SET customer_credit_balance=30 WHERE name='Ali'", []).unwrap();
+        let invoice = create_invoice_with_payment_split(&mut connection, &InvoiceInput {
+            kind: "sale".into(), contact_name: "Ali".into(), date: "2026-11-17".into(),
+            discount: 0, paid: 20, method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "PEN".into(), quantity: 1, unit_price: 20 }],
+        }, 0, 20).unwrap();
+        void_invoice(&mut connection, invoice).unwrap();
+        let (credit, stock, voided): (i64, i64, i64) = connection.query_row(
+            "SELECT c.customer_credit_balance,p.quantity,i.voided
+             FROM contacts c JOIN products p ON p.code='PEN' JOIN invoices i ON i.id=?1
+             WHERE c.name='Ali'",
+            [invoice], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+        ).unwrap();
+        assert_eq!((credit, stock, voided), (30, 10, 1));
+    }
+
+    #[test]
+    fn historical_sale_cost_does_not_change_after_a_later_purchase() {
+        let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "تأمین‌کننده هزینه".into(), kind: "supplier".into(),
+            phone: String::new(), opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        let sale = create_invoice(&mut connection, &InvoiceInput {
+            kind: "sale".into(), contact_name: "Ali".into(), date: "2026-11-16".into(),
+            discount: 0, paid: 0, method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "PEN".into(), quantity: 2, unit_price: 20 }],
+        }).unwrap();
+        create_invoice(&mut connection, &InvoiceInput {
+            kind: "purchase".into(), contact_name: "تأمین‌کننده هزینه".into(), date: "2026-11-17".into(),
+            discount: 0, paid: 0, method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "PEN".into(), quantity: 2, unit_price: 30 }],
+        }).unwrap();
+        let (historical, current): (i64, i64) = connection.query_row(
+            "SELECT (SELECT unit_cost FROM invoice_items WHERE invoice_id=?1),
+                    (SELECT average_cost FROM products WHERE code='PEN')",
+            [sale], |r| Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        assert_eq!(historical, 10);
+        assert!(current > historical);
+    }
+
+
 }
