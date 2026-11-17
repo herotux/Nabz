@@ -842,6 +842,51 @@ mod tests {
     }
 
     #[test]
+    fn previous_tauri_database_moves_to_stable_path_without_touching_source() {
+        let root = std::env::temp_dir().join(format!("nabz-tauri-path-migration-{}", std::process::id()));
+        let old_path = root.join("com.herotux.nabz.webprototype").join(DATABASE_FILE);
+        let new_path = root.join(APP_DATA_DIRECTORY).join(DATABASE_FILE);
+        let old = open_database_at(&old_path).unwrap();
+        old.execute(
+            "INSERT INTO products(name,code,quantity,buy_price,average_cost) VALUES('دادهٔ قبلی','OLD-TAURI',4,25,25)",
+            [],
+        ).unwrap();
+        drop(old);
+
+        assert!(migrate_previous_tauri_database(&new_path,&old_path).unwrap());
+        assert!(old_path.is_file());
+        let migrated = open_database_at(&new_path).unwrap();
+        let (name,quantity):(String,i64)=migrated.query_row(
+            "SELECT name,quantity FROM products WHERE code='OLD-TAURI'",
+            [],|row|Ok((row.get(0)?,row.get(1)?))
+        ).unwrap();
+        assert_eq!((name,quantity),("دادهٔ قبلی".into(),4));
+        drop(migrated);
+
+        // A pre-existing canonical file always wins; it is never overwritten.
+        let existing = open_database_at(&new_path).unwrap();
+        existing.execute(
+            "INSERT INTO products(name,code,quantity) VALUES('دادهٔ مقصد','NEW-CANONICAL',1)",
+            [],
+        ).unwrap();
+        drop(existing);
+        assert!(!migrate_previous_tauri_database(&new_path,&old_path).unwrap());
+        let canonical = open_database_at(&new_path).unwrap();
+        let canonical_count:i64=canonical.query_row(
+            "SELECT COUNT(*) FROM products WHERE code='NEW-CANONICAL'",[],|row|row.get(0)
+        ).unwrap();
+        assert_eq!(canonical_count,1);
+        let old_connection=Connection::open_with_flags(&old_path,rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let old_count:i64=old_connection.query_row(
+            "SELECT COUNT(*) FROM products WHERE code='OLD-TAURI'",[],|row|row.get(0)
+        ).unwrap();
+        assert_eq!(old_count,1);
+        drop(old_connection);
+        drop(canonical);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn data_layout_keeps_database_and_app_installation_separate() {
         let root = std::env::temp_dir().join(format!("nabz-data-layout-{}", std::process::id()));
         let paths = DataPaths::from_database_path(root.join(DATABASE_FILE)).unwrap();
