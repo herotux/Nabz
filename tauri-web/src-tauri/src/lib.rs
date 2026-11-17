@@ -1016,6 +1016,31 @@ mod accounting_tests {
  }
 
  #[test]
+ fn net_cash_reports_subtract_sale_refunds_purchase_refunds_and_invoice_voids() {
+  let mut c=database();
+  c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Vendor','supplier',0)",[]).unwrap();
+  let sale=save_invoice_with_connection(json!({"kind":"sale","customer":"Ali","payment_status":"paid","method":"cash","items":[{"item":"Pen","qty":2,"price":50}],"discount":0,"date":"2026-11-17"}),&mut c).unwrap();
+  let purchase=save_invoice_with_connection(json!({"kind":"purchase","customer":"Vendor","items":[{"item":"Pen","qty":2,"price":40}],"discount":0,"date":"2026-11-17"}),&mut c).unwrap();
+  save_payment_with_connection(json!({"kind":"payment","customer":"Vendor","amount":80,"method":"cash","date":"2026-11-17"}),&mut c).unwrap();
+
+  c.execute("INSERT INTO sales_returns(invoice_id,return_date,amount,notes,credit_refund) VALUES(?1,'2026-11-17',30,'برگشت آزمایشی',0)",[sale]).unwrap();
+  let sales_return=c.last_insert_rowid();
+  c.execute("INSERT INTO sales_refunds(invoice_id,return_id,refund_date,amount,method,notes) VALUES(?1,?2,'2026-11-17',30,'cash','بازپرداخت آزمایشی')",params![sale,sales_return]).unwrap();
+
+  c.execute("INSERT INTO purchase_returns(invoice_id,return_date,amount,notes,credit_refund) VALUES(?1,'2026-11-17',20,'مرجوعی آزمایشی',0)",[purchase]).unwrap();
+  let purchase_return=c.last_insert_rowid();
+  c.execute("INSERT INTO purchase_refunds(invoice_id,return_id,refund_date,amount,method,notes) VALUES(?1,?2,'2026-11-17',20,'cash','دریافت از تأمین‌کننده')",params![purchase,purchase_return]).unwrap();
+
+  c.execute("INSERT INTO invoice_voids(invoice_id,kind,void_date,cash_refund,credit_refund,notes) VALUES(?1,'sale','2026-11-17',10,0,'ابطال آزمایشی')",[sale]).unwrap();
+  let summary=reports_summary_with_connection(&c).unwrap();
+  assert_eq!(summary["receipts_total"].as_i64(),Some(60));
+  assert_eq!(summary["payments_total"].as_i64(),Some(60));
+  let period=reports_period_with_connection(&c,"2026-11-17","2026-11-17").unwrap();
+  assert_eq!(period["receipts_total"].as_i64(),Some(60));
+  assert_eq!(period["payments_total"].as_i64(),Some(60));
+ }
+
+ #[test]
  fn wrong_contact_role_is_rejected_without_financial_or_stock_side_effects() {
   let mut c=database();
   let purchase=json!({"kind":"purchase","customer":"Ali","items":[{"item":"Pen","qty":2,"price":10}],"discount":0});
