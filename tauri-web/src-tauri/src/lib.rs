@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::{collections::{HashMap, HashSet}, sync::Mutex};
+use std::{collections::{HashMap, HashSet}, path::PathBuf, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
 use tauri::{Manager, State};
 use nabz_core::accounting::{
     adjust_inventory, create_expense, create_invoice_with_payment_split, inventory_valuation,
@@ -246,52 +246,149 @@ fn reports_period_with_connection(c:&Connection,start:&str,end:&str)->Result<Val
  }))
 }
 
+fn collect_json_rows<F>(c:&Connection,sql:&str,mapper:F)->Result<Vec<Value>,String>
+where F:FnMut(&rusqlite::Row<'_>)->rusqlite::Result<Value>{
+ let mut statement=c.prepare(sql).map_err(|e|e.to_string())?;
+ let rows=statement.query_map([],mapper).map_err(|e|e.to_string())?;
+ rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
+}
 #[tauri::command]
 fn export_data(db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
- let mut contacts=Vec::new();{let mut s=c.prepare("SELECT id,name,kind,phone,opening_balance,notes,created_at,customer_credit_balance,supplier_credit_balance FROM contacts").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"kind":r.get::<_,String>(2)?,"phone":r.get::<_,String>(3)?,"opening_balance":r.get::<_,i64>(4)?,"notes":r.get::<_,String>(5)?,"created_at":r.get::<_,String>(6)? ,"customer_credit_balance":r.get::<_,i64>(7)? ,"supplier_credit_balance":r.get::<_,i64>(8)?}))).map_err(|e|e.to_string())?;for x in rows{contacts.push(x.map_err(|e|e.to_string())?);}}
- let mut products=Vec::new();{let mut s=c.prepare("SELECT id,name,code,barcode,buy_price,sell_price,quantity,min_quantity FROM products").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"code":r.get::<_,String>(2)?,"barcode":r.get::<_,String>(3)?,"buy_price":r.get::<_,i64>(4)?,"sell_price":r.get::<_,i64>(5)?,"quantity":r.get::<_,i64>(6)?,"min_quantity":r.get::<_,i64>(7)?}))).map_err(|e|e.to_string())?;for x in rows{products.push(x.map_err(|e|e.to_string())?);}}
- let mut invoices=Vec::new();{let mut s=c.prepare("SELECT id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes FROM invoices").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,"contact_id":r.get::<_,Option<i64>>(3)?,"contact_name":r.get::<_,String>(4)?,"invoice_date":r.get::<_,String>(5)?,"subtotal":r.get::<_,i64>(6)?,"discount":r.get::<_,i64>(7)?,"total":r.get::<_,i64>(8)?,"paid":r.get::<_,i64>(9)?,"notes":r.get::<_,String>(10)?}))).map_err(|e|e.to_string())?;for x in rows{invoices.push(x.map_err(|e|e.to_string())?);}}
- let mut items=Vec::new();{let mut s=c.prepare("SELECT id,invoice_id,product_id,item_name,quantity,unit_price,line_total FROM invoice_items").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"product_id":r.get::<_,Option<i64>>(2)?,"item_name":r.get::<_,String>(3)?,"quantity":r.get::<_,i64>(4)?,"unit_price":r.get::<_,i64>(5)?,"line_total":r.get::<_,i64>(6)?}))).map_err(|e|e.to_string())?;for x in rows{items.push(x.map_err(|e|e.to_string())?);}}
- let mut payments=Vec::new();{let mut s=c.prepare("SELECT id,kind,contact_id,contact_name,amount,method,payment_date,notes FROM payments").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"kind":r.get::<_,String>(1)?,"contact_id":r.get::<_,Option<i64>>(2)?,"contact_name":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"method":r.get::<_,String>(5)?,"payment_date":r.get::<_,String>(6)?,"notes":r.get::<_,String>(7)?}))).map_err(|e|e.to_string())?;for x in rows{payments.push(x.map_err(|e|e.to_string())?);}}
- let mut settings=Vec::new();{let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"key":r.get::<_,String>(0)?,"value":r.get::<_,String>(1)?}))).map_err(|e|e.to_string())?;for x in rows{settings.push(x.map_err(|e|e.to_string())?);}}
- Ok(json!({"format":"nabz-backup-v1","contacts":contacts,"products":products,"invoices":invoices,"invoice_items":items,"payments":payments,"settings":settings}))
+ let contacts=collect_json_rows(&c,"SELECT id,name,kind,phone,opening_balance,notes,created_at,customer_credit_balance,supplier_credit_balance FROM contacts",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"kind":r.get::<_,String>(2)?,
+  "phone":r.get::<_,String>(3)?,"opening_balance":r.get::<_,i64>(4)?,"notes":r.get::<_,String>(5)?,
+  "created_at":r.get::<_,String>(6)?,"customer_credit_balance":r.get::<_,i64>(7)?,"supplier_credit_balance":r.get::<_,i64>(8)?
+})))?;
+ let products=collect_json_rows(&c,"SELECT id,name,code,barcode,buy_price,sell_price,quantity,min_quantity,average_cost FROM products",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"code":r.get::<_,String>(2)?,
+  "barcode":r.get::<_,String>(3)?,"buy_price":r.get::<_,i64>(4)?,"sell_price":r.get::<_,i64>(5)?,
+  "quantity":r.get::<_,i64>(6)?,"min_quantity":r.get::<_,i64>(7)?,"average_cost":r.get::<_,i64>(8)?
+})))?;
+ let invoices=collect_json_rows(&c,"SELECT id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes,voided,credit_applied FROM invoices",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,
+  "contact_id":r.get::<_,Option<i64>>(3)?,"contact_name":r.get::<_,String>(4)?,"invoice_date":r.get::<_,String>(5)?,
+  "subtotal":r.get::<_,i64>(6)?,"discount":r.get::<_,i64>(7)?,"total":r.get::<_,i64>(8)?,
+  "paid":r.get::<_,i64>(9)?,"notes":r.get::<_,String>(10)?,"voided":r.get::<_,i64>(11)?,
+  "credit_applied":r.get::<_,i64>(12)?
+})))?;
+ let invoice_items=collect_json_rows(&c,"SELECT id,invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before FROM invoice_items",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"product_id":r.get::<_,Option<i64>>(2)?,
+  "item_name":r.get::<_,String>(3)?,"quantity":r.get::<_,i64>(4)?,"unit_price":r.get::<_,i64>(5)?,
+  "line_total":r.get::<_,i64>(6)?,"unit_cost":r.get::<_,Option<i64>>(7)?,
+  "quantity_before":r.get::<_,Option<i64>>(8)?,"average_cost_before":r.get::<_,Option<i64>>(9)?
+})))?;
+ let payments=collect_json_rows(&c,"SELECT id,kind,contact_id,contact_name,amount,method,payment_date,notes FROM payments",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"kind":r.get::<_,String>(1)?,"contact_id":r.get::<_,Option<i64>>(2)?,
+  "contact_name":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"method":r.get::<_,String>(5)?,
+  "payment_date":r.get::<_,String>(6)?,"notes":r.get::<_,String>(7)?
+})))?;
+ let settings=collect_json_rows(&c,"SELECT key,value FROM settings",|r|Ok(json!({"key":r.get::<_,String>(0)?,"value":r.get::<_,String>(1)?})))?;
+ let sales_returns=collect_json_rows(&c,"SELECT id,invoice_id,return_date,amount,notes,credit_refund FROM sales_returns",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"return_date":r.get::<_,String>(2)?,
+  "amount":r.get::<_,i64>(3)?,"notes":r.get::<_,String>(4)?,"credit_refund":r.get::<_,i64>(5)?
+})))?;
+ let sales_return_items=collect_json_rows(&c,"SELECT id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount FROM sales_return_items",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"return_id":r.get::<_,i64>(1)?,"invoice_item_id":r.get::<_,i64>(2)?,
+  "product_id":r.get::<_,i64>(3)?,"item_name":r.get::<_,String>(4)?,"quantity":r.get::<_,i64>(5)?,
+  "unit_price":r.get::<_,i64>(6)?,"amount":r.get::<_,i64>(7)?
+})))?;
+ let sales_refunds=collect_json_rows(&c,"SELECT id,invoice_id,return_id,refund_date,amount,method,notes FROM sales_refunds",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"return_id":r.get::<_,i64>(2)?,
+  "refund_date":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"method":r.get::<_,String>(5)?,"notes":r.get::<_,String>(6)?
+})))?;
+ let purchase_returns=collect_json_rows(&c,"SELECT id,invoice_id,return_date,amount,notes,credit_refund FROM purchase_returns",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"return_date":r.get::<_,String>(2)?,
+  "amount":r.get::<_,i64>(3)?,"notes":r.get::<_,String>(4)?,"credit_refund":r.get::<_,i64>(5)?
+})))?;
+ let purchase_return_items=collect_json_rows(&c,"SELECT id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount FROM purchase_return_items",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"return_id":r.get::<_,i64>(1)?,"invoice_item_id":r.get::<_,i64>(2)?,
+  "product_id":r.get::<_,i64>(3)?,"item_name":r.get::<_,String>(4)?,"quantity":r.get::<_,i64>(5)?,
+  "unit_price":r.get::<_,i64>(6)?,"amount":r.get::<_,i64>(7)?
+})))?;
+ let purchase_refunds=collect_json_rows(&c,"SELECT id,invoice_id,return_id,refund_date,amount,method,notes FROM purchase_refunds",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"return_id":r.get::<_,i64>(2)?,
+  "refund_date":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"method":r.get::<_,String>(5)?,"notes":r.get::<_,String>(6)?
+})))?;
+ let inventory_adjustments=collect_json_rows(&c,"SELECT id,product_id,product_name,previous_quantity,new_quantity,delta,reason,created_at FROM inventory_adjustments",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"product_id":r.get::<_,i64>(1)?,"product_name":r.get::<_,String>(2)?,
+  "previous_quantity":r.get::<_,i64>(3)?,"new_quantity":r.get::<_,i64>(4)?,"delta":r.get::<_,i64>(5)?,
+  "reason":r.get::<_,String>(6)?,"created_at":r.get::<_,String>(7)?
+})))?;
+ let expenses=collect_json_rows(&c,"SELECT id,category,description,amount,expense_date,created_at FROM expenses",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"category":r.get::<_,String>(1)?,"description":r.get::<_,String>(2)?,
+  "amount":r.get::<_,i64>(3)?,"expense_date":r.get::<_,String>(4)?,"created_at":r.get::<_,String>(5)?
+})))?;
+ Ok(json!({
+  "format":"nabz-backup-v2","contacts":contacts,"products":products,"invoices":invoices,
+  "invoice_items":invoice_items,"payments":payments,"settings":settings,
+  "sales_returns":sales_returns,"sales_return_items":sales_return_items,"sales_refunds":sales_refunds,
+  "purchase_returns":purchase_returns,"purchase_return_items":purchase_return_items,"purchase_refunds":purchase_refunds,
+  "inventory_adjustments":inventory_adjustments,"expenses":expenses
+ }))
 }
 fn backup_has_int(x:&Value,key:&str)->bool{x.get(key).and_then(Value::as_i64).is_some()}
 fn backup_has_string(x:&Value,key:&str)->bool{x.get(key).and_then(Value::as_str).is_some()}
 fn backup_has_optional_int(x:&Value,key:&str)->bool{x.get(key).is_some_and(|v|v.is_null()||v.as_i64().is_some())}
+fn backup_optional_array(data:&Value,key:&str)->Vec<Value>{data.get(key).and_then(Value::as_array).cloned().unwrap_or_default()}
 fn validate_backup(data:&Value)->Result<(),String>{
- if data.get("format").and_then(Value::as_str)!=Some("nabz-backup-v1"){return Err("فایل پشتیبان نبض معتبر نیست".into())}
- for k in ["contacts","products","invoices","invoice_items","payments","settings"]{if !data.get(k).and_then(Value::as_array).is_some(){return Err(format!("ساختار پشتیبان ناقص است: {k}"))}}
- let arrays=["contacts","products","invoices","invoice_items","payments","settings"];
- for k in arrays {
-  for (i,x) in data[k].as_array().unwrap().iter().enumerate(){
-   let bad=match k {
-    "contacts"=>!(backup_has_int(x,"id")&&backup_has_string(x,"name")&&!x["name"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"kind")&&backup_has_string(x,"phone")&&backup_has_int(x,"opening_balance")&&backup_has_string(x,"notes")&&backup_has_string(x,"created_at")&&(x.get("customer_credit_balance").is_none()||x["customer_credit_balance"].as_i64().unwrap_or(-1)>=0)&&(x.get("supplier_credit_balance").is_none()||x["supplier_credit_balance"].as_i64().unwrap_or(-1)>=0)),
-    "products"=>!(backup_has_int(x,"id")&&backup_has_string(x,"name")&&!x["name"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"code")&&!x["code"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"barcode")&&backup_has_int(x,"buy_price")&&backup_has_int(x,"sell_price")&&backup_has_int(x,"quantity")&&backup_has_int(x,"min_quantity")&&x["buy_price"].as_i64().unwrap_or(-1)>=0&&x["sell_price"].as_i64().unwrap_or(-1)>=0&&x["quantity"].as_i64().unwrap_or(-1)>=0&&x["min_quantity"].as_i64().unwrap_or(-1)>=0),
-    "invoices"=>!(backup_has_int(x,"id")&&backup_has_int(x,"number")&&backup_has_string(x,"kind")&&["sale","purchase"].contains(&x["kind"].as_str().unwrap_or(""))&&backup_has_optional_int(x,"contact_id")&&backup_has_string(x,"contact_name")&&backup_has_string(x,"invoice_date")&&backup_has_int(x,"subtotal")&&backup_has_int(x,"discount")&&backup_has_int(x,"total")&&backup_has_int(x,"paid")&&backup_has_string(x,"notes")&&x["subtotal"].as_i64().unwrap_or(-1)>=0&&x["discount"].as_i64().unwrap_or(-1)>=0&&x["total"].as_i64().unwrap_or(-1)>=0&&x["paid"].as_i64().unwrap_or(-1)>=0&&x["paid"].as_i64().unwrap_or(i64::MAX)<=x["total"].as_i64().unwrap_or(-1)),
-    "invoice_items"=>!(backup_has_int(x,"id")&&backup_has_int(x,"invoice_id")&&backup_has_optional_int(x,"product_id")&&backup_has_string(x,"item_name")&&!x["item_name"].as_str().unwrap_or("").trim().is_empty()&&backup_has_int(x,"quantity")&&x["quantity"].as_i64().unwrap_or(0)>0&&backup_has_int(x,"unit_price")&&x["unit_price"].as_i64().unwrap_or(-1)>=0&&backup_has_int(x,"line_total")&&x["line_total"].as_i64().unwrap_or(-1)>=0),
-    "payments"=>!(backup_has_int(x,"id")&&backup_has_string(x,"kind")&&["receipt","payment"].contains(&x["kind"].as_str().unwrap_or(""))&&backup_has_optional_int(x,"contact_id")&&backup_has_string(x,"contact_name")&&backup_has_int(x,"amount")&&x["amount"].as_i64().unwrap_or(0)>0&&backup_has_string(x,"method")&&backup_has_string(x,"payment_date")&&backup_has_string(x,"notes")),
+ let format=data.get("format").and_then(Value::as_str).unwrap_or("");
+ if !["nabz-backup-v1","nabz-backup-v2"].contains(&format){return Err("نسخهٔ فایل پشتیبان نبض پشتیبانی نمی‌شود".into())}
+ for key in ["contacts","products","invoices","invoice_items","payments","settings"]{
+  if !data.get(key).and_then(Value::as_array).is_some(){return Err(format!("ساختار پشتیبان ناقص است: {key}"))}
+ }
+ let optional_keys=["sales_returns","sales_return_items","sales_refunds","purchase_returns","purchase_return_items","purchase_refunds","inventory_adjustments","expenses"];
+ for key in optional_keys{
+  if data.get(key).is_some()&&!data[key].is_array(){return Err(format!("ساختار بخش {key} در پشتیبان معتبر نیست"))}
+ }
+ for key in ["contacts","products","invoices","invoice_items","payments","settings"]{
+  for (i,x) in data[key].as_array().unwrap().iter().enumerate(){
+   let bad=match key{
+    "contacts"=>!(backup_has_int(x,"id")&&backup_has_string(x,"name")&&!x["name"].as_str().unwrap_or("").trim().is_empty()
+      &&backup_has_string(x,"kind")&&backup_has_string(x,"phone")&&backup_has_int(x,"opening_balance")&&backup_has_string(x,"notes")
+      &&backup_has_string(x,"created_at")&&(x.get("customer_credit_balance").is_none()||x["customer_credit_balance"].as_i64().unwrap_or(-1)>=0)
+      &&(x.get("supplier_credit_balance").is_none()||x["supplier_credit_balance"].as_i64().unwrap_or(-1)>=0)),
+    "products"=>!(backup_has_int(x,"id")&&backup_has_string(x,"name")&&!x["name"].as_str().unwrap_or("").trim().is_empty()
+      &&backup_has_string(x,"code")&&!x["code"].as_str().unwrap_or("").trim().is_empty()&&backup_has_string(x,"barcode")
+      &&backup_has_int(x,"buy_price")&&backup_has_int(x,"sell_price")&&backup_has_int(x,"quantity")&&backup_has_int(x,"min_quantity")
+      &&x["buy_price"].as_i64().unwrap_or(-1)>=0&&x["sell_price"].as_i64().unwrap_or(-1)>=0
+      &&x["quantity"].as_i64().unwrap_or(-1)>=0&&x["min_quantity"].as_i64().unwrap_or(-1)>=0
+      &&(x.get("average_cost").is_none()||x["average_cost"].as_i64().unwrap_or(-1)>=0)),
+    "invoices"=>!(backup_has_int(x,"id")&&backup_has_int(x,"number")&&backup_has_string(x,"kind")
+      &&["sale","purchase"].contains(&x["kind"].as_str().unwrap_or(""))&&backup_has_optional_int(x,"contact_id")
+      &&backup_has_string(x,"contact_name")&&backup_has_string(x,"invoice_date")&&backup_has_int(x,"subtotal")
+      &&backup_has_int(x,"discount")&&backup_has_int(x,"total")&&backup_has_int(x,"paid")&&backup_has_string(x,"notes")
+      &&x["subtotal"].as_i64().unwrap_or(-1)>=0&&x["discount"].as_i64().unwrap_or(-1)>=0
+      &&x["total"].as_i64().unwrap_or(-1)>=0&&x["paid"].as_i64().unwrap_or(-1)>=0
+      &&x["paid"].as_i64().unwrap_or(i64::MAX)<=x["total"].as_i64().unwrap_or(-1)
+      &&(x.get("voided").is_none()||[0,1].contains(&x["voided"].as_i64().unwrap_or(-1)))
+      &&(x.get("credit_applied").is_none()||(x["credit_applied"].as_i64().unwrap_or(-1)>=0&&x["credit_applied"].as_i64().unwrap_or(i64::MAX)<=x["paid"].as_i64().unwrap_or(-1)))),
+    "invoice_items"=>!(backup_has_int(x,"id")&&backup_has_int(x,"invoice_id")&&backup_has_optional_int(x,"product_id")
+      &&backup_has_string(x,"item_name")&&!x["item_name"].as_str().unwrap_or("").trim().is_empty()
+      &&backup_has_int(x,"quantity")&&x["quantity"].as_i64().unwrap_or(0)>0&&backup_has_int(x,"unit_price")
+      &&x["unit_price"].as_i64().unwrap_or(-1)>=0&&backup_has_int(x,"line_total")&&x["line_total"].as_i64().unwrap_or(-1)>=0
+      &&(x.get("unit_cost").is_none()||x["unit_cost"].is_null()||x["unit_cost"].as_i64().unwrap_or(-1)>=0)
+      &&(x.get("quantity_before").is_none()||x["quantity_before"].is_null()||x["quantity_before"].as_i64().unwrap_or(-1)>=0)
+      &&(x.get("average_cost_before").is_none()||x["average_cost_before"].is_null()||x["average_cost_before"].as_i64().unwrap_or(-1)>=0)),
+    "payments"=>!(backup_has_int(x,"id")&&backup_has_string(x,"kind")&&["receipt","payment"].contains(&x["kind"].as_str().unwrap_or(""))
+      &&backup_has_optional_int(x,"contact_id")&&backup_has_string(x,"contact_name")&&backup_has_int(x,"amount")
+      &&x["amount"].as_i64().unwrap_or(0)>0&&backup_has_string(x,"method")&&backup_has_string(x,"payment_date")&&backup_has_string(x,"notes")),
     "settings"=>!(backup_has_string(x,"key")&&!x["key"].as_str().unwrap_or("").is_empty()&&backup_has_string(x,"value")),
     _=>true
    };
-   if bad{return Err(format!("رکورد نامعتبر در بخش {k}، ردیف {}؛ داده‌های فعلی دست‌نخورده باقی می‌مانند.",i+1))}
+   if bad{return Err(format!("رکورد نامعتبر در بخش {key}، ردیف {}؛ داده‌های فعلی دست‌نخورده باقی می‌مانند.",i+1))}
   }
  }
-
- let ids = |key:&str| -> Result<HashSet<i64>,String> {
+ let ids=|key:&str|->Result<HashSet<i64>,String>{
   let mut out=HashSet::new();
-  for x in data[key].as_array().unwrap() {
-   let id=x["id"].as_i64().ok_or_else(||format!("شناسهٔ نامعتبر در {key}"))?;
-   if !out.insert(id){return Err(format!("شناسهٔ تکراری در بخش {key}: {id}"))}
-  }
+  for x in data[key].as_array().unwrap(){let id=x["id"].as_i64().ok_or_else(||format!("شناسهٔ نامعتبر در {key}"))?;if !out.insert(id){return Err(format!("شناسهٔ تکراری در بخش {key}: {id}"))}}
   Ok(out)
  };
- let contact_ids=ids("contacts")?; let product_ids=ids("products")?; let invoice_ids=ids("invoices")?;
- let _=ids("payments")?; let _=ids("invoice_items")?;
+ let contact_ids=ids("contacts")?;let product_ids=ids("products")?;let invoice_ids=ids("invoices")?;
+ let item_ids=ids("invoice_items")?;let payment_ids=ids("payments")?;let _=payment_ids;
  let mut codes=HashSet::new();
  for p in data["products"].as_array().unwrap(){if !codes.insert(p["code"].as_str().unwrap_or("")){return Err("کد کالا در فایل پشتیبان تکراری است".into())}}
- let mut numbers=HashSet::new(); let mut subtotals:HashMap<i64,i64>=HashMap::new();
+ let mut numbers=HashSet::new();let mut subtotals:HashMap<i64,i64>=HashMap::new();
  for inv in data["invoices"].as_array().unwrap(){
   let id=inv["id"].as_i64().unwrap();let number=inv["number"].as_i64().unwrap();
   if !numbers.insert(number){return Err("شمارهٔ فاکتور تکراری است".into())}
@@ -311,80 +408,169 @@ fn validate_backup(data:&Value)->Result<(),String>{
  }
  for inv in data["invoices"].as_array().unwrap(){let id=inv["id"].as_i64().unwrap();if subtotals.get(&id).copied().unwrap_or(0)!=inv["subtotal"].as_i64().unwrap(){return Err(format!("جمع ردیف‌های فاکتور {} ناسازگار است",inv["number"].as_i64().unwrap()))}}
  for p in data["payments"].as_array().unwrap(){if let Some(cid)=p["contact_id"].as_i64(){if !contact_ids.contains(&cid){return Err("دریافت/پرداخت به طرف‌حساب ناموجود اشاره می‌کند".into())}}}
- for contact in data["contacts"].as_array().unwrap(){let kind=contact["kind"].as_str().unwrap_or("");let bal=contact["opening_balance"].as_i64().unwrap_or(-1);let cc=contact.get("customer_credit_balance").and_then(Value::as_i64).unwrap_or(0);let sc=contact.get("supplier_credit_balance").and_then(Value::as_i64).unwrap_or(0);if normalize_contact_kind(kind).is_none()||bal<0||cc<0||sc<0||(normalize_contact_kind(kind)==Some("both")&&bal!=0){return Err("نوع یا ماندهٔ افتتاحیهٔ طرف‌حساب معتبر نیست".into())}}
-
+ for contact in data["contacts"].as_array().unwrap(){
+  let kind=contact["kind"].as_str().unwrap_or("");let bal=contact["opening_balance"].as_i64().unwrap_or(-1);
+  let cc=contact.get("customer_credit_balance").and_then(Value::as_i64).unwrap_or(0);
+  let sc=contact.get("supplier_credit_balance").and_then(Value::as_i64).unwrap_or(0);
+  if normalize_contact_kind(kind).is_none()||bal<0||cc<0||sc<0||(normalize_contact_kind(kind)==Some("both")&&bal!=0){return Err("نوع یا ماندهٔ افتتاحیهٔ طرف‌حساب معتبر نیست".into())}
+ }
+ for key in ["sales_returns","purchase_returns"]{
+  for row in backup_optional_array(data,key){
+   let invoice_id=row.get("invoice_id").and_then(Value::as_i64).unwrap_or(0);
+   if !invoice_ids.contains(&invoice_id)||row.get("amount").and_then(Value::as_i64).unwrap_or(0)<=0
+      ||row.get("credit_refund").and_then(Value::as_i64).unwrap_or(0)<0{return Err(format!("رکورد نامعتبر در بخش {key}"))}
+  }
+ }
+ for key in ["sales_return_items","purchase_return_items"]{
+  for row in backup_optional_array(data,key){
+   if !item_ids.contains(&row.get("invoice_item_id").and_then(Value::as_i64).unwrap_or(0))
+      ||!product_ids.contains(&row.get("product_id").and_then(Value::as_i64).unwrap_or(0))
+      ||row.get("quantity").and_then(Value::as_i64).unwrap_or(0)<=0
+      ||row.get("amount").and_then(Value::as_i64).unwrap_or(0)<=0{return Err(format!("رکورد نامعتبر در بخش {key}"))}
+  }
+ }
+ for row in backup_optional_array(data,"inventory_adjustments"){
+  if !product_ids.contains(&row.get("product_id").and_then(Value::as_i64).unwrap_or(0))
+   ||row.get("delta").and_then(Value::as_i64).unwrap_or(0)==0
+   ||row.get("reason").and_then(Value::as_str).unwrap_or("").trim().chars().count()<3{return Err("رکورد اصلاح موجودی در پشتیبان معتبر نیست".into())}
+ }
+ for row in backup_optional_array(data,"expenses"){
+  if row.get("amount").and_then(Value::as_i64).unwrap_or(0)<=0
+   ||row.get("category").and_then(Value::as_str).unwrap_or("").trim().is_empty()
+   ||row.get("description").and_then(Value::as_str).unwrap_or("").trim().is_empty(){return Err("رکورد هزینه در پشتیبان معتبر نیست".into())}
+ }
  Ok(())
+}
+fn create_restore_safety_backup(c:&Connection)->Result<PathBuf,String>{
+ let filename:String=c.query_row("PRAGMA database_list",[],|r|r.get(2)).map_err(|e|e.to_string())?;
+ let directory=if filename.trim().is_empty(){
+  std::env::temp_dir().join("nabz-json-restore-backups")
+ }else{
+  PathBuf::from(filename).parent().ok_or("مسیر دیتابیس معتبر نیست")?.join("backups")
+ };
+ std::fs::create_dir_all(&directory).map_err(|e|format!("ساخت پوشهٔ پشتیبان پیش از بازیابی ناموفق بود: {e}"))?;
+ let stamp=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
+ let path=directory.join(format!("pre-json-restore-{stamp}.sqlite3"));
+ nabz_core::backup_database_to(c,&path).map_err(|e|format!("بازیابی متوقف شد؛ پشتیبان ایمنی ساخته نشد و دیتابیس فعلی تغییر نکرد: {e}"))?;
+ Ok(path)
 }
 #[tauri::command]
 fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
  validate_backup(&data)?;
- let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;
- tx.execute_batch("DELETE FROM invoice_items; DELETE FROM payments; DELETE FROM invoices; DELETE FROM products; DELETE FROM contacts; DELETE FROM settings;").map_err(|e|e.to_string())?;
- for x in data["contacts"].as_array().unwrap(){tx.execute("INSERT INTO contacts(id,name,kind,phone,opening_balance,notes,created_at,customer_credit_balance,supplier_credit_balance) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![x["id"].as_i64(),x["name"].as_str().unwrap_or(""),x["kind"].as_str().unwrap_or("customer"),x["phone"].as_str().unwrap_or(""),x["opening_balance"].as_i64().unwrap_or(0),x["notes"].as_str().unwrap_or(""),x["created_at"].as_str().unwrap_or(""),x.get("customer_credit_balance").and_then(Value::as_i64).unwrap_or(0),x.get("supplier_credit_balance").and_then(Value::as_i64).unwrap_or(0)]).map_err(|e|e.to_string())?;}
- for x in data["products"].as_array().unwrap(){tx.execute("INSERT INTO products(id,name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",params![x["id"].as_i64(),x["name"].as_str().unwrap_or(""),x["code"].as_str().unwrap_or(""),x["barcode"].as_str().unwrap_or(""),x["buy_price"].as_i64().unwrap_or(0),x["sell_price"].as_i64().unwrap_or(0),x["quantity"].as_i64().unwrap_or(0),x["min_quantity"].as_i64().unwrap_or(0)]).map_err(|e|e.to_string())?;}
- for x in data["invoices"].as_array().unwrap(){tx.execute("INSERT INTO invoices(id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",params![x["id"].as_i64(),x["number"].as_i64(),x["kind"].as_str().unwrap_or("sale"),x["contact_id"].as_i64(),x["contact_name"].as_str().unwrap_or(""),x["invoice_date"].as_str().unwrap_or(""),x["subtotal"].as_i64().unwrap_or(0),x["discount"].as_i64().unwrap_or(0),x["total"].as_i64().unwrap_or(0),x["paid"].as_i64().unwrap_or(0),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
- for x in data["invoice_items"].as_array().unwrap(){tx.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["product_id"].as_i64(),x["item_name"].as_str().unwrap_or(""),x["quantity"].as_i64().unwrap_or(0),x["unit_price"].as_i64().unwrap_or(0),x["line_total"].as_i64().unwrap_or(0)]).map_err(|e|e.to_string())?;}
- for x in data["payments"].as_array().unwrap(){tx.execute("INSERT INTO payments(id,kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",params![x["id"].as_i64(),x["kind"].as_str().unwrap_or("receipt"),x["contact_id"].as_i64(),x["contact_name"].as_str().unwrap_or(""),x["amount"].as_i64().unwrap_or(0),x["method"].as_str().unwrap_or("cash"),x["payment_date"].as_str().unwrap_or(""),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
- for x in data["settings"].as_array().unwrap(){tx.execute("INSERT INTO settings(key,value) VALUES(?1,?2)",params![x["key"].as_str().unwrap_or(""),x["value"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
- tx.commit().map_err(|e|e.to_string())?;Ok(())
-}
-fn parse_return_lines(lines:Vec<Value>)->Result<Vec<ReturnLineInput>,String>{
- let parsed=lines.into_iter().map(|x|{
-  let lookup=x.get("item").or_else(||x.get("product_lookup")).and_then(Value::as_str).unwrap_or("").trim().to_owned();
-  let quantity=x.get("qty").or_else(||x.get("quantity")).and_then(|v|v.as_i64().or_else(||v.as_str().and_then(|n|n.parse().ok()))).unwrap_or(0);
-  ReturnLineInput{product_lookup:lookup,quantity}
- }).collect::<Vec<_>>();
- if parsed.is_empty(){return Err("حداقل یک ردیف برای برگشت لازم است".into())}
- Ok(parsed)
-}
-#[tauri::command]
-fn return_sale_invoice(invoice_id:i64,lines:Vec<Value>,method:String,db:State<'_,Db>)->Result<Value,String>{
- let parsed=parse_return_lines(lines)?;
  let mut c=db.0.lock().map_err(|e|e.to_string())?;
- let (credit,refund)=return_sale_items(&mut c,invoice_id,&parsed,&method)?;
- Ok(json!({"credit":credit,"cash_refund":refund}))
-}
-#[tauri::command]
-fn return_purchase_invoice(invoice_id:i64,lines:Vec<Value>,method:String,db:State<'_,Db>)->Result<Value,String>{
- let parsed=parse_return_lines(lines)?;
- let mut c=db.0.lock().map_err(|e|e.to_string())?;
- let (credit,refund)=return_purchase_items(&mut c,invoice_id,&parsed,&method)?;
- Ok(json!({"credit":credit,"cash_refund":refund}))
-}
-#[tauri::command]
-fn void_invoice(invoice_id:i64,db:State<'_,Db>)->Result<(),String>{
- let mut c=db.0.lock().map_err(|e|e.to_string())?;
- core_void_invoice(&mut c,invoice_id)
-}
-#[tauri::command]
-fn adjust_inventory_command(product_id:i64,new_quantity:i64,reason:String,db:State<'_,Db>)->Result<Value,String>{
- let mut c=db.0.lock().map_err(|e|e.to_string())?;
- let result=adjust_inventory(&mut c,product_id,new_quantity,&reason)?;
- Ok(json!({"product_id":result.product_id,"previous_quantity":result.previous_quantity,"new_quantity":result.new_quantity,"delta":result.delta,"reason":result.reason,"created_at":result.created_at}))
-}
-#[tauri::command]
-fn inventory_valuation_command(db:State<'_,Db>)->Result<Vec<Value>,String>{
- let c=db.0.lock().map_err(|e|e.to_string())?;
- let rows=inventory_valuation(&c)?;
- Ok(rows.into_iter().map(|x|json!({"product_id":x.product_id,"product_name":x.product_name,"code":x.code,"quantity":x.quantity,"buy_price":x.buy_price,"average_cost":x.average_cost,"stock_value":x.stock_value})).collect())
-}
-#[tauri::command]
-fn create_expense_command(payload:Value,db:State<'_,Db>)->Result<i64,String>{
- let input=ExpenseInput{category:text(&payload,"category"),description:text(&payload,"description"),amount:num(&payload,"amount"),date:text(&payload,"date")};
- let c=db.0.lock().map_err(|e|e.to_string())?;
- create_expense(&c,&input)
-}
-#[tauri::command]
-fn list_expenses_command(from:String,to:String,db:State<'_,Db>)->Result<Vec<Value>,String>{
- let c=db.0.lock().map_err(|e|e.to_string())?;
- let rows=list_expenses(&c,&from,&to)?;
- Ok(rows.into_iter().map(|x|json!({"id":x.id,"category":x.category,"description":x.description,"amount":x.amount,"date":x.date})).collect())
-}
-#[tauri::command]
-fn profit_loss_report_command(from:String,to:String,db:State<'_,Db>)->Result<Value,String>{
- let c=db.0.lock().map_err(|e|e.to_string())?;
- let x=profit_loss_report(&c,&from,&to)?;
- Ok(json!({"sales":x.sales,"discounts":x.discounts,"net_sales":x.net_sales,"cost_of_goods_sold":x.cost_of_goods_sold,"gross_profit":x.gross_profit,"expenses":x.expenses,"net_profit":x.net_profit,"uncosted_sales":x.uncosted_sales,"expense_rows":x.expense_rows.into_iter().map(|r|json!({"id":r.id,"category":r.category,"description":r.description,"amount":r.amount,"date":r.date})).collect::<Vec<_>>()}))
+ let safety_path=create_restore_safety_backup(&c)?;
+ let tx=c.transaction().map_err(|e|e.to_string())?;
+ tx.execute_batch(
+  "DROP TRIGGER IF EXISTS inventory_adjustments_no_update;
+   DROP TRIGGER IF EXISTS inventory_adjustments_no_delete;
+   DELETE FROM sales_return_items; DELETE FROM sales_refunds; DELETE FROM sales_returns;
+   DELETE FROM purchase_return_items; DELETE FROM purchase_refunds; DELETE FROM purchase_returns;
+   DELETE FROM inventory_adjustments; DELETE FROM expenses;
+   DELETE FROM invoice_items; DELETE FROM payments; DELETE FROM invoices;
+   DELETE FROM products; DELETE FROM contacts; DELETE FROM settings;"
+ ).map_err(|e|e.to_string())?;
+ for x in data["contacts"].as_array().unwrap(){
+  tx.execute("INSERT INTO contacts(id,name,kind,phone,opening_balance,notes,created_at,customer_credit_balance,supplier_credit_balance)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+   params![x["id"].as_i64(),x["name"].as_str().unwrap_or(""),x["kind"].as_str().unwrap_or("customer"),
+    x["phone"].as_str().unwrap_or(""),x["opening_balance"].as_i64().unwrap_or(0),x["notes"].as_str().unwrap_or(""),
+    x["created_at"].as_str().unwrap_or(""),x.get("customer_credit_balance").and_then(Value::as_i64).unwrap_or(0),
+    x.get("supplier_credit_balance").and_then(Value::as_i64).unwrap_or(0)]).map_err(|e|e.to_string())?;
+ }
+ for x in data["products"].as_array().unwrap(){
+  let quantity=x["quantity"].as_i64().unwrap_or(0);let buy=x["buy_price"].as_i64().unwrap_or(0);
+  let average=x.get("average_cost").and_then(Value::as_i64).unwrap_or(if quantity>0{buy}else{0});
+  tx.execute("INSERT INTO products(id,name,code,barcode,buy_price,sell_price,quantity,min_quantity,average_cost)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+   params![x["id"].as_i64(),x["name"].as_str().unwrap_or(""),x["code"].as_str().unwrap_or(""),
+    x["barcode"].as_str().unwrap_or(""),buy,x["sell_price"].as_i64().unwrap_or(0),quantity,
+    x["min_quantity"].as_i64().unwrap_or(0),average]).map_err(|e|e.to_string())?;
+ }
+ for x in data["invoices"].as_array().unwrap(){
+  tx.execute("INSERT INTO invoices(id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes,voided,credit_applied)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+   params![x["id"].as_i64(),x["number"].as_i64(),x["kind"].as_str().unwrap_or("sale"),x["contact_id"].as_i64(),
+    x["contact_name"].as_str().unwrap_or(""),x["invoice_date"].as_str().unwrap_or(""),x["subtotal"].as_i64().unwrap_or(0),
+    x["discount"].as_i64().unwrap_or(0),x["total"].as_i64().unwrap_or(0),x["paid"].as_i64().unwrap_or(0),
+    x["notes"].as_str().unwrap_or(""),x.get("voided").and_then(Value::as_i64).unwrap_or(0),
+    x.get("credit_applied").and_then(Value::as_i64).unwrap_or(0)]).map_err(|e|e.to_string())?;
+ }
+ for x in data["invoice_items"].as_array().unwrap(){
+  tx.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+   params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["product_id"].as_i64(),x["item_name"].as_str().unwrap_or(""),
+    x["quantity"].as_i64().unwrap_or(0),x["unit_price"].as_i64().unwrap_or(0),x["line_total"].as_i64().unwrap_or(0),
+    x.get("unit_cost").and_then(Value::as_i64),x.get("quantity_before").and_then(Value::as_i64),
+    x.get("average_cost_before").and_then(Value::as_i64)]).map_err(|e|e.to_string())?;
+ }
+ for x in data["payments"].as_array().unwrap(){
+  tx.execute("INSERT INTO payments(id,kind,contact_id,contact_name,amount,method,payment_date,notes)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+   params![x["id"].as_i64(),x["kind"].as_str().unwrap_or("receipt"),x["contact_id"].as_i64(),
+    x["contact_name"].as_str().unwrap_or(""),x["amount"].as_i64().unwrap_or(0),x["method"].as_str().unwrap_or("cash"),
+    x["payment_date"].as_str().unwrap_or(""),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
+ }
+ for x in data["settings"].as_array().unwrap(){
+  tx.execute("INSERT INTO settings(key,value) VALUES(?1,?2)",params![x["key"].as_str().unwrap_or(""),x["value"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"sales_returns"){
+  tx.execute("INSERT INTO sales_returns(id,invoice_id,return_date,amount,notes,credit_refund) VALUES(?1,?2,?3,?4,?5,?6)",
+   params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["return_date"].as_str().unwrap_or(""),
+    x["amount"].as_i64().unwrap_or(0),x["notes"].as_str().unwrap_or(""),x["credit_refund"].as_i64().unwrap_or(0)]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"sales_return_items"){
+  tx.execute("INSERT INTO sales_return_items(id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+   params![x["id"].as_i64(),x["return_id"].as_i64(),x["invoice_item_id"].as_i64(),x["product_id"].as_i64(),
+    x["item_name"].as_str().unwrap_or(""),x["quantity"].as_i64().unwrap_or(0),x["unit_price"].as_i64().unwrap_or(0),
+    x["amount"].as_i64().unwrap_or(0)]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"sales_refunds"){
+  tx.execute("INSERT INTO sales_refunds(id,invoice_id,return_id,refund_date,amount,method,notes) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+   params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["return_id"].as_i64(),x["refund_date"].as_str().unwrap_or(""),
+    x["amount"].as_i64().unwrap_or(0),x["method"].as_str().unwrap_or("cash"),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"purchase_returns"){
+  tx.execute("INSERT INTO purchase_returns(id,invoice_id,return_date,amount,notes,credit_refund) VALUES(?1,?2,?3,?4,?5,?6)",
+   params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["return_date"].as_str().unwrap_or(""),
+    x["amount"].as_i64().unwrap_or(0),x["notes"].as_str().unwrap_or(""),x["credit_refund"].as_i64().unwrap_or(0)]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"purchase_return_items"){
+  tx.execute("INSERT INTO purchase_return_items(id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+   params![x["id"].as_i64(),x["return_id"].as_i64(),x["invoice_item_id"].as_i64(),x["product_id"].as_i64(),
+    x["item_name"].as_str().unwrap_or(""),x["quantity"].as_i64().unwrap_or(0),x["unit_price"].as_i64().unwrap_or(0),
+    x["amount"].as_i64().unwrap_or(0)]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"purchase_refunds"){
+  tx.execute("INSERT INTO purchase_refunds(id,invoice_id,return_id,refund_date,amount,method,notes) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+   params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["return_id"].as_i64(),x["refund_date"].as_str().unwrap_or(""),
+    x["amount"].as_i64().unwrap_or(0),x["method"].as_str().unwrap_or("cash"),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"inventory_adjustments"){
+  tx.execute("INSERT INTO inventory_adjustments(id,product_id,product_name,previous_quantity,new_quantity,delta,reason,created_at)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+   params![x["id"].as_i64(),x["product_id"].as_i64(),x["product_name"].as_str().unwrap_or(""),
+    x["previous_quantity"].as_i64().unwrap_or(0),x["new_quantity"].as_i64().unwrap_or(0),
+    x["delta"].as_i64().unwrap_or(0),x["reason"].as_str().unwrap_or(""),x["created_at"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"expenses"){
+  tx.execute("INSERT INTO expenses(id,category,description,amount,expense_date,created_at) VALUES(?1,?2,?3,?4,?5,?6)",
+   params![x["id"].as_i64(),x["category"].as_str().unwrap_or(""),x["description"].as_str().unwrap_or(""),
+    x["amount"].as_i64().unwrap_or(0),x["expense_date"].as_str().unwrap_or(""),x["created_at"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
+ }
+ tx.execute_batch(
+  "CREATE TRIGGER IF NOT EXISTS inventory_adjustments_no_update BEFORE UPDATE ON inventory_adjustments
+   BEGIN SELECT RAISE(ABORT,'inventory adjustment history is immutable'); END;
+   CREATE TRIGGER IF NOT EXISTS inventory_adjustments_no_delete BEFORE DELETE ON inventory_adjustments
+   BEGIN SELECT RAISE(ABORT,'inventory adjustment history is immutable'); END;"
+ ).map_err(|e|e.to_string())?;
+ let foreign_key_errors:i64=tx.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if foreign_key_errors!=0{return Err("اعتبارسنجی ارتباط رکوردها پس از بازیابی ناموفق بود؛ داده‌های قبلی حفظ شدند".into())}
+ tx.commit().map_err(|e|e.to_string())?;
+ let integrity:String=c.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if integrity!="ok"{return Err(format!("بازیابی انجام شد اما بررسی سلامت دیتابیس خطا داد؛ نسخهٔ ایمنی: {}؛ نتیجه: {integrity}",safety_path.display()))}
+ Ok(())
 }
 #[tauri::command]
 fn get_contact_ledger(id:i64,db:State<'_,Db>)->Result<Value,String>{
