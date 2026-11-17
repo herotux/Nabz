@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 /// Normalize Persian and English contact roles consistently across application instances.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -762,6 +762,29 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         tx.commit().map_err(|e| e.to_string())?;
     }
 
+    if version < 11 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        for (column, definition) in [
+            ("category", "TEXT NOT NULL DEFAULT ''"),
+            ("unit", "TEXT NOT NULL DEFAULT 'عدد'"),
+            ("wholesale_price", "INTEGER NOT NULL DEFAULT 0 CHECK(wholesale_price>=0)"),
+            ("is_service", "INTEGER NOT NULL DEFAULT 0 CHECK(is_service IN (0,1))"),
+        ] {
+            if !column_exists(&tx, "products", column)? {
+                tx.execute_batch(&format!("ALTER TABLE products ADD COLUMN {column} {definition};"))
+                    .map_err(|e| format!("افزودن مشخصات کالا ناموفق بود ({column}): {e}"))?;
+            }
+        }
+        tx.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category COLLATE NOCASE);
+             CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
+             CREATE INDEX IF NOT EXISTS idx_products_low_stock ON products(quantity,min_quantity)
+               WHERE is_service=0;"
+        ).map_err(|e| e.to_string())?;
+        tx.pragma_update(None, "user_version", 11).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -771,7 +794,7 @@ mod tests {
 
 
     #[test]
-    fn schema_v10_adds_credit_tracking_reversal_and_payment_allocation_ledgers() {
+    fn schema_v11_adds_product_catalog_metadata_and_stock_indexes() {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
@@ -793,7 +816,7 @@ mod tests {
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='payment_allocations'",
             [], |r| r.get(0)
         ).unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 11);
         assert_eq!(columns, 4);
         assert_eq!(credit, 2);
         assert_eq!((void_table,allocation_table),(1,1));
