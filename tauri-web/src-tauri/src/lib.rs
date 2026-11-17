@@ -153,9 +153,11 @@ fn save_invoice_with_connection(payload:Value,c:&mut Connection)->Result<i64,Str
   if requested<0||requested>total{return Err("مبلغ دریافتی باید بین صفر و مبلغ نهایی فاکتور باشد".into())}
   if status=="partial"&&(requested<=0||requested>=total){return Err("مبلغ دریافت‌شده در پرداخت جزئی باید بیشتر از صفر و کمتر از مبلغ فاکتور باشد".into())}
   if requested<total&&contact_id.is_none(){return Err("برای فروش نسیه یا پرداخت ناقص، مشتری ثبت‌شده انتخاب کنید؛ فروش گذری باید تسویه کامل باشد.".into())}
-  let credit=credit_available.min(total-requested);
-  let cash=if status=="paid"{total-credit}else{requested};
-  (cash,credit)
+  match status{
+   "paid"=>{let credit=credit_available.min(total);(total-credit,credit)},
+   "partial"=>{let credit=credit_available.min(total-requested);(requested,credit)},
+   _=>{let credit=credit_available.min(total);(0,credit)}
+  }
  }else{
   (0,credit_available.min(total))
  };
@@ -196,7 +198,7 @@ struct SalesTrendPoint { date:String, total:i64 }
 fn sales_trend(days:i64,db:State<'_,Db>)->Result<Vec<SalesTrendPoint>,String>{
  if !(7..=30).contains(&days){return Err("بازهٔ نمودار باید ۷ یا ۳۰ روز باشد".into())}
  let c=db.0.lock().map_err(|e|e.to_string())?;
- let mut st=c.prepare("WITH RECURSIVE days(d,n) AS (SELECT date('now','localtime', '-' || (?1-1) || ' days'),0 UNION ALL SELECT date(d,'+1 day'),n+1 FROM days WHERE n<?1-1) SELECT days.d,COALESCE(SUM(invoices.total),0) FROM days LEFT JOIN invoices ON invoices.invoice_date=days.d AND invoices.kind='sale' GROUP BY days.d ORDER BY days.d").map_err(|e|e.to_string())?;
+ let mut st=c.prepare("WITH RECURSIVE days(d,n) AS (SELECT date('now','localtime', '-' || (?1-1) || ' days'),0 UNION ALL SELECT date(d,'+1 day'),n+1 FROM days WHERE n<?1-1) SELECT days.d,COALESCE(SUM(invoices.total),0) FROM days LEFT JOIN invoices ON invoices.invoice_date=days.d AND invoices.kind='sale' AND invoices.voided=0 GROUP BY days.d ORDER BY days.d").map_err(|e|e.to_string())?;
  let rows=st.query_map([days],|r|Ok(SalesTrendPoint{date:r.get(0)?,total:r.get(1)?})).map_err(|e|e.to_string())?;
  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
 }
