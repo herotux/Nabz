@@ -70,10 +70,23 @@ fn save_product(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  save_product_with_connection(payload,&c)
 }
 fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>{
- let n=text(&payload,"name");let code=text(&payload,"code");let qty=num(&payload,"qty");let buy=num(&payload,"buy");let sell=num(&payload,"sell");let min=num(&payload,"min");
+ let n=text(&payload,"name");let code=text(&payload,"code");let qty=num(&payload,"qty");let buy=num(&payload,"buy");let sell=num(&payload,"sell");let min=num(&payload,"min");let barcode=text(&payload,"barcode");
  if n.is_empty()||code.is_empty(){return Err("نام و کد کالا الزامی است".into())}
  if qty<0||buy<0||sell<0||min<0{return Err("موجودی، حداقل موجودی و قیمت نمی‌تواند منفی باشد".into())}
- c.execute("INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![n,code,text(&payload,"barcode"),buy,sell,qty,min]).map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;
+ if let Some(id)=payload.get("id").and_then(Value::as_i64){
+  if id<=0{return Err("شناسه کالا نامعتبر است".into())}
+  let exists:i64=c.query_row("SELECT COUNT(*) FROM products WHERE id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if exists==0{return Err("کالا پیدا نشد".into())}
+  let has_history:i64=c.query_row("SELECT COUNT(*) FROM invoice_items WHERE product_id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  let result=if has_history>0{
+   c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,min_quantity=?6 WHERE id=?7",params![n,code,barcode,buy,sell,min,id])
+  }else{
+   c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,quantity=?6,min_quantity=?7 WHERE id=?8",params![n,code,barcode,buy,sell,qty,min,id])
+  };
+  result.map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;
+  return Ok(id)
+ }
+ c.execute("INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![n,code,barcode,buy,sell,qty,min]).map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;
  Ok(c.last_insert_rowid())
 }
 #[tauri::command]
@@ -343,6 +356,21 @@ mod accounting_tests {
   let report=reports_period_with_connection(&c,"2026-10-29","2026-10-31").unwrap();
   assert_eq!(report["sales_total"].as_i64(),Some(20));
   assert_eq!(report["sales_count"].as_i64(),Some(1));
+ }
+
+ #[test]
+ fn editing_product_preserves_stock_when_historical_invoice_lines_exist() {
+  let mut c=database();
+  let id=scalar(&c,"SELECT id FROM products WHERE code='PEN'");
+  let updated=json!({"id":id,"name":"Pen Pro","code":"PEN-PRO","barcode":"123456","qty":999,"buy":12,"sell":25,"min":3});
+  save_product_with_connection(updated,&c).unwrap();
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE id=1"),10);
+  assert_eq!(scalar(&c,"SELECT buy_price FROM products WHERE id=1"),12);
+  let invoice=json!({"kind":"sale","customer":"Ali","payment_status":"credit","items":[{"item":"Pen Pro","qty":1,"price":25}],"discount":0,"date":"2026-10-28"});
+  save_invoice_with_connection(invoice,&mut c).unwrap();
+  let id=scalar(&c,"SELECT id FROM products WHERE code='PEN-PRO'");
+  save_product_with_connection(json!({"id":id,"name":"Pen Pro Plus","code":"PEN-PRO","barcode":"123456","qty":0,"buy":13,"sell":27,"min":4}),&c).unwrap();
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN-PRO'"),9);
  }
  #[test]
  fn backup_validation_rejects_malformed_records_before_restore_can_start() {
