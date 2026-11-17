@@ -609,6 +609,7 @@ mod tests {
         assert_eq!(target.query_row("SELECT opening_balance FROM contacts WHERE id=3", [], |r| r.get::<_,i64>(0)).unwrap(), 5);
         assert_eq!(target.query_row("SELECT COUNT(*) FROM inventory_adjustments", [], |r| r.get::<_,i64>(0)).unwrap(), 1);
         assert_eq!(target.query_row("SELECT COUNT(*) FROM payments", [], |r| r.get::<_,i64>(0)).unwrap(), 2);
+        assert_eq!(target.query_row("SELECT COUNT(*) FROM payment_allocations", [], |r| r.get::<_,i64>(0)).unwrap(), 2);
         assert!(target.query_row("SELECT value FROM settings WHERE key='legacy_egui_import_v1'", [], |r| r.get::<_,String>(0)).is_ok());
         assert!(root.join("target/backups").read_dir().is_ok());
         let again = import_legacy_egui_database(&mut target, &legacy_path, &target_path).unwrap();
