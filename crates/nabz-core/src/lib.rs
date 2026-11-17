@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz.webprototype";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 10;
 
 /// Normalize Persian and English contact roles consistently across application instances.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -652,6 +652,50 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         tx.commit().map_err(|e| e.to_string())?;
     }
 
+    if version < 9 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS invoice_voids(
+               id INTEGER PRIMARY KEY,
+               invoice_id INTEGER NOT NULL UNIQUE REFERENCES invoices(id),
+               kind TEXT NOT NULL CHECK(kind IN ('sale','purchase')),
+               void_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               cash_refund INTEGER NOT NULL DEFAULT 0 CHECK(cash_refund>=0),
+               credit_refund INTEGER NOT NULL DEFAULT 0 CHECK(credit_refund>=0),
+               notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE INDEX IF NOT EXISTS idx_invoice_voids_date ON invoice_voids(void_date DESC,id DESC);"
+        ).map_err(|e| format!("افزودن دفتر ابطال اسناد ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 9).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 10 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS payment_allocations(
+               id INTEGER PRIMARY KEY,
+               payment_id INTEGER REFERENCES payments(id),
+               invoice_id INTEGER REFERENCES invoices(id),
+               contact_id INTEGER REFERENCES contacts(id),
+               allocation_type TEXT NOT NULL CHECK(allocation_type IN ('invoice','opening_balance','advance','advance_application')),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')),
+               CHECK(
+                 (allocation_type='invoice' AND payment_id IS NOT NULL AND invoice_id IS NOT NULL) OR
+                 (allocation_type='opening_balance' AND payment_id IS NOT NULL AND invoice_id IS NULL) OR
+                 (allocation_type='advance' AND payment_id IS NOT NULL AND invoice_id IS NULL) OR
+                 (allocation_type='advance_application' AND payment_id IS NULL AND invoice_id IS NOT NULL)
+               )
+             );
+             CREATE INDEX IF NOT EXISTS idx_payment_allocations_invoice ON payment_allocations(invoice_id,id);
+             CREATE INDEX IF NOT EXISTS idx_payment_allocations_payment ON payment_allocations(payment_id,id);
+             CREATE INDEX IF NOT EXISTS idx_payment_allocations_contact ON payment_allocations(contact_id,id);"
+        ).map_err(|e| format!("افزودن دفتر تخصیص دریافت/پرداخت ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 10).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -661,7 +705,7 @@ mod tests {
 
 
     #[test]
-    fn schema_v8_adds_credit_tracking_and_exact_reversal_snapshots() {
+    fn schema_v10_adds_credit_tracking_reversal_and_payment_allocation_ledgers() {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
@@ -675,7 +719,7 @@ mod tests {
              WHERE name IN ('customer_credit_balance','supplier_credit_balance')",
             [], |r| r.get(0)
         ).unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 10);
         assert_eq!(columns, 4);
         assert_eq!(credit, 2);
     }
@@ -1016,7 +1060,7 @@ mod tests {
              FROM products p JOIN invoice_items ii ON ii.product_id=p.id WHERE p.id=1",
             [], |r| Ok((r.get(0)?,r.get(1)?))
         ).unwrap();
-        assert_eq!((version, average_cost, historical_cost), (8, 42, 17));
+        assert_eq!((version, average_cost, historical_cost), (10, 42, 17));
     }
 
 
@@ -1074,7 +1118,7 @@ mod tests {
              JOIN invoice_items ii ON ii.id=1 WHERE c.id=1",
             [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
         ).unwrap();
-        assert_eq!((version,credit,quantity,average,voided,unit_cost),(8,75,7,42,0,None));
+        assert_eq!((version,credit,quantity,average,voided,unit_cost),(10,75,7,42,0,None));
     }
 
 
