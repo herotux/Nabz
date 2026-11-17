@@ -1102,6 +1102,9 @@ pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Resu
             remaining -= applied;
         }
     }
+    if remaining != 0 {
+        return Err("تخصیص مبلغ دریافت/پرداخت کامل نشد؛ تراکنش ذخیره نشد".into());
+    }
     if excess > 0 {
         let column = if input.kind == "receipt" { "customer_credit_balance" } else { "supplier_credit_balance" };
         let current: i64 = tx.query_row(&format!("SELECT {column} FROM contacts WHERE id=?1"),
