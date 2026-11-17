@@ -985,7 +985,7 @@ mod tests {
              FROM products p JOIN invoice_items ii ON ii.product_id=p.id WHERE p.id=1",
             [], |r| Ok((r.get(0)?,r.get(1)?))
         ).unwrap();
-        assert_eq!((version, average_cost, historical_cost), (6, 42, 17));
+        assert_eq!((version, average_cost, historical_cost), (7, 42, 17));
     }
 
 
