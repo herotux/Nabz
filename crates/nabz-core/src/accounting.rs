@@ -337,10 +337,10 @@ pub fn create_invoice_with_payment_split(
             unit_price
         };
 
-        let product: Option<(i64, i64, String, i64)> = tx.query_row(
+        let product: Option<(i64, i64, String, i64, i64)> = tx.query_row(
             "SELECT id,quantity,name,average_cost,buy_price FROM products
              WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
-            [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         ).optional().map_err(|e| e.to_string())?;
 
         let (product_id, item_name, unit_cost, quantity_before, average_cost_before, buy_price_before) =
@@ -1085,7 +1085,7 @@ mod tests {
     }
 
     #[test]
-    fn both_frontends_share_contact_validation_and_storage() {
+    fn shared_core_contact_validation_and_storage_is_consistent() {
         let connection = database();
         let contact = ContactInput {
             name: "مشتری مشترک".into(), kind: "customer".into(),
