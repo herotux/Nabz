@@ -88,7 +88,8 @@ fn target_is_empty(connection: &Connection) -> Result<bool, String> {
            (SELECT COUNT(*) FROM products) +
            (SELECT COUNT(*) FROM invoices) +
            (SELECT COUNT(*) FROM payments) +
-           (SELECT COUNT(*) FROM expenses)",
+           (SELECT COUNT(*) FROM expenses) +
+           (SELECT COUNT(*) FROM settings)",
         [],
         |row| row.get(0),
     ).map_err(|e| e.to_string())?;
