@@ -404,7 +404,7 @@ pub struct ReturnLineInput {
 }
 
 /// Process a partial sale return, restore stock, and create any cash refund
-/// atomically. The calculation and validation are shared by both UIs.
+/// atomically. The calculation and validation are shared by the Tauri application.
 pub fn return_sale_items(
     connection: &mut Connection,
     invoice_id: i64,
