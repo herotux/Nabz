@@ -17,7 +17,7 @@ struct Summary { sales_today:i64, receipts_today:i64, customer_balance:i64, inve
 #[derive(Serialize)]
 struct Record { id:i64, name:String, detail:String, amount:i64, status:String, date:String }
 #[derive(Serialize)]
-struct ProductRecord { id:i64, name:String, code:String, barcode:String, quantity:i64, buy_price:i64, sell_price:i64, min_quantity:i64 }
+struct ProductRecord { id:i64, name:String, code:String, barcode:String, quantity:i64, buy_price:i64, sell_price:i64, min_quantity:i64, category:String, unit:String, wholesale_price:i64, is_service:bool }
 
 fn text(v:&Value,k:&str)->String { v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned() }
 fn num(v:&Value,k:&str)->i64 { v.get(k).and_then(|x|x.as_i64().or_else(||x.as_str().and_then(|s|s.replace(',',"").replace('٬',"").parse().ok()))).unwrap_or(0) }
@@ -27,7 +27,12 @@ fn init(c:&Connection)->Result<(),String>{ nabz_core::initialize(c) }
 #[tauri::command] fn db_status(db:State<'_,Db>)->Result<String,String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.query_row("PRAGMA database_list",[],|r|r.get(2)).map_err(|e|e.to_string())}
 #[tauri::command] fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{let c=db.0.lock().map_err(|e|e.to_string())?;Ok(Summary{sales_today:c.query_row("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date=date('now','localtime')",[],|r|r.get(0)).map_err(|e|e.to_string())?,receipts_today:c.query_row("COALESCE((SELECT SUM(amount) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')),0)-COALESCE((SELECT SUM(amount) FROM sales_refunds WHERE refund_date=date('now','localtime')),0)-COALESCE((SELECT SUM(cash_refund) FROM invoice_voids WHERE kind='sale' AND void_date=date('now','localtime')),0)",[],|r|r.get(0)).map_err(|e|e.to_string())?,customer_balance:c.query_row("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both')),0)",[],|r|r.get(0)).map_err(|e|e.to_string())?,inventory_value:c.query_row("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products",[],|r|r.get(0)).map_err(|e|e.to_string())?,contacts:c.query_row("SELECT COUNT(*) FROM contacts",[],|r|r.get(0)).map_err(|e|e.to_string())?,products:c.query_row("SELECT COUNT(*) FROM products",[],|r|r.get(0)).map_err(|e|e.to_string())?,invoices:c.query_row("SELECT COUNT(*) FROM invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?})}
 #[tauri::command] fn list_records(kind:String,db:State<'_,Db>)->Result<Vec<Record>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let sql=match kind.as_str(){"contacts"=>"SELECT id,name,phone,opening_balance,kind,datetime(created_at) FROM contacts ORDER BY id DESC","products"=>"SELECT id,name,code,quantity,sell_price,'موجود', '' FROM products ORDER BY id DESC","invoices"=>"SELECT id,'فاکتور #'||number||' · '||contact_name,kind,total,CASE WHEN voided=1 THEN 'باطل‌شده' WHEN paid>=total THEN 'تسویه' ELSE 'بدهکار' END,invoice_date FROM invoices ORDER BY id DESC","payments"=>"SELECT id,contact_name,kind,amount,method,payment_date FROM payments ORDER BY id DESC",_=>return Err("فهرست نامعتبر است".into())};let mut s=c.prepare(sql).map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Record{id:r.get(0)?,name:r.get(1)?,detail:r.get(2)?,amount:r.get(3)?,status:r.get(4)?,date:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
-#[tauri::command] fn list_products(db:State<'_,Db>)->Result<Vec<ProductRecord>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT id,name,code,barcode,quantity,buy_price,sell_price,min_quantity FROM products ORDER BY id DESC").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(ProductRecord{id:r.get(0)?,name:r.get(1)?,code:r.get(2)?,barcode:r.get(3)?,quantity:r.get(4)?,buy_price:r.get(5)?,sell_price:r.get(6)?,min_quantity:r.get(7)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
+#[tauri::command] fn list_products(db:State<'_,Db>)->Result<Vec<ProductRecord>,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let mut s=c.prepare("SELECT id,name,code,barcode,quantity,buy_price,sell_price,min_quantity,category,unit,wholesale_price,is_service FROM products ORDER BY name COLLATE NOCASE,id DESC").map_err(|e|e.to_string())?;
+ let rows=s.query_map([],|r|Ok(ProductRecord{id:r.get(0)?,name:r.get(1)?,code:r.get(2)?,barcode:r.get(3)?,quantity:r.get(4)?,buy_price:r.get(5)?,sell_price:r.get(6)?,min_quantity:r.get(7)?,category:r.get(8)?,unit:r.get(9)?,wholesale_price:r.get(10)?,is_service:r.get::<_,i64>(11)?!=0})).map_err(|e|e.to_string())?;
+ rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
+}
 #[tauri::command]
 fn delete_record(kind:String,id:i64,db:State<'_,Db>)->Result<(),String>{
  let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;
@@ -77,7 +82,17 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
   quantity:num(&payload,"qty"),
   min_quantity:num(&payload,"min"),
  };
- core_save_product(c,payload.get("id").and_then(Value::as_i64),&input)
+ let id=core_save_product(c,payload.get("id").and_then(Value::as_i64),&input)?;
+ let category=text(&payload,"category");
+ let unit=text(&payload,"unit");
+ let unit=if unit.is_empty(){"عدد".to_string()}else{unit};
+ let wholesale=num(&payload,"wholesale");
+ let is_service=payload.get("is_service").and_then(Value::as_bool).unwrap_or(false);
+ if wholesale<0{return Err("قیمت عمده نمی‌تواند منفی باشد".into())}
+ if is_service && num(&payload,"qty")!=0{return Err("برای خدمت، موجودی باید صفر باشد".into())}
+ c.execute("UPDATE products SET category=?1,unit=?2,wholesale_price=?3,is_service=?4,quantity=CASE WHEN ?4=1 THEN 0 ELSE quantity END,average_cost=CASE WHEN ?4=1 THEN 0 ELSE average_cost END WHERE id=?5",
+  rusqlite::params![category,unit,wholesale,if is_service{1}else{0},id]).map_err(|e|e.to_string())?;
+ Ok(id)
 }
 #[tauri::command]
 fn save_invoice(payload:Value,db:State<'_,Db>)->Result<i64,String>{
