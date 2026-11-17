@@ -1,0 +1,46 @@
+name: Nabz Phase 1 — Accounting Core
+
+on:
+  push:
+    branches: [ui/react-tauri-redesign]
+    paths:
+      - "crates/nabz-core/**"
+      - "tauri-web/src-tauri/**"
+      - ".github/workflows/phase1-core.yml"
+  pull_request:
+    paths:
+      - "crates/nabz-core/**"
+      - "tauri-web/src-tauri/**"
+      - ".github/workflows/phase1-core.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nabz-phase1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-tests:
+    name: Shared accounting core tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test migrations and accounting invariants
+        run: cargo test --manifest-path crates/nabz-core/Cargo.toml
+
+  tauri-tests:
+    name: Tauri integration tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev libxdo-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libgtk-3-dev libglib2.0-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run backend integration tests
+        run: cargo test --manifest-path tauri-web/src-tauri/Cargo.toml --lib
