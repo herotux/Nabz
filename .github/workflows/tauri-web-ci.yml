@@ -103,68 +103,8 @@ jobs:
           def cargo_version(path):
               content = Path(path).read_text()
               package = content.split("[package]", 1)[1].split("\n[", 1)[0]
-              return re.search(r'^version\s*=\s*"([^"]+)"
-
-      - name: Run shared accounting core tests
-        run: cargo test --manifest-path ../crates/nabz-core/Cargo.toml
-
-      - name: Run Tauri backend tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
-
-      - name: Build optimized Tauri executable
-        run: cargo build --release --manifest-path src-tauri/Cargo.toml --bin nabz-tauri
-
-      - name: Prepare Arch package inputs
-        run: |
-          set -eux
-          test -s src-tauri/target/release/nabz-tauri
-          mkdir -p packaging/arch
-          install -Dm755 src-tauri/target/release/nabz-tauri packaging/arch/nabz-tauri
-          install -Dm644 src-tauri/icons/icon.png packaging/arch/nabz.png
-          install -Dm644 ../LICENSE packaging/arch/LICENSE
-          cat > packaging/arch/nabz.desktop <<'DESKTOP'
-          [Desktop Entry]
-          Version=1.0
-          Type=Application
-          Name=نبض
-          GenericName=حسابداری فروشگاهی
-          Comment=حسابداری فروشگاهی فارسی
-          Exec=nabz
-          Icon=nabz
-          Terminal=false
-          Categories=Office;Finance;
-          StartupNotify=true
-          DESKTOP
-
-      - name: Build native Arch / Manjaro package
-        run: |
-          docker run --rm \
-            -v "$PWD/packaging/arch:/pkg" \
-            archlinux:latest bash -lc '
-              pacman -Syu --noconfirm --needed base-devel webkit2gtk-4.1 gtk3 openssl
-              useradd --create-home builder
-              chown -R builder:builder /pkg
-              cd /pkg
-              runuser -u builder -- makepkg --cleanbuild --noconfirm
-              pacman -U --noconfirm /pkg/*.pkg.tar.zst
-              pacman -Ql nabz-tauri
-            '
-
-      - name: Verify generated package
-        run: |
-          set -eux
-          find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print
-          test -n "$(find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print -quit)"
-          file packaging/arch/*.pkg.tar.zst
-
-      - name: Upload Arch / Manjaro package
-        uses: actions/upload-artifact@v4
-        with:
-          name: nabz-manjaro-arch-x86_64
-          path: tauri-web/packaging/arch/*.pkg.tar.zst
-          if-no-files-found: error
-          retention-days: 14
-, package, re.M).group(1)
+              version_line = next(line for line in package.splitlines() if line.strip().startswith("version"))
+              return version_line.split("=", 1)[1].strip().strip('"')
           cargo = cargo_version("src-tauri/Cargo.toml")
           core = cargo_version("../crates/nabz-core/Cargo.toml")
           pkgbuild = re.search(r"^pkgver=(.+)$", Path("packaging/arch/PKGBUILD").read_text(), re.M).group(1)
