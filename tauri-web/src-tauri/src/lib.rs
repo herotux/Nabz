@@ -65,9 +65,12 @@ fn validate_opening_balance(kind:&str,balance:i64)->Result<(),String>{
 }
 #[tauri::command]
 fn save_contact(payload:Value,db:State<'_,Db>)->Result<i64,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ save_contact_with_connection(payload,&c)
+}
+fn save_contact_with_connection(payload:Value,c:&Connection)->Result<i64,String>{
  let n=text(&payload,"name");
  if n.is_empty(){return Err("نام طرف‌حساب الزامی است".into())}
- let c=db.0.lock().map_err(|e|e.to_string())?;
  let raw_kind=text(&payload,"kind");
  let kind=normalize_contact_kind(&raw_kind).ok_or("نوع طرف‌حساب را از گزینه‌های موجود انتخاب کنید")?;
  let balance=num(&payload,"balance");
@@ -416,6 +419,20 @@ mod accounting_tests {
   let id=scalar(&c,"SELECT id FROM products WHERE code='PEN-PRO'");
   save_product_with_connection(json!({"id":id,"name":"Pen Pro Plus","code":"PEN-PRO","barcode":"123456","qty":0,"buy":13,"sell":27,"min":4}),&c).unwrap();
   assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN-PRO'"),8);
+ }
+
+ #[test]
+ fn contact_edit_preserves_financial_role_and_opening_balance_after_activity() {
+  let mut c=database();
+  let id=scalar(&c,"SELECT id FROM contacts WHERE name='Ali'");
+  save_invoice_with_connection(sale("Ali","credit",0,1,20,0),&mut c).unwrap();
+  let rename=json!({"id":id,"name":"Ali Updated","kind":"customer","phone":"09120000000","balance":0});
+  assert_eq!(save_contact_with_connection(rename,&c).unwrap(),id);
+  assert_eq!(c.query_row("SELECT name FROM contacts WHERE id=?1",[id],|r|r.get::<_,String>(0)).unwrap(),"Ali Updated");
+  let role_change=json!({"id":id,"name":"Ali Updated","kind":"supplier","phone":"09120000000","balance":0});
+  assert!(save_contact_with_connection(role_change,&c).is_err());
+  let balance_change=json!({"id":id,"name":"Ali Updated","kind":"customer","phone":"09120000000","balance":50});
+  assert!(save_contact_with_connection(balance_change,&c).is_err());
  }
  #[test]
  fn backup_validation_rejects_malformed_records_before_restore_can_start() {
