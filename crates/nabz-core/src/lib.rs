@@ -847,6 +847,7 @@ mod tests {
         let old_path = root.join("com.herotux.nabz.webprototype").join(DATABASE_FILE);
         let new_path = root.join(APP_DATA_DIRECTORY).join(DATABASE_FILE);
         let old = open_database_at(&old_path).unwrap();
+        old.execute_batch("DROP TABLE payment_allocations; DROP TABLE invoice_voids; PRAGMA user_version=8;").unwrap();
         old.execute(
             "INSERT INTO products(name,code,quantity,buy_price,average_cost) VALUES('دادهٔ قبلی','OLD-TAURI',4,25,25)",
             [],
@@ -856,6 +857,8 @@ mod tests {
         assert!(migrate_previous_tauri_database(&new_path,&old_path).unwrap());
         assert!(old_path.is_file());
         let migrated = open_database_at(&new_path).unwrap();
+        let migrated_version:i64=migrated.query_row("PRAGMA user_version",[],|row|row.get(0)).unwrap();
+        assert_eq!(migrated_version,SCHEMA_VERSION);
         let (name,quantity):(String,i64)=migrated.query_row(
             "SELECT name,quantity FROM products WHERE code='OLD-TAURI'",
             [],|row|Ok((row.get(0)?,row.get(1)?))
@@ -881,6 +884,8 @@ mod tests {
             "SELECT COUNT(*) FROM products WHERE code='OLD-TAURI'",[],|row|row.get(0)
         ).unwrap();
         assert_eq!(old_count,1);
+        let old_version:i64=old_connection.query_row("PRAGMA user_version",[],|row|row.get(0)).unwrap();
+        assert_eq!(old_version,8);
         drop(old_connection);
         drop(canonical);
         std::fs::remove_dir_all(root).unwrap();
