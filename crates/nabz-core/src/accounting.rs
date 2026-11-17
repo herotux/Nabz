@@ -317,6 +317,14 @@ pub fn create_invoice_with_payment_split(
             input.discount, total, paid, input.notes.trim(), credit_used],
     ).map_err(|e| e.to_string())?;
     let invoice_id = tx.last_insert_rowid();
+    if credit_used > 0 {
+        let contact_id = contact_id.ok_or("برای اعمال اعتبار، طرف‌حساب الزامی است")?;
+        tx.execute(
+            "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
+             VALUES(NULL,?1,?2,'advance_application',?3)",
+            params![invoice_id, contact_id, credit_used],
+        ).map_err(|e| e.to_string())?;
+    }
 
     for (line_index, (lookup, quantity, unit_price, line_total, is_service)) in normalized.into_iter().enumerate() {
         if is_service {
@@ -389,6 +397,12 @@ pub fn create_invoice_with_payment_split(
                     COALESCE(NULLIF(?5,''),date('now','localtime')),?6)",
             params![contact_id, contact_label, cash_paid, input.method.trim(), input.date.trim(),
                 format!("دریافت بابت فاکتور فروش #{number}")],
+        ).map_err(|e| e.to_string())?;
+        let payment_id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
+             VALUES(?1,?2,?3,'invoice',?4)",
+            params![payment_id, invoice_id, contact_id, cash_paid],
         ).map_err(|e| e.to_string())?;
     }
 
@@ -724,10 +738,12 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
         tx.execute(&format!("UPDATE contacts SET {column}={column}+?1 WHERE id=?2"),
             params![credit_applied, contact_id]).map_err(|e| e.to_string())?;
     }
-    if initial_receipt > 0 {
-        tx.execute("DELETE FROM payments WHERE kind='receipt' AND notes=?1",
-            [format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e| e.to_string())?;
-    }
+    tx.execute(
+        "INSERT INTO invoice_voids(invoice_id,kind,cash_refund,credit_refund,notes)
+         VALUES(?1,?2,?3,?4,?5)",
+        params![invoice_id, kind, if kind == "sale" { initial_receipt } else { 0 },
+            credit_applied, format!("ابطال فاکتور #{number}")],
+    ).map_err(|e| e.to_string())?;
     tx.execute("UPDATE invoices SET voided=1 WHERE id=?1 AND voided=0", [invoice_id])
         .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
@@ -955,6 +971,11 @@ pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Resu
         let next = current.checked_add(excess).ok_or("ماندهٔ پیش‌پرداخت بیش از ظرفیت عددی است")?;
         tx.execute(&format!("UPDATE contacts SET {column}=?1 WHERE id=?2"),
             params![next, contact_id]).map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
+             VALUES(?1,NULL,?2,'advance',?3)",
+            params![payment_id, contact_id, excess],
+        ).map_err(|e| e.to_string())?;
     }
 
     let mut remaining = applied_amount;
@@ -962,6 +983,11 @@ pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Resu
     if opening_applied > 0 {
         tx.execute("UPDATE contacts SET opening_balance=opening_balance-?1 WHERE id=?2",
             params![opening_applied, contact_id]).map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
+             VALUES(?1,NULL,?2,'opening_balance',?3)",
+            params![payment_id, contact_id, opening_applied],
+        ).map_err(|e| e.to_string())?;
         remaining -= opening_applied;
     }
     let invoices = {
@@ -981,6 +1007,11 @@ pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Resu
         if applied > 0 {
             tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2",
                 params![applied, invoice_id]).map_err(|e| e.to_string())?;
+            tx.execute(
+                "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
+                 VALUES(?1,?2,?3,'invoice',?4)",
+                params![payment_id, invoice_id, contact_id, applied],
+            ).map_err(|e| e.to_string())?;
             remaining -= applied;
         }
     }
