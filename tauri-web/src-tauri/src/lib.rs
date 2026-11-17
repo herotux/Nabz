@@ -1081,7 +1081,7 @@ mod accounting_tests {
   c.execute("INSERT INTO sales_refunds(invoice_id,return_id,refund_date,amount,method,notes) VALUES(?1,?2,'2026-11-17',5,'cash','بازپرداخت مشتری')",params![sale,sale_return]).unwrap();
 
   let purchase=save_invoice_with_connection(json!({"kind":"purchase","customer":"Vendor Ledger","items":[{"item":"Pen","qty":1,"price":80}],"discount":0,"date":"2026-11-17"}),&mut c).unwrap();
-  save_payment_with_connection(json!({"kind":"payment","customer":"Vendor Ledger","amount":80,"method":"cash","date":"2026-11-17"}),&mut c).unwrap();
+  save_payment_with_connection(json!({"kind":"payment","customer":"Vendor Ledger","amount":95,"method":"cash","date":"2026-11-17"}),&mut c).unwrap();
   c.execute("UPDATE invoices SET total=60,paid=70 WHERE id=?1",[purchase]).unwrap();
   c.execute("INSERT INTO purchase_returns(invoice_id,return_date,amount,notes,credit_refund) VALUES(?1,'2026-11-17',20,'مرجوعی تأمین‌کننده',0)",[purchase]).unwrap();
   let purchase_return=c.last_insert_rowid();
@@ -1102,7 +1102,7 @@ mod accounting_tests {
   let supplier_invoice=supplier["entries"].as_array().unwrap().iter().find(|x|x["entry_type"]=="invoice").unwrap();
   let supplier_payment=supplier["entries"].as_array().unwrap().iter().find(|x|x["entry_type"]=="payment").unwrap();
   assert_eq!((supplier_invoice["debit"].as_i64(),supplier_invoice["credit"].as_i64()),(Some(0),Some(80)));
-  assert_eq!((supplier_payment["debit"].as_i64(),supplier_payment["credit"].as_i64()),(Some(80),Some(0)));
+  assert_eq!((supplier_payment["debit"].as_i64(),supplier_payment["credit"].as_i64()),(Some(95),Some(0)));
   assert_eq!(supplier["purchase_returns"][0]["debit"].as_i64(),Some(20));
   assert_eq!(supplier["refunds"][0]["credit"].as_i64(),Some(10));
   assert_eq!(supplier["ledger_balances"]["opening_credit"].as_i64(),Some(15));
