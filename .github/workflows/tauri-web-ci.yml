@@ -102,6 +102,7 @@ jobs:
           mkdir -p packaging/arch
           install -Dm755 src-tauri/target/release/nabz-tauri packaging/arch/nabz-tauri
           install -Dm644 src-tauri/icons/icon.png packaging/arch/nabz.png
+          install -Dm644 ../LICENSE packaging/arch/LICENSE
           cat > packaging/arch/nabz.desktop <<'DESKTOP'
           [Desktop Entry]
           Version=1.0
