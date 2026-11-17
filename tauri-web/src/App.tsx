@@ -196,8 +196,9 @@ function jalaliParts(iso:string){
  return {year:Number(p.find(x=>x.type==='year')?.value),month:Number(p.find(x=>x.type==='month')?.value),day:Number(p.find(x=>x.type==='day')?.value)};
 }
 function formatJalaliDate(iso:string){
- if(!/^\d{4}-\d{2}-\d{2}$/.test(iso))return iso||'—';
- const p=gregorianToJalali(iso).split('/');
+ const day=iso?.slice(0,10)||'';
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return iso||'—';
+ const p=gregorianToJalali(day).split('/');
  return p.map((v,i)=>new Intl.NumberFormat('fa-IR',{useGrouping:false,minimumIntegerDigits:i===0?4:2}).format(Number(v))).join('/');
 }
 function gregorianToJalali(iso:string){
