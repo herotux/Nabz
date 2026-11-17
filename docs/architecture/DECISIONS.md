@@ -23,7 +23,7 @@
 
 ## قواعد داده و شناسهٔ برنامه
 
-- شناسهٔ فعلی Tauri برابر `com.herotux.nabz.webprototype` است.
+- شناسهٔ فعلی Tauri برابر `com.herotux.nabz` است.
 - مسیر فعلی دیتابیس Tauri در لینوکس معمولاً `~/.local/share/com.herotux.nabz.webprototype/nabz.sqlite3` است.
 - دیتابیس نسخهٔ قدیمی egui در `~/.local/share/nabz/nabz.sqlite3` مسیر جداگانه‌ای دارد.
 - شناسه یا مسیر دیتابیس Tauri بدون migration مستقل، پشتیبان قابل‌بازیابی و آزمون ارتقا تغییر نمی‌کند؛ migration داخلی schema نسخهٔ ۱۰ اکنون انجام شده است.
