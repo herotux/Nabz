@@ -52,6 +52,7 @@ fn save_contact(payload:Value,db:State<'_,Db>)->Result<i64,String>{
 fn save_contact_with_connection(payload:Value,c:&Connection)->Result<i64,String>{
  let raw_kind=text(&payload,"kind");
  let kind=normalize_contact_kind(&raw_kind).ok_or("نوع طرف‌حساب را از گزینه‌های موجود انتخاب کنید")?;
+ validate_opening_balance(kind,num(&payload,"balance"))?;
  let input=ContactInput{
   name:text(&payload,"name"),
   kind:kind.to_string(),
