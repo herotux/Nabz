@@ -241,8 +241,8 @@ fn reports_period_with_connection(c:&Connection,start:&str,end:&str)->Result<Val
   "purchases_total":sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='purchase' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2")?,
   "receipts_total":sum("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date BETWEEN ?1 AND ?2")?,
   "payments_total":sum("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='payment' AND payment_date BETWEEN ?1 AND ?2")?,
-  "sales_count":sum("SELECT COUNT(*) FROM invoices WHERE kind='sale' AND invoice_date BETWEEN ?1 AND ?2")?,
-  "purchases_count":sum("SELECT COUNT(*) FROM invoices WHERE kind='purchase' AND invoice_date BETWEEN ?1 AND ?2")?
+  "sales_count":sum("SELECT COUNT(*) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2")?,
+  "purchases_count":sum("SELECT COUNT(*) FROM invoices WHERE kind='purchase' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2")?
  }))
 }
 
@@ -573,14 +573,77 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
  tx.commit().map_err(|e|e.to_string())?;
  Ok(())
 }
+fn parse_return_lines(lines:Vec<Value>)->Result<Vec<ReturnLineInput>,String>{
+ let parsed=lines.into_iter().map(|x|{
+  let lookup=x.get("item").or_else(||x.get("product_lookup")).and_then(Value::as_str).unwrap_or("").trim().to_owned();
+  let quantity=x.get("qty").or_else(||x.get("quantity")).and_then(|v|v.as_i64().or_else(||v.as_str().and_then(|n|n.parse().ok()))).unwrap_or(0);
+  ReturnLineInput{product_lookup:lookup,quantity}
+ }).collect::<Vec<_>>();
+ if parsed.is_empty()||parsed.iter().any(|x|x.product_lookup.is_empty()||x.quantity<=0){return Err("ردیف‌های برگشت باید کالا و تعداد مثبت داشته باشند".into())}
+ Ok(parsed)
+}
+#[tauri::command]
+fn return_sale_invoice(invoice_id:i64,lines:Vec<Value>,method:String,db:State<'_,Db>)->Result<Value,String>{
+ let parsed=parse_return_lines(lines)?;
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ let (credit,refund)=return_sale_items(&mut c,invoice_id,&parsed,&method)?;
+ Ok(json!({"credit":credit,"cash_refund":refund}))
+}
+#[tauri::command]
+fn return_purchase_invoice(invoice_id:i64,lines:Vec<Value>,method:String,db:State<'_,Db>)->Result<Value,String>{
+ let parsed=parse_return_lines(lines)?;
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ let (credit,refund)=return_purchase_items(&mut c,invoice_id,&parsed,&method)?;
+ Ok(json!({"credit":credit,"cash_refund":refund}))
+}
+#[tauri::command]
+fn void_invoice(invoice_id:i64,db:State<'_,Db>)->Result<(),String>{
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ core_void_invoice(&mut c,invoice_id)
+}
+#[tauri::command]
+fn adjust_inventory_command(product_id:i64,new_quantity:i64,reason:String,db:State<'_,Db>)->Result<Value,String>{
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ let result=adjust_inventory(&mut c,product_id,new_quantity,&reason)?;
+ Ok(json!({"product_id":result.product_id,"previous_quantity":result.previous_quantity,"new_quantity":result.new_quantity,"delta":result.delta,"reason":result.reason,"created_at":result.created_at}))
+}
+#[tauri::command]
+fn inventory_valuation_command(db:State<'_,Db>)->Result<Vec<Value>,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let rows=inventory_valuation(&c)?;
+ Ok(rows.into_iter().map(|x|json!({"product_id":x.product_id,"product_name":x.product_name,"code":x.code,"quantity":x.quantity,"buy_price":x.buy_price,"average_cost":x.average_cost,"stock_value":x.stock_value,"min_quantity":x.min_quantity})).collect())
+}
+#[tauri::command]
+fn create_expense_command(payload:Value,db:State<'_,Db>)->Result<i64,String>{
+ let input=ExpenseInput{category:text(&payload,"category"),description:text(&payload,"description"),amount:num(&payload,"amount"),date:text(&payload,"date")};
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ create_expense(&c,&input)
+}
+#[tauri::command]
+fn list_expenses_command(from:String,to:String,db:State<'_,Db>)->Result<Vec<Value>,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let rows=list_expenses(&c,&from,&to)?;
+ Ok(rows.into_iter().map(|x|json!({"id":x.id,"category":x.category,"description":x.description,"amount":x.amount,"date":x.date})).collect())
+}
+#[tauri::command]
+fn profit_loss_report_command(from:String,to:String,db:State<'_,Db>)->Result<Value,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let x=profit_loss_report(&c,&from,&to)?;
+ Ok(json!({"sales":x.sales,"discounts":x.discounts,"net_sales":x.net_sales,"cost_of_goods_sold":x.cost_of_goods_sold,"gross_profit":x.gross_profit,"expenses":x.expenses,"net_profit":x.net_profit,"uncosted_sales":x.uncosted_sales,"expense_rows":x.expense_rows.into_iter().map(|r|json!({"id":r.id,"category":r.category,"description":r.description,"amount":r.amount,"date":r.date})).collect::<Vec<_>>()}))
+}
 #[tauri::command]
 fn get_contact_ledger(id:i64,db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
  let contact:Value=c.query_row("SELECT id,name,kind,phone,opening_balance,customer_credit_balance,supplier_credit_balance FROM contacts WHERE id=?1",[id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"kind":r.get::<_,String>(2)?,"phone":r.get::<_,String>(3)?,"opening_balance":r.get::<_,i64>(4)?,"customer_credit_balance":r.get::<_,i64>(5)?,"supplier_credit_balance":r.get::<_,i64>(6)?}))).optional().map_err(|e|e.to_string())?.ok_or("طرف‌حساب پیدا نشد")?;
  let mut entries:Vec<Value>=Vec::new();
  {
-  let mut st=c.prepare("SELECT id,number,kind,invoice_date,total,paid,notes FROM invoices WHERE contact_id=?1 ORDER BY invoice_date,id").map_err(|e|e.to_string())?;
-  let rows=st.query_map([id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"entry_type":"invoice","kind":r.get::<_,String>(2)?,"date":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"paid":r.get::<_,i64>(5)?,"notes":r.get::<_,String>(6)?}))).map_err(|e|e.to_string())?;
+  let mut st=c.prepare("SELECT id,number,kind,invoice_date,total,paid,notes,voided,credit_applied FROM invoices WHERE contact_id=?1 ORDER BY invoice_date,id").map_err(|e|e.to_string())?;
+  let rows=st.query_map([id],|r|{
+   let voided=r.get::<_,i64>(7)?;
+   let total=r.get::<_,i64>(4)?;
+   let paid=r.get::<_,i64>(5)?;
+   Ok(json!({"id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"entry_type":"invoice","kind":r.get::<_,String>(2)?,"date":r.get::<_,String>(3)?,"amount":total,"paid":paid,"balance_delta":if voided==1{0}else{total-paid},"voided":voided==1,"credit_applied":r.get::<_,i64>(8)?,"notes":r.get::<_,String>(6)?}))
+  }).map_err(|e|e.to_string())?;
   for row in rows{entries.push(row.map_err(|e|e.to_string())?);}
  }
  {
@@ -594,7 +657,7 @@ fn get_contact_ledger(id:i64,db:State<'_,Db>)->Result<Value,String>{
 #[tauri::command]
 fn get_invoice_print(id:i64,db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
- let invoice:Value=c.query_row("SELECT id,number,kind,contact_name,invoice_date,subtotal,discount,total,paid,notes FROM invoices WHERE id=?1",[id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,"contact_name":r.get::<_,String>(3)?,"invoice_date":r.get::<_,String>(4)?,"subtotal":r.get::<_,i64>(5)?,"discount":r.get::<_,i64>(6)?,"total":r.get::<_,i64>(7)?,"paid":r.get::<_,i64>(8)?,"notes":r.get::<_,String>(9)?}))).optional().map_err(|e|e.to_string())?.ok_or("فاکتور پیدا نشد")?;
+ let invoice:Value=c.query_row("SELECT id,number,kind,contact_name,invoice_date,subtotal,discount,total,paid,notes,voided,credit_applied FROM invoices WHERE id=?1",[id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,"contact_name":r.get::<_,String>(3)?,"invoice_date":r.get::<_,String>(4)?,"subtotal":r.get::<_,i64>(5)?,"discount":r.get::<_,i64>(6)?,"total":r.get::<_,i64>(7)?,"paid":r.get::<_,i64>(8)?,"voided":r.get::<_,i64>(10)?==1,"credit_applied":r.get::<_,i64>(11)?,"notes":r.get::<_,String>(9)?}))).optional().map_err(|e|e.to_string())?.ok_or("فاکتور پیدا نشد")?;
  let mut items=Vec::new();
  {let mut st=c.prepare("SELECT item_name,quantity,unit_price,line_total FROM invoice_items WHERE invoice_id=?1 ORDER BY id").map_err(|e|e.to_string())?;
   let rows=st.query_map([id],|r|Ok(json!({"item_name":r.get::<_,String>(0)?,"quantity":r.get::<_,i64>(1)?,"unit_price":r.get::<_,i64>(2)?,"line_total":r.get::<_,i64>(3)?}))).map_err(|e|e.to_string())?;
