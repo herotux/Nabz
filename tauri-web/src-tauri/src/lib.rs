@@ -193,6 +193,28 @@ fn reports_summary_with_connection(c:&Connection)->Result<Value,String>{
  }))
 }
 #[tauri::command]
+fn reports_period(start_date:String,end_date:String,db:State<'_,Db>)->Result<Value,String>{
+ if start_date>end_date{return Err("تاریخ شروع باید قبل از تاریخ پایان باشد.".into())}
+ let valid=|s:&str|{let b=s.as_bytes();s.len()==10&&b[4]==b'-'&&b[7]==b'-'&&b.iter().enumerate().all(|(i,x)|i==4||i==7||x.is_ascii_digit())};
+ if !valid(&start_date)||!valid(&end_date){return Err("تاریخ باید با قالب میلادی ISO ارسال شود.".into())}
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ reports_period_with_connection(&c,&start_date,&end_date)
+}
+fn reports_period_with_connection(c:&Connection,start:&str,end:&str)->Result<Value,String>{
+ let sum=|sql:&str|->Result<i64,String>{c.query_row(sql,params![start,end],|r|r.get(0)).map_err(|e|e.to_string())};
+ Ok(json!({
+  "start_date":start,
+  "end_date":end,
+  "sales_total":sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date BETWEEN ?1 AND ?2")?,
+  "purchases_total":sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='purchase' AND invoice_date BETWEEN ?1 AND ?2")?,
+  "receipts_total":sum("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date BETWEEN ?1 AND ?2")?,
+  "payments_total":sum("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='payment' AND payment_date BETWEEN ?1 AND ?2")?,
+  "sales_count":sum("SELECT COUNT(*) FROM invoices WHERE kind='sale' AND invoice_date BETWEEN ?1 AND ?2")?,
+  "purchases_count":sum("SELECT COUNT(*) FROM invoices WHERE kind='purchase' AND invoice_date BETWEEN ?1 AND ?2")?
+ }))
+}
+
+#[tauri::command]
 fn export_data(db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
  let mut contacts=Vec::new();{let mut s=c.prepare("SELECT id,name,kind,phone,opening_balance,notes,created_at,customer_credit_balance,supplier_credit_balance FROM contacts").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"kind":r.get::<_,String>(2)?,"phone":r.get::<_,String>(3)?,"opening_balance":r.get::<_,i64>(4)?,"notes":r.get::<_,String>(5)?,"created_at":r.get::<_,String>(6)? ,"customer_credit_balance":r.get::<_,i64>(7)? ,"supplier_credit_balance":r.get::<_,i64>(8)?}))).map_err(|e|e.to_string())?;for x in rows{contacts.push(x.map_err(|e|e.to_string())?);}}
@@ -292,7 +314,7 @@ fn get_invoice_print(id:i64,db:State<'_,Db>)->Result<Value,String>{
 }
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let dir=app.path().app_local_data_dir().map_err(std::io::Error::other)?;fs::create_dir_all(&dir)?;let c=Connection::open(dir.join("nabz.sqlite3")).map_err(std::io::Error::other)?;init(&c).map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,get_invoice_print,save_setting,get_settings,sales_trend]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let dir=app.path().app_local_data_dir().map_err(std::io::Error::other)?;fs::create_dir_all(&dir)?;let c=Connection::open(dir.join("nabz.sqlite3")).map_err(std::io::Error::other)?;init(&c).map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,get_invoice_print,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
@@ -312,6 +334,16 @@ mod accounting_tests {
  }
  fn scalar(c:&Connection,sql:&str)->i64 { c.query_row(sql,[],|r|r.get(0)).unwrap() }
 
+
+ #[test]
+ fn period_reports_only_include_records_inside_the_selected_date_range() {
+  let mut c=database();
+  save_invoice_with_connection(json!({"kind":"sale","customer":"Ali","payment_status":"credit","items":[{"item":"Pen","qty":2,"price":20}],"discount":0,"date":"2026-10-28"}),&mut c).unwrap();
+  save_invoice_with_connection(json!({"kind":"sale","customer":"Ali","payment_status":"credit","items":[{"item":"Pen","qty":1,"price":20}],"discount":0,"date":"2026-10-30"}),&mut c).unwrap();
+  let report=reports_period_with_connection(&c,"2026-10-29","2026-10-31").unwrap();
+  assert_eq!(report["sales_total"].as_i64(),Some(20));
+  assert_eq!(report["sales_count"].as_i64(),Some(1));
+ }
  #[test]
  fn backup_validation_rejects_malformed_records_before_restore_can_start() {
   let missing_fields=json!({"format":"nabz-backup-v1","contacts":[],"products":[{"id":1,"name":"Bad"}],"invoices":[],"invoice_items":[],"payments":[],"settings":[]});
