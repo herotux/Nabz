@@ -719,7 +719,39 @@ fn get_contact_ledger(id:i64,db:State<'_,Db>)->Result<Value,String>{
   for row in rows{entries.push(row.map_err(|e|e.to_string())?);}
  }
  entries.sort_by(|a,b|a["date"].as_str().unwrap_or("").cmp(b["date"].as_str().unwrap_or("")));
- Ok(json!({"contact":contact,"entries":entries}))
+ let payment_allocations={
+  let mut st=c.prepare("SELECT id,payment_id,invoice_id,allocation_type,amount,created_at FROM payment_allocations WHERE contact_id=?1 ORDER BY created_at,id").map_err(|e|e.to_string())?;
+  let rows=st.query_map([id],|r|Ok(json!({
+   "id":r.get::<_,i64>(0)?,"payment_id":r.get::<_,Option<i64>>(1)?,"invoice_id":r.get::<_,Option<i64>>(2)?,
+   "allocation_type":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"date":r.get::<_,String>(5)?
+  }))).map_err(|e|e.to_string())?;
+  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+ };
+ let sales_returns={
+  let mut st=c.prepare("SELECT sr.id,sr.invoice_id,sr.return_date,sr.amount,sr.credit_refund,sr.notes FROM sales_returns sr JOIN invoices i ON i.id=sr.invoice_id WHERE i.contact_id=?1 ORDER BY sr.return_date,sr.id").map_err(|e|e.to_string())?;
+  let rows=st.query_map([id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"date":r.get::<_,String>(2)?,"amount":r.get::<_,i64>(3)?,"credit_refund":r.get::<_,i64>(4)?,"notes":r.get::<_,String>(5)?}))).map_err(|e|e.to_string())?;
+  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+ };
+ let purchase_returns={
+  let mut st=c.prepare("SELECT pr.id,pr.invoice_id,pr.return_date,pr.amount,pr.credit_refund,pr.notes FROM purchase_returns pr JOIN invoices i ON i.id=pr.invoice_id WHERE i.contact_id=?1 ORDER BY pr.return_date,pr.id").map_err(|e|e.to_string())?;
+  let rows=st.query_map([id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"date":r.get::<_,String>(2)?,"amount":r.get::<_,i64>(3)?,"credit_refund":r.get::<_,i64>(4)?,"notes":r.get::<_,String>(5)?}))).map_err(|e|e.to_string())?;
+  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+ };
+ let refunds={
+  let mut st=c.prepare("SELECT id,invoice_id,refund_date,amount,method,notes,'sale' AS kind FROM sales_refunds WHERE invoice_id IN (SELECT id FROM invoices WHERE contact_id=?1)
+   UNION ALL
+   SELECT id,invoice_id,refund_date,amount,method,notes,'purchase' AS kind FROM purchase_refunds WHERE invoice_id IN (SELECT id FROM invoices WHERE contact_id=?1)
+   ORDER BY refund_date,id").map_err(|e|e.to_string())?;
+  let rows=st.query_map([id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"date":r.get::<_,String>(2)?,"amount":r.get::<_,i64>(3)?,"method":r.get::<_,String>(4)?,"notes":r.get::<_,String>(5)?,"kind":r.get::<_,String>(6)?}))).map_err(|e|e.to_string())?;
+  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+ };
+ let invoice_voids={
+  let mut st=c.prepare("SELECT v.id,v.invoice_id,v.kind,v.void_date,v.cash_refund,v.credit_refund,v.notes FROM invoice_voids v JOIN invoices i ON i.id=v.invoice_id WHERE i.contact_id=?1 ORDER BY v.void_date,v.id").map_err(|e|e.to_string())?;
+  let rows=st.query_map([id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,"date":r.get::<_,String>(3)?,"cash_refund":r.get::<_,i64>(4)?,"credit_refund":r.get::<_,i64>(5)?,"notes":r.get::<_,String>(6)?}))).map_err(|e|e.to_string())?;
+  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+ };
+ Ok(json!({"contact":contact,"entries":entries,"payment_allocations":payment_allocations,
+  "sales_returns":sales_returns,"purchase_returns":purchase_returns,"refunds":refunds,"invoice_voids":invoice_voids}))
 }
 #[tauri::command]
 fn get_invoice_print(id:i64,db:State<'_,Db>)->Result<Value,String>{
