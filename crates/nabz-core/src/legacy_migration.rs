@@ -62,6 +62,7 @@ struct LegacyLine {
     unit_cost: Option<i64>,
 }
 
+#[derive(Clone)]
 struct LegacyMovement {
     id: i64,
     product_id: i64,
