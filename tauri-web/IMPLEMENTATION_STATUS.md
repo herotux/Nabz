@@ -21,8 +21,8 @@
 
 ## دیتابیس و مهاجرت
 
-- شناسهٔ برنامه: `com.herotux.nabz.webprototype`؛ تا زمان برنامه‌ریزی مهاجرت داده تغییر نمی‌کند.
-- مسیر Tauri در Linux: `~/.local/share/com.herotux.nabz.webprototype/nabz.sqlite3`.
+- شناسهٔ برنامه: `com.herotux.nabz`؛ تا زمان برنامه‌ریزی مهاجرت داده تغییر نمی‌کند.
+- مسیر Tauri در Linux: `~/.local/share/com.herotux.nabz/nabz.sqlite3`.
 - مسیر قدیمی egui: `~/.local/share/nabz/nabz.sqlite3`؛ جدا و دست‌نخورده باقی مانده است.
 - قبل از هر migration دیتابیس موجود SQLite backup می‌شود.
 - foreign keys، WAL، شاخص‌ها و transactionهای عملیات مالی فعال‌اند.
