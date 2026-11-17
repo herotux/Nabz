@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz.webprototype";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// Normalize Persian and English contact roles consistently across application instances.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -621,6 +621,16 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         tx.commit().map_err(|e| e.to_string())?;
     }
 
+    if version < 8 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "invoice_items", "buy_price_before")? {
+            tx.execute_batch("ALTER TABLE invoice_items ADD COLUMN buy_price_before INTEGER CHECK(buy_price_before IS NULL OR buy_price_before>=0);")
+                .map_err(|e| format!("ثبت قیمت خرید پیش از فاکتور ناموفق بود: {e}"))?;
+        }
+        tx.pragma_update(None, "user_version", 8).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -630,7 +640,7 @@ mod tests {
 
 
     #[test]
-    fn schema_v7_adds_credit_tracking_snapshots_and_indexes() {
+    fn schema_v8_adds_credit_tracking_and_exact_reversal_snapshots() {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
@@ -644,7 +654,7 @@ mod tests {
              WHERE name IN ('customer_credit_balance','supplier_credit_balance')",
             [], |r| r.get(0)
         ).unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
         assert_eq!(columns, 4);
         assert_eq!(credit, 2);
     }
@@ -985,7 +995,7 @@ mod tests {
              FROM products p JOIN invoice_items ii ON ii.product_id=p.id WHERE p.id=1",
             [], |r| Ok((r.get(0)?,r.get(1)?))
         ).unwrap();
-        assert_eq!((version, average_cost, historical_cost), (7, 42, 17));
+        assert_eq!((version, average_cost, historical_cost), (8, 42, 17));
     }
 
 
@@ -1043,7 +1053,7 @@ mod tests {
              JOIN invoice_items ii ON ii.id=1 WHERE c.id=1",
             [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
         ).unwrap();
-        assert_eq!((version,credit,quantity,average,voided,unit_cost),(7,75,7,42,0,None));
+        assert_eq!((version,credit,quantity,average,voided,unit_cost),(8,75,7,42,0,None));
     }
 
 
