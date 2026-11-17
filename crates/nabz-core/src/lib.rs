@@ -97,7 +97,7 @@ pub fn data_paths() -> Result<DataPaths, String> {
 }
 
 /// Create shared data, backup, attachment, and log directories without
-/// coupling their lifetime to either frontend's installation directory.
+/// coupling their lifetime to either application's installation directory.
 pub fn ensure_data_directories() -> Result<DataPaths, String> {
     let paths = data_paths()?;
     paths.ensure_directories()?;
@@ -674,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn data_layout_keeps_database_and_frontend_installation_separate() {
+    fn data_layout_keeps_database_and_app_installation_separate() {
         let root = std::env::temp_dir().join(format!("nabz-data-layout-{}", std::process::id()));
         let paths = DataPaths::from_database_path(root.join(DATABASE_FILE)).unwrap();
         paths.ensure_directories().unwrap();
@@ -793,16 +793,16 @@ mod tests {
         ));
         let db_path = root.join(DATABASE_FILE);
 
-        let first_frontend = open_database_at(&db_path).unwrap();
-        first_frontend.execute(
+        let first_instance = open_database_at(&db_path).unwrap();
+        first_instance.execute(
             "INSERT INTO contacts(name,kind) VALUES('Shared customer','customer')",
             [],
         ).unwrap();
 
         // A second application process opens the same canonical file and sees
         // the exact same record; it does not initialize a parallel ledger.
-        let second_frontend = open_database_at(&db_path).unwrap();
-        let count: i64 = second_frontend.query_row(
+        let second_instance = open_database_at(&db_path).unwrap();
+        let count: i64 = second_instance.query_row(
             "SELECT COUNT(*) FROM contacts WHERE name='Shared customer'",
             [], |row| row.get(0)
         ).unwrap();
@@ -818,8 +818,8 @@ mod tests {
         ).unwrap();
         assert_eq!(product_count, 1);
 
-        drop(second_frontend);
-        drop(first_frontend);
+        drop(second_instance);
+        drop(first_instance);
         std::fs::remove_dir_all(root).unwrap();
     }
 
