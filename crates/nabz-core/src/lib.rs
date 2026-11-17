@@ -989,4 +989,62 @@ mod tests {
     }
 
 
+    #[test]
+    fn legacy_tauri_database_migrates_without_losing_credit_or_stock_data() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(
+            "CREATE TABLE contacts(
+               id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',
+               phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,
+               notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')),
+               customer_credit_balance INTEGER NOT NULL DEFAULT 0,
+               supplier_credit_balance INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE products(
+               id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,
+               barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,
+               sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,
+               min_quantity INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE invoices(
+               id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,
+               contact_id INTEGER,contact_name TEXT NOT NULL,
+               invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,
+               total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE invoice_items(
+               id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+               product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,
+               unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL
+             );
+             CREATE TABLE payments(
+               id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),
+               contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),
+               method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+             INSERT INTO contacts(id,name,kind,customer_credit_balance,supplier_credit_balance)
+               VALUES(1,'Legacy customer','customer',75,0);
+             INSERT INTO products(id,name,code,buy_price,sell_price,quantity,min_quantity)
+               VALUES(1,'Legacy pen','LEGACY-PEN',42,90,7,1);
+             INSERT INTO invoices(id,number,kind,contact_id,contact_name,subtotal,total,paid)
+               VALUES(1,7001,'sale',1,'Legacy customer',100,100,100);
+             INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total)
+               VALUES(1,1,1,'Legacy pen',1,100,100);
+             PRAGMA user_version=0;"
+        ).unwrap();
+        initialize(&connection).unwrap();
+        let (version,credit,quantity,average,voided,unit_cost):(i64,i64,i64,i64,i64,Option<i64>) = connection.query_row(
+            "SELECT (SELECT user_version FROM pragma_user_version),
+                    c.customer_credit_balance,p.quantity,p.average_cost,i.voided,ii.unit_cost
+             FROM contacts c JOIN products p ON p.id=1 JOIN invoices i ON i.id=1
+             JOIN invoice_items ii ON ii.id=1 WHERE c.id=1",
+            [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
+        ).unwrap();
+        assert_eq!((version,credit,quantity,average,voided,unit_cost),(7,75,7,42,0,None));
+    }
+
+
 }
