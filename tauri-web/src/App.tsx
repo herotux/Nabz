@@ -194,7 +194,7 @@ function jalaliToGregorian(raw:string):string|null{
  const y=Number(m[1]),mo=Number(m[2]),day=Number(m[3]);
  if(mo<1||mo>12||day<1||day>31)return null;
  const start=Date.UTC(y+621,0,1);
- for(let i=0;i<370;i++){
+ for(let i=0;i<460;i++){
   const d=new Date(start+i*86400000);
   const p=jalaliParts(d.toISOString().slice(0,10));
   if(p.year===y&&p.month===mo&&p.day===day)return d.toISOString().slice(0,10);
