@@ -11,7 +11,7 @@ use rusqlite::{backup::Backup, Connection, OpenFlags};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::path::{Path, PathBuf};
 
-pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz.webprototype";
+pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
 pub const SCHEMA_VERSION: i64 = 10;
 
@@ -30,27 +30,44 @@ pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
 
 /// Resolve the canonical database path. NABZ_DB_PATH is retained as an
 /// explicit override for portable installs, tests, and administrators.
+#[cfg(target_os = "windows")]
+fn data_home_path() -> Option<PathBuf> {
+    std::env::var_os("APPDATA")
+        .or_else(|| std::env::var_os("LOCALAPPDATA"))
+        .map(PathBuf::from)
+}
+
+#[cfg(target_os = "macos")]
+fn data_home_path() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join("Library/Application Support"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn data_home_path() -> Option<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+}
+
+/// Previous Tauri prototype path. It is read only during a one-time, non-destructive
+/// migration to the stable application identifier.
+fn previous_tauri_database_path() -> Option<PathBuf> {
+    data_home_path().map(|root| root.join("com.herotux.nabz.webprototype").join(DATABASE_FILE))
+}
+
+/// Original egui application path.
+fn legacy_egui_database_path() -> Option<PathBuf> {
+    data_home_path().map(|root| root.join("nabz").join(DATABASE_FILE))
+}
+
+/// Resolve the canonical per-user database path. NABZ_DB_PATH is retained as an
+/// explicit override for portable installs, tests, and administrators.
 pub fn database_path() -> PathBuf {
     if let Some(path) = std::env::var_os("NABZ_DB_PATH") {
         return PathBuf::from(path);
     }
-
-    // Match Tauri's Windows AppDataDir (RoamingAppData) to avoid split databases.
-    #[cfg(target_os = "windows")]
-    let data_home = std::env::var_os("APPDATA")
-        .or_else(|| std::env::var_os("LOCALAPPDATA"))
-        .map(PathBuf::from);
-
-    #[cfg(target_os = "macos")]
-    let data_home = std::env::var_os("HOME")
-        .map(|home| PathBuf::from(home).join("Library/Application Support"));
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let data_home = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")));
-
-    data_home
+    data_home_path()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(APP_DATA_DIRECTORY)
         .join(DATABASE_FILE)
@@ -258,18 +275,26 @@ pub fn restore_latest_backup(connection: &mut Connection) -> Result<PathBuf, Str
 /// Open the canonical per-user database shared by all Nabz application instances.
 pub fn open_database() -> Result<Connection, String> {
     let path = database_path();
+    let override_path = std::env::var_os("NABZ_DB_PATH").is_some();
+    let previous_tauri = if override_path { None } else { previous_tauri_database_path() };
+    let previous_tauri_exists = previous_tauri.as_ref().is_some_and(|old| old.is_file());
+
+    // Move the old prototype database to the stable app identifier using
+    // SQLite's backup API. The old file remains intact and wins over egui if
+    // both historical databases exist; they are never merged automatically.
+    if !override_path && !path.exists() {
+        if let Some(old) = previous_tauri.as_ref().filter(|old| old.is_file()) {
+            migrate_previous_tauri_database(&path, old)?;
+        }
+    }
+
     let mut connection = open_database_at(&path)?;
 
-    // The old egui app used ~/.local/share/nabz/nabz.sqlite3. Import only
-    // when the Tauri ledger is empty; an existing ledger is never merged.
-    // An explicit NABZ_DB_PATH is an administrator/test override and opts out.
+    // Import egui shop data only when no previous Tauri database exists.
+    // The importer itself refuses to merge into a destination with records.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("NABZ_DB_PATH").is_none() {
-        let legacy_data_home = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")));
-        if let Some(data_home) = legacy_data_home {
-            let legacy = data_home.join("nabz").join("nabz.sqlite3");
+    if !override_path && !previous_tauri_exists {
+        if let Some(legacy) = legacy_egui_database_path() {
             if legacy != path && legacy.is_file() {
                 legacy_migration::import_legacy_egui_database(
                     &mut connection,
@@ -281,6 +306,44 @@ pub fn open_database() -> Result<Connection, String> {
     }
 
     Ok(connection)
+}
+
+/// Copy a previous Tauri database into the new stable application-data path.
+/// The source is opened read-only and is never removed or modified.
+fn migrate_previous_tauri_database(
+    target_path: &Path,
+    previous_path: &Path,
+) -> Result<bool, String> {
+    if target_path.exists() || !previous_path.is_file() {
+        return Ok(false);
+    }
+    let paths = DataPaths::from_database_path(target_path.to_path_buf())?;
+    paths.ensure_directories()?;
+    let source = Connection::open_with_flags(
+        previous_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ).map_err(|e| format!("بازکردن دیتابیس Tauri قبلی ناموفق بود: {e}"))?;
+    let integrity: String = source.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|e| format!("بررسی سلامت دیتابیس Tauri قبلی ناموفق بود: {e}"))?;
+    if integrity != "ok" {
+        return Err(format!("دیتابیس Tauri قبلی سالم نیست؛ فایل اصلی حفظ شد: {integrity}"));
+    }
+    if let Err(error) = backup_database_to(&source, target_path) {
+        let _ = std::fs::remove_file(target_path);
+        return Err(format!("انتقال امن دیتابیس Tauri قبلی ناموفق بود؛ فایل اصلی حفظ شد: {error}"));
+    }
+    let copied = Connection::open_with_flags(
+        target_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ).map_err(|e| format!("بازبینی نسخهٔ منتقل‌شده ناموفق بود: {e}"))?;
+    let copied_integrity: String = copied.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|e| format!("بررسی نسخهٔ منتقل‌شده ناموفق بود: {e}"))?;
+    if copied_integrity != "ok" {
+        drop(copied);
+        let _ = std::fs::remove_file(target_path);
+        return Err(format!("نسخهٔ منتقل‌شده سالم نیست؛ دیتابیس قبلی حفظ شد: {copied_integrity}"));
+    }
+    Ok(true)
 }
 
 /// Open a database at an explicit path and apply the canonical schema/migrations.
