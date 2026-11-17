@@ -265,8 +265,11 @@ pub fn open_database() -> Result<Connection, String> {
     // An explicit NABZ_DB_PATH is an administrator/test override and opts out.
     #[cfg(target_os = "linux")]
     if std::env::var_os("NABZ_DB_PATH").is_none() {
-        if let Some(home) = std::env::var_os("HOME") {
-            let legacy = PathBuf::from(home).join(".local/share/nabz/nabz.sqlite3");
+        let legacy_data_home = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")));
+        if let Some(data_home) = legacy_data_home {
+            let legacy = data_home.join("nabz").join("nabz.sqlite3");
             if legacy != path && legacy.is_file() {
                 legacy_migration::import_legacy_egui_database(
                     &mut connection,
