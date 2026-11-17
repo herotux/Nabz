@@ -4,7 +4,7 @@ pkgrel=1
 pkgdesc='Persian RTL shop accounting application'
 arch=('x86_64')
 url='https://github.com/herotux/Nabz'
-license=('custom')
+license=('MIT')
 depends=('webkit2gtk-4.1' 'gtk3' 'openssl')
 options=(!strip)
 
@@ -12,4 +12,5 @@ package() {
   install -Dm755 "$startdir/nabz-tauri" "$pkgdir/usr/bin/nabz"
   install -Dm644 "$startdir/nabz.desktop" "$pkgdir/usr/share/applications/nabz.desktop"
   install -Dm644 "$startdir/nabz.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/nabz.png"
+  install -Dm644 "$startdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
