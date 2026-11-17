@@ -1,8 +1,14 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::{collections::{HashMap, HashSet}, fs, sync::Mutex};
+use std::{collections::{HashMap, HashSet}, sync::Mutex};
 use tauri::{Manager, State};
+use nabz_core::accounting::{
+    adjust_inventory, create_expense, create_invoice_with_payment_split, inventory_valuation,
+    list_expenses, profit_loss_report, record_payment, return_purchase_items, return_sale_items,
+    void_invoice as core_void_invoice, ExpenseInput, InvoiceInput, InvoiceLineInput,
+    PaymentInput, ReturnLineInput,
+};
 
 struct Db(Mutex<Connection>);
 #[derive(Serialize)]
@@ -14,38 +20,12 @@ struct ProductRecord { id:i64, name:String, code:String, barcode:String, quantit
 
 fn text(v:&Value,k:&str)->String { v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned() }
 fn num(v:&Value,k:&str)->i64 { v.get(k).and_then(|x|x.as_i64().or_else(||x.as_str().and_then(|s|s.replace(',',"").replace('٬',"").parse().ok()))).unwrap_or(0) }
-fn normalize_contact_kind(raw:&str)->Option<&'static str>{
- match raw.trim().to_lowercase().as_str(){
-  ""|"customer"|"مشتری"=>Some("customer"),
-  "supplier"|"vendor"|"تامین‌کننده"|"تأمین‌کننده"|"تامین کننده"|"تأمین کننده"=>Some("supplier"),
-  "both"|"customer_supplier"|"مشتری و تامین‌کننده"|"مشتری و تأمین‌کننده"|"مشتری و تامین کننده"|"مشتری و تأمین کننده"=>Some("both"),
-  _=>None
- }
-}
-fn init(c:&Connection)->Result<(),String>{
- c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
- CREATE TABLE IF NOT EXISTS contacts(id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')),customer_credit_balance INTEGER NOT NULL DEFAULT 0,supplier_credit_balance INTEGER NOT NULL DEFAULT 0);
- CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,min_quantity INTEGER NOT NULL DEFAULT 0);
- CREATE TABLE IF NOT EXISTS invoices(id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,contact_id INTEGER,contact_name TEXT NOT NULL,invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT '');
- CREATE TABLE IF NOT EXISTS invoice_items(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL);
- CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),notes TEXT NOT NULL DEFAULT '');
- CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
- UPDATE contacts SET kind='customer' WHERE lower(trim(kind)) IN ('مشتری');
- UPDATE contacts SET kind='supplier' WHERE lower(trim(kind)) IN ('vendor','تامین‌کننده','تأمین‌کننده','تامین کننده','تأمین کننده');
- UPDATE contacts SET kind='both' WHERE trim(kind) IN ('مشتری و تامین‌کننده','مشتری و تأمین‌کننده','مشتری و تامین کننده','مشتری و تأمین کننده');").map_err(|e|e.to_string())?;
- for (column,ddl) in [
-  ("customer_credit_balance","ALTER TABLE contacts ADD COLUMN customer_credit_balance INTEGER NOT NULL DEFAULT 0"),
-  ("supplier_credit_balance","ALTER TABLE contacts ADD COLUMN supplier_credit_balance INTEGER NOT NULL DEFAULT 0")
- ] {
-  let exists:i64=c.query_row("SELECT COUNT(*) FROM pragma_table_info('contacts') WHERE name=?1",[column],|r|r.get(0)).map_err(|e|e.to_string())?;
-  if exists==0 {c.execute(ddl,[]).map_err(|e|e.to_string())?;}
- }
- Ok(())
-}
+fn normalize_contact_kind(raw:&str)->Option<&'static str>{ nabz_core::normalize_contact_kind(raw) }
+fn init(c:&Connection)->Result<(),String>{ nabz_core::initialize(c) }
 #[tauri::command] fn app_version()-> &'static str { env!("CARGO_PKG_VERSION") }
 #[tauri::command] fn db_status(db:State<'_,Db>)->Result<String,String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.query_row("PRAGMA database_list",[],|r|r.get(2)).map_err(|e|e.to_string())}
-#[tauri::command] fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{let c=db.0.lock().map_err(|e|e.to_string())?;Ok(Summary{sales_today:c.query_row("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date=date('now','localtime')",[],|r|r.get(0)).map_err(|e|e.to_string())?,receipts_today:c.query_row("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')",[],|r|r.get(0)).map_err(|e|e.to_string())?,customer_balance:c.query_row("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale'),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both')),0)",[],|r|r.get(0)).map_err(|e|e.to_string())?,inventory_value:c.query_row("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products",[],|r|r.get(0)).map_err(|e|e.to_string())?,contacts:c.query_row("SELECT COUNT(*) FROM contacts",[],|r|r.get(0)).map_err(|e|e.to_string())?,products:c.query_row("SELECT COUNT(*) FROM products",[],|r|r.get(0)).map_err(|e|e.to_string())?,invoices:c.query_row("SELECT COUNT(*) FROM invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?})}
-#[tauri::command] fn list_records(kind:String,db:State<'_,Db>)->Result<Vec<Record>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let sql=match kind.as_str(){"contacts"=>"SELECT id,name,phone,opening_balance,kind,datetime(created_at) FROM contacts ORDER BY id DESC","products"=>"SELECT id,name,code,quantity,sell_price,'موجود', '' FROM products ORDER BY id DESC","invoices"=>"SELECT id,'فاکتور #'||number||' · '||contact_name,kind,total,CASE WHEN paid>=total THEN 'تسویه' ELSE 'بدهکار' END,invoice_date FROM invoices ORDER BY id DESC","payments"=>"SELECT id,contact_name,kind,amount,method,payment_date FROM payments ORDER BY id DESC",_=>return Err("فهرست نامعتبر است".into())};let mut s=c.prepare(sql).map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Record{id:r.get(0)?,name:r.get(1)?,detail:r.get(2)?,amount:r.get(3)?,status:r.get(4)?,date:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
+#[tauri::command] fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{let c=db.0.lock().map_err(|e|e.to_string())?;Ok(Summary{sales_today:c.query_row("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date=date('now','localtime')",[],|r|r.get(0)).map_err(|e|e.to_string())?,receipts_today:c.query_row("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')",[],|r|r.get(0)).map_err(|e|e.to_string())?,customer_balance:c.query_row("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both')),0)",[],|r|r.get(0)).map_err(|e|e.to_string())?,inventory_value:c.query_row("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products",[],|r|r.get(0)).map_err(|e|e.to_string())?,contacts:c.query_row("SELECT COUNT(*) FROM contacts",[],|r|r.get(0)).map_err(|e|e.to_string())?,products:c.query_row("SELECT COUNT(*) FROM products",[],|r|r.get(0)).map_err(|e|e.to_string())?,invoices:c.query_row("SELECT COUNT(*) FROM invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?})}
+#[tauri::command] fn list_records(kind:String,db:State<'_,Db>)->Result<Vec<Record>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let sql=match kind.as_str(){"contacts"=>"SELECT id,name,phone,opening_balance,kind,datetime(created_at) FROM contacts ORDER BY id DESC","products"=>"SELECT id,name,code,quantity,sell_price,'موجود', '' FROM products ORDER BY id DESC","invoices"=>"SELECT id,'فاکتور #'||number||' · '||contact_name,kind,total,CASE WHEN voided=1 THEN 'باطل‌شده' WHEN paid>=total THEN 'تسویه' ELSE 'بدهکار' END,invoice_date FROM invoices ORDER BY id DESC","payments"=>"SELECT id,contact_name,kind,amount,method,payment_date FROM payments ORDER BY id DESC",_=>return Err("فهرست نامعتبر است".into())};let mut s=c.prepare(sql).map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Record{id:r.get(0)?,name:r.get(1)?,detail:r.get(2)?,amount:r.get(3)?,status:r.get(4)?,date:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 #[tauri::command] fn list_products(db:State<'_,Db>)->Result<Vec<ProductRecord>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT id,name,code,barcode,quantity,buy_price,sell_price,min_quantity FROM products ORDER BY id DESC").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(ProductRecord{id:r.get(0)?,name:r.get(1)?,code:r.get(2)?,barcode:r.get(3)?,quantity:r.get(4)?,buy_price:r.get(5)?,sell_price:r.get(6)?,min_quantity:r.get(7)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 #[tauri::command]
 fn delete_record(kind:String,id:i64,db:State<'_,Db>)->Result<(),String>{
@@ -53,7 +33,7 @@ fn delete_record(kind:String,id:i64,db:State<'_,Db>)->Result<(),String>{
  match kind.as_str(){
   "contacts"=>{let n:i64=tx.query_row("SELECT (SELECT COUNT(*) FROM invoices WHERE contact_id=?1)+(SELECT COUNT(*) FROM payments WHERE contact_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;if n>0{return Err("این طرف‌حساب سابقه فاکتور یا دریافت/پرداخت دارد و حذف نمی‌شود.".into())}tx.execute("DELETE FROM contacts WHERE id=?1",[id]).map_err(|e|e.to_string())?;},
   "products"=>{let n:i64=tx.query_row("SELECT COUNT(*) FROM invoice_items WHERE product_id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;if n>0{return Err("این کالا در فاکتور ثبت شده و برای حفظ سابقه حذف نمی‌شود.".into())}tx.execute("DELETE FROM products WHERE id=?1",[id]).map_err(|e|e.to_string())?;},
-  "invoices"=>{let inv:Option<(String,i64)>=tx.query_row("SELECT kind,paid FROM invoices WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;let Some((ik,paid))=inv else{return Err("فاکتور پیدا نشد.".into())};if paid>0{return Err("فاکتور تسویه جزئی/کامل دارد؛ ابتدا گردش دریافت و پرداخت را اصلاح کنید.".into())}let mut st=tx.prepare("SELECT product_id,quantity FROM invoice_items WHERE invoice_id=?1").map_err(|e|e.to_string())?;let rows=st.query_map([id],|r|Ok((r.get::<_,Option<i64>>(0)?,r.get::<_,i64>(1)?))).map_err(|e|e.to_string())?;let items=rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;drop(st);for (pid,q) in items{if let Some(pid)=pid{if ik=="sale"{tx.execute("UPDATE products SET quantity=quantity+?1 WHERE id=?2",params![q,pid]).map_err(|e|e.to_string())?;}else{let stock:i64=tx.query_row("SELECT quantity FROM products WHERE id=?1",[pid],|r|r.get(0)).map_err(|e|e.to_string())?;if stock<q{return Err("حذف فاکتور خرید موجودی منفی ایجاد می‌کند؛ ابتدا فروش‌های بعدی را بررسی کنید.".into())}tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2",params![q,pid]).map_err(|e|e.to_string())?;}}}tx.execute("DELETE FROM invoice_items WHERE invoice_id=?1",[id]).map_err(|e|e.to_string())?;tx.execute("DELETE FROM invoices WHERE id=?1",[id]).map_err(|e|e.to_string())?;},
+  "invoices"=>return Err("فاکتور حذف نمی‌شود تا سابقهٔ مالی و انبار باقی بماند؛ از عملیات ابطال امن استفاده کنید.".into()),
   _=>return Err("حذف این نوع رکورد برای جلوگیری از آسیب به گردش مالی مجاز نیست.".into())
  }
  tx.commit().map_err(|e|e.to_string())?;Ok(())
@@ -109,12 +89,12 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
   let result=if has_history>0{
    c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,min_quantity=?6 WHERE id=?7",params![n,code,barcode,buy,sell,min,id])
   }else{
-   c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,quantity=?6,min_quantity=?7 WHERE id=?8",params![n,code,barcode,buy,sell,qty,min,id])
+   c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,quantity=?6,min_quantity=?7,average_cost=CASE WHEN ?6=0 THEN 0 WHEN quantity=0 THEN ?4 ELSE average_cost END WHERE id=?8",params![n,code,barcode,buy,sell,qty,min,id])
   };
   result.map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;
   return Ok(id)
  }
- c.execute("INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![n,code,barcode,buy,sell,qty,min]).map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;
+ c.execute("INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES(?1,?2,?3,?4,?5,?6,?7,CASE WHEN ?6>0 THEN ?4 ELSE 0 END)",params![n,code,barcode,buy,sell,qty,min]).map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;
  Ok(c.last_insert_rowid())
 }
 #[tauri::command]
@@ -123,83 +103,92 @@ fn save_invoice(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  save_invoice_with_connection(payload,&mut c)
 }
 fn save_invoice_with_connection(payload:Value,c:&mut Connection)->Result<i64,String>{
- let kind=text(&payload,"kind"); let contact=text(&payload,"customer");
+ let kind=text(&payload,"kind");
+ let contact=text(&payload,"customer");
  if !["sale","purchase"].contains(&kind.as_str()){return Err("نوع فاکتور نامعتبر است".into())}
- if kind=="purchase"&&contact.is_empty(){return Err("انتخاب تأمین‌کننده برای فاکتور خرید الزامی است".into())}
- let mut items:Vec<(String,i64,i64)>=Vec::new();
+ let mut lines:Vec<InvoiceLineInput>=Vec::new();
  if let Some(arr)=payload.get("items").and_then(Value::as_array){
-  for x in arr {let name=x.get("item").and_then(Value::as_str).unwrap_or("").trim().to_owned();let q=x.get("qty").and_then(Value::as_i64).unwrap_or(0);let p=x.get("price").and_then(Value::as_i64).unwrap_or(0);if !name.is_empty(){items.push((name,q,p));}}
- } else {
-  for i in 1..=5 {let suffix=if i==1{String::new()}else{i.to_string()};let name=text(&payload,&format!("item{suffix}"));let q=num(&payload,&format!("qty{suffix}"));let p=num(&payload,&format!("price{suffix}"));if !name.is_empty(){items.push((name,q,p));}}
- }
- if items.is_empty(){return Err("حداقل یک ردیف کالا یا خدمت وارد کنید".into())}
- if items.iter().any(|(_,q,p)|*q<=0||*p<0){return Err("تعداد هر ردیف باید مثبت و قیمت‌ها نامنفی باشند".into())}
- let subtotal=items.iter().try_fold(0i64,|sum,(_,q,p)|q.checked_mul(*p).and_then(|v|sum.checked_add(v))).ok_or("مبلغ فاکتور بیش از حد بزرگ است")?;
- let discount=num(&payload,"discount");if discount<0||discount>subtotal{return Err("تخفیف باید بین صفر و مبلغ کل باشد".into())}
- let total=subtotal-discount;let tx=c.transaction().map_err(|e|e.to_string())?;
- let cid:Option<i64>=if contact.is_empty(){None}else{tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?};
- if kind=="purchase"&&cid.is_none(){return Err("تأمین‌کننده ثبت‌شده‌ای با این نام پیدا نشد؛ ابتدا آن را در بخش طرف‌حساب‌ها ثبت کنید.".into())}
- if kind=="sale"&&!contact.is_empty()&&cid.is_none(){return Err("مشتری واردشده در فهرست طرف‌حساب‌ها پیدا نشد؛ نام را انتخاب کنید یا برای فروش گذری فیلد مشتری را خالی بگذارید.".into())}
- if let Some(contact_id)=cid{let raw_kind:String=tx.query_row("SELECT kind FROM contacts WHERE id=?1",[contact_id],|r|r.get(0)).map_err(|e|e.to_string())?;let role=normalize_contact_kind(&raw_kind).unwrap_or("customer");if kind=="sale"&&!["customer","both"].contains(&role){return Err("برای فاکتور فروش، طرف‌حساب باید از نوع مشتری یا هر دو باشد.".into())}if kind=="purchase"&&!["supplier","both"].contains(&role){return Err("برای فاکتور خرید، طرف‌حساب باید از نوع تأمین‌کننده یا هر دو باشد.".into())}}
- let payment_status=if kind=="sale"{let s=text(&payload,"payment_status");if s.is_empty(){"credit".to_string()}else{s}}else{"credit".to_string()};
- if !["paid","partial","credit"].contains(&payment_status.as_str()){return Err("وضعیت پرداخت نامعتبر است".into())}
- let requested_cash=if kind=="sale"{match payment_status.as_str(){"paid"=>total,"partial"=>num(&payload,"paid_amount"),_=>0}}else{0};
- if requested_cash<0||requested_cash>total{return Err("مبلغ دریافتی باید بین صفر و مبلغ نهایی فاکتور باشد".into())}
- if kind=="sale"&&requested_cash<total&&cid.is_none(){return Err("برای فروش نسیه یا پرداخت ناقص، مشتری ثبت‌شده انتخاب کنید؛ فروش گذری باید تسویه کامل باشد.".into())}
- if kind=="sale"&&payment_status=="partial"&&(requested_cash<=0||requested_cash>=total){return Err("مبلغ دریافت‌شده در پرداخت جزئی باید بیشتر از صفر و کمتر از مبلغ فاکتور باشد".into())}
- let credit_column=if kind=="sale"{"customer_credit_balance"}else{"supplier_credit_balance"};
- let credit_available: i64=if let Some(contact_id)=cid{tx.query_row(&format!("SELECT {credit_column} FROM contacts WHERE id=?1"),[contact_id],|r|r.get(0)).map_err(|e|e.to_string())?}else{0};
- let credit_used=if kind=="sale"&&payment_status=="paid"{credit_available.min(total)}else{credit_available.min(total-requested_cash)};
- let cash_received=if kind=="sale"&&payment_status=="paid"{total-credit_used}else{requested_cash};
- let paid=cash_received.checked_add(credit_used).ok_or("مبلغ تسویه بیش از حد بزرگ است")?;
- if credit_used>0 {if let Some(contact_id)=cid{tx.execute(&format!("UPDATE contacts SET {credit_column}={credit_column}-?1 WHERE id=?2"),params![credit_used,contact_id]).map_err(|e|e.to_string())?;}}
- let mut resolved:Vec<(Option<i64>,String,i64,i64,i64)>=Vec::new();
- for (name,qty,price) in items {
-  let line=qty.checked_mul(price).ok_or("مبلغ ردیف بیش از حد بزرگ است")?;
-  if let Some(service)=name.strip_prefix("خدمت:").map(str::trim).filter(|s|!s.is_empty()) {
-   resolved.push((None,format!("خدمت: {service}"),qty,price,line));
-   continue;
+  for x in arr {
+   let name=x.get("item").and_then(Value::as_str).unwrap_or("").trim().to_owned();
+   let qty=x.get("qty").and_then(|v|v.as_i64().or_else(||v.as_str().and_then(|n|n.parse().ok()))).unwrap_or(0);
+   let price=x.get("price").and_then(|v|v.as_i64().or_else(||v.as_str().and_then(|n|n.parse().ok()))).unwrap_or(0);
+   if !name.is_empty(){lines.push(InvoiceLineInput{product_lookup:name,quantity:qty,unit_price:price});}
   }
-  let found:Option<(i64,i64)>=tx.query_row("SELECT id,quantity FROM products WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",[&name],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
-  let pid=if let Some((pid,stock))=found {
-   if kind=="sale" {if stock<qty{return Err(format!("موجودی «{name}» کافی نیست؛ موجودی فعلی {stock}"))}tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2",params![qty,pid]).map_err(|e|e.to_string())?;}
-   else {tx.execute("UPDATE products SET quantity=quantity+?1,buy_price=?2 WHERE id=?3",params![qty,price,pid]).map_err(|e|e.to_string())?;}
-   Some(pid)
-  } else if kind=="purchase" {
-   let code=format!("AUTO-{}",tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM products",[],|r|r.get::<_,i64>(0)).map_err(|e|e.to_string())?);
-   tx.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity) VALUES(?1,?2,?3,?3,?4)",params![name,code,price,qty]).map_err(|e|e.to_string())?;
-   Some(tx.last_insert_rowid())
-  } else {return Err(format!("کالای «{name}» در انبار ثبت نشده است؛ ابتدا کالا را ثبت کنید.").into())};
-  resolved.push((pid,name,qty,price,line));
+ }else{
+  for i in 1..=5{
+   let suffix=if i==1{String::new()}else{i.to_string()};
+   let name=text(&payload,&format!("item{suffix}"));
+   let qty=num(&payload,&format!("qty{suffix}"));
+   let price=num(&payload,&format!("price{suffix}"));
+   if !name.is_empty(){lines.push(InvoiceLineInput{product_lookup:name,quantity:qty,unit_price:price});}
+  }
  }
- let number:i64=tx.query_row("SELECT COALESCE(MAX(number),1000)+1 FROM invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?;
- let contact_name=if contact.is_empty(){"مشتری گذری"}else{contact.as_str()};
- tx.execute("INSERT INTO invoices(number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),date('now','localtime')),?6,?7,?8,?9,?10)",params![number,kind,cid,contact_name,text(&payload,"date"),subtotal,discount,total,paid,text(&payload,"notes")]).map_err(|e|e.to_string())?;
- let id=tx.last_insert_rowid();
- for (pid,name,q,p,line) in resolved {tx.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(?1,?2,?3,?4,?5,?6)",params![id,pid,name,q,p,line]).map_err(|e|e.to_string())?;}
- if kind=="sale"&&cash_received>0 {let method=text(&payload,"method");tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES('receipt',?1,?2,?3,COALESCE(NULLIF(?4,''),'cash'),COALESCE(NULLIF(?5,''),date('now','localtime')),?6)",params![cid,contact_name,cash_received,method,text(&payload,"date"),format!("دریافت بابت فاکتور فروش #{number}")]).map_err(|e|e.to_string())?;}
- tx.commit().map_err(|e|e.to_string())?;Ok(id)
+ if lines.is_empty(){return Err("حداقل یک ردیف کالا یا خدمت وارد کنید".into())}
+ if lines.iter().any(|x|x.quantity<=0||x.unit_price<0){return Err("تعداد هر ردیف باید مثبت و قیمت‌ها نامنفی باشند".into())}
+ let subtotal=lines.iter().try_fold(0i64,|sum,line|line.quantity.checked_mul(line.unit_price).and_then(|v|sum.checked_add(v))).ok_or("مبلغ فاکتور بیش از حد بزرگ است")?;
+ let discount=num(&payload,"discount");
+ if discount<0||discount>subtotal{return Err("تخفیف باید بین صفر و مبلغ کل باشد".into())}
+ let total=subtotal-discount;
+
+ let contact_id:Option<i64>=if contact.is_empty(){None}else{
+  c.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?
+ };
+ if kind=="purchase"&&contact_id.is_none(){return Err("انتخاب تأمین‌کنندهٔ ثبت‌شده برای فاکتور خرید الزامی است".into())}
+ if kind=="sale"&&!contact.is_empty()&&contact_id.is_none(){return Err("مشتری واردشده در فهرست طرف‌حساب‌ها پیدا نشد؛ نام را انتخاب کنید یا برای فروش گذری فیلد مشتری را خالی بگذارید.".into())}
+
+ let credit_column=if kind=="sale"{"customer_credit_balance"}else{"supplier_credit_balance"};
+ let credit_available:i64=if let Some(id)=contact_id{
+  c.query_row(&format!("SELECT {credit_column} FROM contacts WHERE id=?1"),[id],|r|r.get(0)).map_err(|e|e.to_string())?
+ }else{0};
+
+ let (cash_received,credit_used)=if kind=="sale"{
+  let status=text(&payload,"payment_status");
+  let status=if status.is_empty(){"credit"}else{status.as_str()};
+  if !["paid","partial","credit"].contains(&status){return Err("وضعیت پرداخت نامعتبر است".into())}
+  let requested=match status{
+   "paid"=>total,
+   "partial"=>num(&payload,"paid_amount"),
+   _=>0
+  };
+  if requested<0||requested>total{return Err("مبلغ دریافتی باید بین صفر و مبلغ نهایی فاکتور باشد".into())}
+  if status=="partial"&&(requested<=0||requested>=total){return Err("مبلغ دریافت‌شده در پرداخت جزئی باید بیشتر از صفر و کمتر از مبلغ فاکتور باشد".into())}
+  if requested<total&&contact_id.is_none(){return Err("برای فروش نسیه یا پرداخت ناقص، مشتری ثبت‌شده انتخاب کنید؛ فروش گذری باید تسویه کامل باشد.".into())}
+  let credit=credit_available.min(total-requested);
+  let cash=if status=="paid"{total-credit}else{requested};
+  (cash,credit)
+ }else{
+  (0,credit_available.min(total))
+ };
+ let paid=cash_received.checked_add(credit_used).ok_or("مبلغ تسویه بیش از حد بزرگ است")?;
+ let input=InvoiceInput{
+  kind:kind.clone(),
+  contact_name:contact,
+  date:text(&payload,"date"),
+  discount,
+  paid,
+  method:text(&payload,"method"),
+  notes:text(&payload,"notes"),
+  lines,
+ };
+ create_invoice_with_payment_split(c,&input,cash_received,credit_used)
 }
 #[tauri::command]
 fn save_payment(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  let mut c=db.0.lock().map_err(|e|e.to_string())?;
  save_payment_with_connection(payload,&mut c)
 }
-fn save_payment_with_connection(payload:Value,c:&mut Connection)->Result<i64,String>{let kind=text(&payload,"kind");let contact=text(&payload,"customer");let amount=num(&payload,"amount");if !["receipt","payment"].contains(&kind.as_str())||contact.is_empty()||amount<=0{return Err("طرف‌حساب و مبلغ مثبت الزامی است".into())}let method=text(&payload,"method");let date=text(&payload,"date");let notes=text(&payload,"notes");let tx=c.transaction().map_err(|e|e.to_string())?;let cid:Option<i64>=tx.query_row("SELECT id FROM contacts WHERE name=?1 COLLATE NOCASE LIMIT 1",[&contact],|r|r.get(0)).optional().map_err(|e|e.to_string())?;if cid.is_none(){return Err("طرف‌حساب ثبت‌شده‌ای با این نام پیدا نشد؛ ابتدا آن را در بخش طرف‌حساب‌ها ثبت کنید.".into())}let raw_kind:String=tx.query_row("SELECT kind FROM contacts WHERE id=?1",[cid],|r|r.get(0)).map_err(|e|e.to_string())?;let role=normalize_contact_kind(&raw_kind).unwrap_or("customer");if kind=="receipt"&&!["customer","both"].contains(&role){return Err("برای ثبت دریافت، طرف‌حساب باید مشتری یا هر دو باشد.".into())}if kind=="payment"&&!["supplier","both"].contains(&role){return Err("برای ثبت پرداخت، طرف‌حساب باید تأمین‌کننده یا هر دو باشد.".into())}tx.execute("INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes) VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),COALESCE(NULLIF(?6,''),date('now','localtime')),?7)",params![kind,cid,contact,amount,method,date,notes]).map_err(|e|e.to_string())?;let id=tx.last_insert_rowid();let invoice_kind=if kind=="receipt"{"sale"}else{"purchase"};let invoice_outstanding:i64=tx.query_row("SELECT COALESCE(SUM(total-paid),0) FROM invoices WHERE contact_id=?1 AND kind=?2",params![cid,invoice_kind],|r|r.get(0)).map_err(|e|e.to_string())?;
- let opening_balance:i64=tx.query_row("SELECT opening_balance FROM contacts WHERE id=?1",[cid],|r|r.get(0)).map_err(|e|e.to_string())?;
- let opening_available=opening_balance.max(0);
- let outstanding=invoice_outstanding.checked_add(opening_available).ok_or("ماندهٔ طرف‌حساب بیش از حد بزرگ است")?;
- let applied_amount=amount.min(outstanding);
- let excess=amount-applied_amount;
- if excess>0 {
-  let column=if kind=="receipt"{"customer_credit_balance"}else{"supplier_credit_balance"};
-  let current:i64=tx.query_row(&format!("SELECT {column} FROM contacts WHERE id=?1"),[cid],|r|r.get(0)).map_err(|e|e.to_string())?;
-  let next=current.checked_add(excess).ok_or("ماندهٔ پیش‌پرداخت بیش از حد بزرگ است")?;
-  tx.execute(&format!("UPDATE contacts SET {column}=?1 WHERE id=?2"),params![next,cid]).map_err(|e|e.to_string())?;
- }
- let mut remaining=applied_amount;
- let opening_applied=remaining.min(opening_available);
- if opening_applied>0{tx.execute("UPDATE contacts SET opening_balance=opening_balance-?1 WHERE id=?2",params![opening_applied,cid]).map_err(|e|e.to_string())?;remaining-=opening_applied;}{let mut st=tx.prepare("SELECT id,total,paid FROM invoices WHERE contact_id=?1 AND kind=?2 AND paid<total ORDER BY invoice_date,id").map_err(|e|e.to_string())?;let rows=st.query_map(params![cid,invoice_kind],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e|e.to_string())?;let invoices=rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;drop(st);for (iid,total,paid) in invoices{if remaining<=0{break}let applied=remaining.min(total-paid);tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2",params![applied,iid]).map_err(|e|e.to_string())?;remaining-=applied;}}tx.commit().map_err(|e|e.to_string())?;Ok(id)}
+fn save_payment_with_connection(payload:Value,c:&mut Connection)->Result<i64,String>{
+ let input=PaymentInput{
+  kind:text(&payload,"kind"),
+  contact_name:text(&payload,"customer"),
+  amount:num(&payload,"amount"),
+  method:text(&payload,"method"),
+  date:text(&payload,"date"),
+  notes:text(&payload,"notes"),
+ };
+ record_payment(c,&input)
+}
+
 
 #[derive(Serialize)]
 struct SalesTrendPoint { date:String, total:i64 }
@@ -226,7 +215,7 @@ fn reports_summary_with_connection(c:&Connection)->Result<Value,String>{
   "receipts_total":q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt'")?,
   "payments_total":q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='payment'")?,
   "customer_debt":q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale'),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?,
-  "supplier_debt":q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='purchase'),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('supplier','both')),0)-COALESCE((SELECT SUM(supplier_credit_balance) FROM contacts WHERE kind IN ('supplier','both')),0)")?,
+  "supplier_debt":q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='purchase' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('supplier','both')),0)-COALESCE((SELECT SUM(supplier_credit_balance) FROM contacts WHERE kind IN ('supplier','both')),0)")?,
   "inventory_value":q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?,
   "contacts":q("SELECT COUNT(*) FROM contacts")?,
   "products":q("SELECT COUNT(*) FROM products")?,
@@ -246,8 +235,8 @@ fn reports_period_with_connection(c:&Connection,start:&str,end:&str)->Result<Val
  Ok(json!({
   "start_date":start,
   "end_date":end,
-  "sales_total":sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date BETWEEN ?1 AND ?2")?,
-  "purchases_total":sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='purchase' AND invoice_date BETWEEN ?1 AND ?2")?,
+  "sales_total":sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2")?,
+  "purchases_total":sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='purchase' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2")?,
   "receipts_total":sum("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date BETWEEN ?1 AND ?2")?,
   "payments_total":sum("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='payment' AND payment_date BETWEEN ?1 AND ?2")?,
   "sales_count":sum("SELECT COUNT(*) FROM invoices WHERE kind='sale' AND invoice_date BETWEEN ?1 AND ?2")?,
@@ -337,6 +326,64 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
  for x in data["settings"].as_array().unwrap(){tx.execute("INSERT INTO settings(key,value) VALUES(?1,?2)",params![x["key"].as_str().unwrap_or(""),x["value"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;}
  tx.commit().map_err(|e|e.to_string())?;Ok(())
 }
+fn parse_return_lines(lines:Vec<Value>)->Result<Vec<ReturnLineInput>,String>{
+ let parsed=lines.into_iter().map(|x|{
+  let lookup=x.get("item").or_else(||x.get("product_lookup")).and_then(Value::as_str).unwrap_or("").trim().to_owned();
+  let quantity=x.get("qty").or_else(||x.get("quantity")).and_then(|v|v.as_i64().or_else(||v.as_str().and_then(|n|n.parse().ok()))).unwrap_or(0);
+  ReturnLineInput{product_lookup:lookup,quantity}
+ }).collect::<Vec<_>>();
+ if parsed.is_empty(){return Err("حداقل یک ردیف برای برگشت لازم است".into())}
+ Ok(parsed)
+}
+#[tauri::command]
+fn return_sale_invoice(invoice_id:i64,lines:Vec<Value>,method:String,db:State<'_,Db>)->Result<Value,String>{
+ let parsed=parse_return_lines(lines)?;
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ let (credit,refund)=return_sale_items(&mut c,invoice_id,&parsed,&method)?;
+ Ok(json!({"credit":credit,"cash_refund":refund}))
+}
+#[tauri::command]
+fn return_purchase_invoice(invoice_id:i64,lines:Vec<Value>,method:String,db:State<'_,Db>)->Result<Value,String>{
+ let parsed=parse_return_lines(lines)?;
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ let (credit,refund)=return_purchase_items(&mut c,invoice_id,&parsed,&method)?;
+ Ok(json!({"credit":credit,"cash_refund":refund}))
+}
+#[tauri::command]
+fn void_invoice(invoice_id:i64,db:State<'_,Db>)->Result<(),String>{
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ core_void_invoice(&mut c,invoice_id)
+}
+#[tauri::command]
+fn adjust_inventory_command(product_id:i64,new_quantity:i64,reason:String,db:State<'_,Db>)->Result<Value,String>{
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ let result=adjust_inventory(&mut c,product_id,new_quantity,&reason)?;
+ Ok(json!({"product_id":result.product_id,"previous_quantity":result.previous_quantity,"new_quantity":result.new_quantity,"delta":result.delta,"reason":result.reason,"created_at":result.created_at}))
+}
+#[tauri::command]
+fn inventory_valuation_command(db:State<'_,Db>)->Result<Vec<Value>,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let rows=inventory_valuation(&c)?;
+ Ok(rows.into_iter().map(|x|json!({"product_id":x.product_id,"product_name":x.product_name,"code":x.code,"quantity":x.quantity,"buy_price":x.buy_price,"average_cost":x.average_cost,"stock_value":x.stock_value})).collect())
+}
+#[tauri::command]
+fn create_expense_command(payload:Value,db:State<'_,Db>)->Result<i64,String>{
+ let input=ExpenseInput{category:text(&payload,"category"),description:text(&payload,"description"),amount:num(&payload,"amount"),date:text(&payload,"date")};
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ create_expense(&c,&input)
+}
+#[tauri::command]
+fn list_expenses_command(from:String,to:String,db:State<'_,Db>)->Result<Vec<Value>,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let rows=list_expenses(&c,&from,&to)?;
+ Ok(rows.into_iter().map(|x|json!({"id":x.id,"category":x.category,"description":x.description,"amount":x.amount,"date":x.date})).collect())
+}
+#[tauri::command]
+fn profit_loss_report_command(from:String,to:String,db:State<'_,Db>)->Result<Value,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let x=profit_loss_report(&c,&from,&to)?;
+ Ok(json!({"sales":x.sales,"discounts":x.discounts,"net_sales":x.net_sales,"cost_of_goods_sold":x.cost_of_goods_sold,"gross_profit":x.gross_profit,"expenses":x.expenses,"net_profit":x.net_profit,"uncosted_sales":x.uncosted_sales,"expense_rows":x.expense_rows.into_iter().map(|r|json!({"id":r.id,"category":r.category,"description":r.description,"amount":r.amount,"date":r.date})).collect::<Vec<_>>()}))
+}
 #[tauri::command]
 fn get_contact_ledger(id:i64,db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
@@ -373,7 +420,7 @@ fn get_invoice_print(id:i64,db:State<'_,Db>)->Result<Value,String>{
 }
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let dir=app.path().app_local_data_dir().map_err(std::io::Error::other)?;fs::create_dir_all(&dir)?;let c=Connection::open(dir.join("nabz.sqlite3")).map_err(std::io::Error::other)?;init(&c).map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,get_invoice_print,get_contact_ledger,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,adjust_inventory_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
