@@ -210,15 +210,15 @@ fn reports_summary(db:State<'_,Db>)->Result<Value,String>{
 fn reports_summary_with_connection(c:&Connection)->Result<Value,String>{
  let q=|sql:&str|->Result<i64,String>{c.query_row(sql,[],|r|r.get(0)).map_err(|e|e.to_string())};
  Ok(json!({
-  "sales_today":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND invoice_date=date('now','localtime')")?,
+  "sales_today":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date=date('now','localtime')")?,
   "receipts_today":q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')")?,
-  "sales_total":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale'")?,
-  "purchases_total":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='purchase'")?,
+  "sales_total":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0")?,
+  "purchases_total":q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='purchase' AND voided=0")?,
   "receipts_total":q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt'")?,
   "payments_total":q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='payment'")?,
-  "customer_debt":q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale'),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?,
+  "customer_debt":q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?,
   "supplier_debt":q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='purchase' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('supplier','both')),0)-COALESCE((SELECT SUM(supplier_credit_balance) FROM contacts WHERE kind IN ('supplier','both')),0)")?,
-  "inventory_value":q("SELECT COALESCE(SUM(quantity*buy_price),0) FROM products")?,
+  "inventory_value":q("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products")?,
   "contacts":q("SELECT COUNT(*) FROM contacts")?,
   "products":q("SELECT COUNT(*) FROM products")?,
   "invoices":q("SELECT COUNT(*) FROM invoices")?
@@ -620,7 +620,7 @@ mod accounting_tests {
   let c=Connection::open_in_memory().expect("in-memory SQLite");
   init(&c).expect("schema");
   c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Ali','customer',0)",[]).unwrap();
-  c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity) VALUES('Pen','PEN',10,20,10,2)",[]).unwrap();
+  c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Pen','PEN',10,20,10,2,10)",[]).unwrap();
   c
  }
  fn sale(customer:&str,status:&str,paid:i64,qty:i64,price:i64,discount:i64)->Value {
