@@ -719,9 +719,36 @@ mod tests {
              WHERE name IN ('customer_credit_balance','supplier_credit_balance')",
             [], |r| r.get(0)
         ).unwrap();
+        let void_table: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='invoice_voids'",
+            [], |r| r.get(0)
+        ).unwrap();
+        let allocation_table: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='payment_allocations'",
+            [], |r| r.get(0)
+        ).unwrap();
         assert_eq!(version, 10);
         assert_eq!(columns, 4);
         assert_eq!(credit, 2);
+        assert_eq!((void_table,allocation_table),(1,1));
+    }
+
+    #[test]
+    fn v8_to_v10_migration_preserves_existing_accounting_rows() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute_batch("DROP TABLE payment_allocations; DROP TABLE invoice_voids; PRAGMA user_version=8;").unwrap();
+        connection.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('مشتری قدیمی','customer',125)",[]).unwrap();
+        connection.execute("INSERT INTO products(name,code,quantity,average_cost) VALUES('کالای قدیمی','OLD-8',3,45)",[]).unwrap();
+        migrate(&mut connection).unwrap();
+        let version: i64 = connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let (balance,stock,cost):(i64,i64,i64)=connection.query_row(
+            "SELECT c.opening_balance,p.quantity,p.average_cost FROM contacts c CROSS JOIN products p WHERE c.name='مشتری قدیمی' AND p.code='OLD-8'",
+            [],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+        ).unwrap();
+        assert_eq!((version,balance,stock,cost),(10,125,3,45));
+        assert!(connection.query_row("SELECT COUNT(*) FROM payment_allocations",[],|r|r.get::<_,i64>(0)).is_ok());
+        assert!(connection.query_row("SELECT COUNT(*) FROM invoice_voids",[],|r|r.get::<_,i64>(0)).is_ok());
     }
 
     #[test]
