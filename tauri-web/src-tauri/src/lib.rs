@@ -568,9 +568,9 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
  ).map_err(|e|e.to_string())?;
  let foreign_key_errors:i64=tx.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
  if foreign_key_errors!=0{return Err("اعتبارسنجی ارتباط رکوردها پس از بازیابی ناموفق بود؛ داده‌های قبلی حفظ شدند".into())}
+ let integrity:String=tx.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if integrity!="ok"{return Err(format!("بازیابی متوقف شد؛ بررسی سلامت دیتابیس ناموفق بود و تراکنش rollback شد. پشتیبان ایمنی: {}؛ نتیجه: {integrity}",safety_path.display()))}
  tx.commit().map_err(|e|e.to_string())?;
- let integrity:String=c.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
- if integrity!="ok"{return Err(format!("بازیابی انجام شد اما بررسی سلامت دیتابیس خطا داد؛ نسخهٔ ایمنی: {}؛ نتیجه: {integrity}",safety_path.display()))}
  Ok(())
 }
 #[tauri::command]
