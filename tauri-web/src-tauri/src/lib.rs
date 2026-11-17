@@ -63,7 +63,32 @@ fn validate_opening_balance(kind:&str,balance:i64)->Result<(),String>{
  if kind=="both"&&balance!=0{return Err("برای طرف‌حساب دوگانه، تا زمان پشتیبانی از دو ماندهٔ جداگانه، ماندهٔ اولیه را صفر بگذارید.".into())}
  Ok(())
 }
-#[tauri::command] fn save_contact(payload:Value,db:State<'_,Db>)->Result<i64,String>{let n=text(&payload,"name");if n.is_empty(){return Err("نام طرف‌حساب الزامی است".into())}let c=db.0.lock().map_err(|e|e.to_string())?;let existing:i64=c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE",[&n],|r|r.get(0)).map_err(|e|e.to_string())?;if existing>0{return Err("طرف‌حسابی با این نام قبلاً ثبت شده است".into())}let raw_kind=text(&payload,"kind");let kind=normalize_contact_kind(&raw_kind).ok_or("نوع طرف‌حساب را از گزینه‌های موجود انتخاب کنید")?;let balance=num(&payload,"balance");validate_opening_balance(kind,balance)?;c.execute("INSERT INTO contacts(name,kind,phone,opening_balance,notes) VALUES(?1,?2,?3,?4,?5)",params![n,kind,text(&payload,"phone"),balance,text(&payload,"notes")]).map_err(|e|e.to_string())?;Ok(c.last_insert_rowid())}
+#[tauri::command]
+fn save_contact(payload:Value,db:State<'_,Db>)->Result<i64,String>{
+ let n=text(&payload,"name");
+ if n.is_empty(){return Err("نام طرف‌حساب الزامی است".into())}
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let raw_kind=text(&payload,"kind");
+ let kind=normalize_contact_kind(&raw_kind).ok_or("نوع طرف‌حساب را از گزینه‌های موجود انتخاب کنید")?;
+ let balance=num(&payload,"balance");
+ if let Some(id)=payload.get("id").and_then(Value::as_i64){
+  if id<=0{return Err("شناسه طرف‌حساب نامعتبر است".into())}
+  let old:Option<(String,i64)>=c.query_row("SELECT kind,opening_balance FROM contacts WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
+  let Some((old_kind,old_balance))=old else{return Err("طرف‌حساب پیدا نشد".into())};
+  let history:i64=c.query_row("SELECT (SELECT COUNT(*) FROM invoices WHERE contact_id=?1)+(SELECT COUNT(*) FROM payments WHERE contact_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if history>0&&(kind!=old_kind||balance!=old_balance){return Err("این طرف‌حساب سابقه مالی دارد؛ نوع و مانده افتتاحیه برای حفظ دفتر مالی قابل تغییر نیست.".into())}
+  if history==0{validate_opening_balance(kind,balance)?}
+  let duplicate:i64=c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE AND id<>?2",params![n,id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if duplicate>0{return Err("طرف‌حساب دیگری با این نام وجود دارد".into())}
+  c.execute("UPDATE contacts SET name=?1,kind=?2,phone=?3,opening_balance=?4 WHERE id=?5",params![n,kind,text(&payload,"phone"),balance,id]).map_err(|e|e.to_string())?;
+  return Ok(id)
+ }
+ let existing:i64=c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE",[&n],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if existing>0{return Err("طرف‌حسابی با این نام قبلاً ثبت شده است".into())}
+ validate_opening_balance(kind,balance)?;
+ c.execute("INSERT INTO contacts(name,kind,phone,opening_balance,notes) VALUES(?1,?2,?3,?4,?5)",params![n,kind,text(&payload,"phone"),balance,text(&payload,"notes")]).map_err(|e|e.to_string())?;
+ Ok(c.last_insert_rowid())
+}
 #[tauri::command]
 fn save_product(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
@@ -310,6 +335,24 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
  tx.commit().map_err(|e|e.to_string())?;Ok(())
 }
 #[tauri::command]
+fn get_contact_ledger(id:i64,db:State<'_,Db>)->Result<Value,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let contact:Value=c.query_row("SELECT id,name,kind,phone,opening_balance,customer_credit_balance,supplier_credit_balance FROM contacts WHERE id=?1",[id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"kind":r.get::<_,String>(2)?,"phone":r.get::<_,String>(3)?,"opening_balance":r.get::<_,i64>(4)?,"customer_credit_balance":r.get::<_,i64>(5)?,"supplier_credit_balance":r.get::<_,i64>(6)?}))).optional().map_err(|e|e.to_string())?.ok_or("طرف‌حساب پیدا نشد")?;
+ let mut entries:Vec<Value>=Vec::new();
+ {
+  let mut st=c.prepare("SELECT id,number,kind,invoice_date,total,paid,notes FROM invoices WHERE contact_id=?1 ORDER BY invoice_date,id").map_err(|e|e.to_string())?;
+  let rows=st.query_map([id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"entry_type":"invoice","kind":r.get::<_,String>(2)?,"date":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"paid":r.get::<_,i64>(5)?,"notes":r.get::<_,String>(6)?}))).map_err(|e|e.to_string())?;
+  for row in rows{entries.push(row.map_err(|e|e.to_string())?);}
+ }
+ {
+  let mut st=c.prepare("SELECT id,kind,payment_date,amount,method,notes FROM payments WHERE contact_id=?1 ORDER BY payment_date,id").map_err(|e|e.to_string())?;
+  let rows=st.query_map([id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"entry_type":"payment","kind":r.get::<_,String>(1)?,"date":r.get::<_,String>(2)?,"amount":r.get::<_,i64>(3)?,"method":r.get::<_,String>(4)?,"notes":r.get::<_,String>(5)?}))).map_err(|e|e.to_string())?;
+  for row in rows{entries.push(row.map_err(|e|e.to_string())?);}
+ }
+ entries.sort_by(|a,b|a["date"].as_str().unwrap_or("").cmp(b["date"].as_str().unwrap_or("")));
+ Ok(json!({"contact":contact,"entries":entries}))
+}
+#[tauri::command]
 fn get_invoice_print(id:i64,db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
  let invoice:Value=c.query_row("SELECT id,number,kind,contact_name,invoice_date,subtotal,discount,total,paid,notes FROM invoices WHERE id=?1",[id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,"contact_name":r.get::<_,String>(3)?,"invoice_date":r.get::<_,String>(4)?,"subtotal":r.get::<_,i64>(5)?,"discount":r.get::<_,i64>(6)?,"total":r.get::<_,i64>(7)?,"paid":r.get::<_,i64>(8)?,"notes":r.get::<_,String>(9)?}))).optional().map_err(|e|e.to_string())?.ok_or("فاکتور پیدا نشد")?;
@@ -327,7 +370,7 @@ fn get_invoice_print(id:i64,db:State<'_,Db>)->Result<Value,String>{
 }
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let dir=app.path().app_local_data_dir().map_err(std::io::Error::other)?;fs::create_dir_all(&dir)?;let c=Connection::open(dir.join("nabz.sqlite3")).map_err(std::io::Error::other)?;init(&c).map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,get_invoice_print,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let dir=app.path().app_local_data_dir().map_err(std::io::Error::other)?;fs::create_dir_all(&dir)?;let c=Connection::open(dir.join("nabz.sqlite3")).map_err(std::io::Error::other)?;init(&c).map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,get_invoice_print,get_contact_ledger,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
