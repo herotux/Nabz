@@ -511,7 +511,7 @@ pub fn return_sale_items(
     for (item_id, product_id, quantity, unit_price, item_name, amount, historical_cost) in normalized {
         let (stock,average_cost):(i64,i64)=tx.query_row("SELECT quantity,average_cost FROM products WHERE id=?1",[product_id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;
         let next_quantity=stock.checked_add(quantity).ok_or("موجودی پس از برگشت بیش از ظرفیت عددی است")?;
-        let next_average=weighted_average_cost(stock,average_cost,quantity,historical_cost.unwrap_or(average_cost))?;
+        let next_average=weighted_average_cost(stock,average_cost,quantity,historical_cost)?;
         tx.execute("UPDATE products SET quantity=?1,average_cost=?2 WHERE id=?3",params![next_quantity,next_average,product_id]).map_err(|e|e.to_string())?;
         tx.execute(
             "INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
