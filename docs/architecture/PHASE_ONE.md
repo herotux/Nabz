@@ -10,7 +10,7 @@
 
 - `crates/nabz-core` منبع اصلی قواعد مالی، migration، backup و عملیات دیتابیس است.
 - `tauri-web/src-tauri/src/lib.rs` adapter فرمان‌های Tauri و سازگاری با UI را نگه می‌دارد.
-- مسیر دیتابیس Tauri تغییر نکرده: `~/.local/share/com.herotux.nabz/nabz.sqlite3`.
+- مسیر canonical دیتابیس Tauri: `~/.local/share/com.herotux.nabz/nabz.sqlite3`.
 - شناسهٔ پایدار برنامه `com.herotux.nabz` است؛ دیتابیس Tauri قبلی از `com.herotux.nabz.webprototype` با SQLite backup به مسیر جدید منتقل می‌شود و فایل مبدأ باقی می‌ماند.
 
 ## نسخه‌بندی schema
