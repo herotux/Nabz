@@ -283,6 +283,16 @@ fn export_data(db:State<'_,Db>)->Result<Value,String>{
   "contact_name":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"method":r.get::<_,String>(5)?,
   "payment_date":r.get::<_,String>(6)?,"notes":r.get::<_,String>(7)?
 })))?;
+ let invoice_voids=collect_json_rows(&c,"SELECT id,invoice_id,kind,void_date,cash_refund,credit_refund,notes FROM invoice_voids",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,
+  "void_date":r.get::<_,String>(3)?,"cash_refund":r.get::<_,i64>(4)?,
+  "credit_refund":r.get::<_,i64>(5)?,"notes":r.get::<_,String>(6)?
+})))?;
+ let payment_allocations=collect_json_rows(&c,"SELECT id,payment_id,invoice_id,contact_id,allocation_type,amount,created_at FROM payment_allocations",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"payment_id":r.get::<_,Option<i64>>(1)?,"invoice_id":r.get::<_,Option<i64>>(2)?,
+  "contact_id":r.get::<_,Option<i64>>(3)?,"allocation_type":r.get::<_,String>(4)?,
+  "amount":r.get::<_,i64>(5)?,"created_at":r.get::<_,String>(6)?
+})))?;
  let settings=collect_json_rows(&c,"SELECT key,value FROM settings",|r|Ok(json!({"key":r.get::<_,String>(0)?,"value":r.get::<_,String>(1)?})))?;
  let sales_returns=collect_json_rows(&c,"SELECT id,invoice_id,return_date,amount,notes,credit_refund FROM sales_returns",|r|Ok(json!({
   "id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"return_date":r.get::<_,String>(2)?,
@@ -321,7 +331,8 @@ fn export_data(db:State<'_,Db>)->Result<Value,String>{
 })))?;
  Ok(json!({
   "format":"nabz-backup-v2","contacts":contacts,"products":products,"invoices":invoices,
-  "invoice_items":invoice_items,"payments":payments,"settings":settings,
+  "invoice_items":invoice_items,"payments":payments,"invoice_voids":invoice_voids,
+  "payment_allocations":payment_allocations,"settings":settings,
   "sales_returns":sales_returns,"sales_return_items":sales_return_items,"sales_refunds":sales_refunds,
   "purchase_returns":purchase_returns,"purchase_return_items":purchase_return_items,"purchase_refunds":purchase_refunds,
   "inventory_adjustments":inventory_adjustments,"expenses":expenses
@@ -337,7 +348,7 @@ fn validate_backup(data:&Value)->Result<(),String>{
  for key in ["contacts","products","invoices","invoice_items","payments","settings"]{
   if !data.get(key).and_then(Value::as_array).is_some(){return Err(format!("ساختار پشتیبان ناقص است: {key}"))}
  }
- let optional_keys=["sales_returns","sales_return_items","sales_refunds","purchase_returns","purchase_return_items","purchase_refunds","inventory_adjustments","expenses"];
+ let optional_keys=["sales_returns","sales_return_items","sales_refunds","purchase_returns","purchase_return_items","purchase_refunds","inventory_adjustments","expenses","invoice_voids","payment_allocations"];
  for key in optional_keys{
   if data.get(key).is_some()&&!data[key].is_array(){return Err(format!("ساختار بخش {key} در پشتیبان معتبر نیست"))}
  }
@@ -386,7 +397,7 @@ fn validate_backup(data:&Value)->Result<(),String>{
   Ok(out)
  };
  let contact_ids=ids("contacts")?;let product_ids=ids("products")?;let invoice_ids=ids("invoices")?;
- let item_ids=ids("invoice_items")?;let payment_ids=ids("payments")?;let _=payment_ids;
+ let item_ids=ids("invoice_items")?;let payment_ids=ids("payments")?;
  let mut codes=HashSet::new();
  for p in data["products"].as_array().unwrap(){if !codes.insert(p["code"].as_str().unwrap_or("")){return Err("کد کالا در فایل پشتیبان تکراری است".into())}}
  let mut numbers=HashSet::new();let mut subtotals:HashMap<i64,i64>=HashMap::new();
@@ -414,6 +425,34 @@ fn validate_backup(data:&Value)->Result<(),String>{
   let cc=contact.get("customer_credit_balance").and_then(Value::as_i64).unwrap_or(0);
   let sc=contact.get("supplier_credit_balance").and_then(Value::as_i64).unwrap_or(0);
   if normalize_contact_kind(kind).is_none()||bal<0||cc<0||sc<0||(normalize_contact_kind(kind)==Some("both")&&bal!=0){return Err("نوع یا ماندهٔ افتتاحیهٔ طرف‌حساب معتبر نیست".into())}
+ }
+ let mut void_invoice_ids=HashSet::new();
+ for row in backup_optional_array(data,"invoice_voids"){
+  let invoice_id=row.get("invoice_id").and_then(Value::as_i64).unwrap_or(0);
+  if !invoice_ids.contains(&invoice_id)||!void_invoice_ids.insert(invoice_id)
+   ||!["sale","purchase"].contains(&row.get("kind").and_then(Value::as_str).unwrap_or(""))
+   ||row.get("cash_refund").and_then(Value::as_i64).unwrap_or(-1)<0
+   ||row.get("credit_refund").and_then(Value::as_i64).unwrap_or(-1)<0{
+    return Err("رکورد ابطال فاکتور در پشتیبان معتبر نیست".into());
+  }
+ }
+ for row in backup_optional_array(data,"payment_allocations"){
+  let payment_id=row.get("payment_id").and_then(Value::as_i64);
+  let invoice_id=row.get("invoice_id").and_then(Value::as_i64);
+  let contact_id=row.get("contact_id").and_then(Value::as_i64);
+  let kind=row.get("allocation_type").and_then(Value::as_str).unwrap_or("");
+  let valid=match kind{
+   "invoice"=>payment_id.is_some()&&invoice_id.is_some(),
+   "opening_balance"|"advance"=>payment_id.is_some()&&invoice_id.is_none()&&contact_id.is_some(),
+   "advance_application"=>payment_id.is_none()&&invoice_id.is_some()&&contact_id.is_some(),
+   _=>false
+  };
+  if !valid||payment_id.is_some_and(|id|!payment_ids.contains(&id))
+    ||invoice_id.is_some_and(|id|!invoice_ids.contains(&id))
+    ||contact_id.is_some_and(|id|!contact_ids.contains(&id))
+    ||row.get("amount").and_then(Value::as_i64).unwrap_or(0)<=0{
+    return Err("رکورد تخصیص دریافت/پرداخت در پشتیبان معتبر نیست".into());
+  }
  }
  for key in ["sales_returns","purchase_returns"]{
   for row in backup_optional_array(data,key){
@@ -464,6 +503,7 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
  tx.execute_batch(
   "DROP TRIGGER IF EXISTS inventory_adjustments_no_update;
    DROP TRIGGER IF EXISTS inventory_adjustments_no_delete;
+   DELETE FROM payment_allocations; DELETE FROM invoice_voids;
    DELETE FROM sales_return_items; DELETE FROM sales_refunds; DELETE FROM sales_returns;
    DELETE FROM purchase_return_items; DELETE FROM purchase_refunds; DELETE FROM purchase_returns;
    DELETE FROM inventory_adjustments; DELETE FROM expenses;
@@ -510,6 +550,20 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
    params![x["id"].as_i64(),x["kind"].as_str().unwrap_or("receipt"),x["contact_id"].as_i64(),
     x["contact_name"].as_str().unwrap_or(""),x["amount"].as_i64().unwrap_or(0),x["method"].as_str().unwrap_or("cash"),
     x["payment_date"].as_str().unwrap_or(""),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"invoice_voids"){
+  tx.execute("INSERT INTO invoice_voids(id,invoice_id,kind,void_date,cash_refund,credit_refund,notes)
+   VALUES(?1,?2,?3,?4,?5,?6,?7)",
+   params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["kind"].as_str().unwrap_or("sale"),
+    x["void_date"].as_str().unwrap_or(""),x["cash_refund"].as_i64().unwrap_or(0),
+    x["credit_refund"].as_i64().unwrap_or(0),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"payment_allocations"){
+  tx.execute("INSERT INTO payment_allocations(id,payment_id,invoice_id,contact_id,allocation_type,amount,created_at)
+   VALUES(?1,?2,?3,?4,?5,?6,?7)",
+   params![x["id"].as_i64(),x["payment_id"].as_i64(),x["invoice_id"].as_i64(),x["contact_id"].as_i64(),
+    x["allocation_type"].as_str().unwrap_or("invoice"),x["amount"].as_i64().unwrap_or(0),
+    x["created_at"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
  }
  for x in data["settings"].as_array().unwrap(){
   tx.execute("INSERT INTO settings(key,value) VALUES(?1,?2)",params![x["key"].as_str().unwrap_or(""),x["value"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
