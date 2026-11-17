@@ -457,6 +457,7 @@ pub fn return_sale_items(
         }
         let (item_id, product_id, original_qty, unit_price, item_name, historical_cost) =
             matches.into_iter().next().expect("one match");
+        let historical_cost = historical_cost.ok_or_else(|| format!("بهای تمام‌شدهٔ تاریخی «{item_name}» موجود نیست؛ برگشت امن ممکن نیست"))?;
         if product_id <= 0 {
             return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ برگشت ممکن نیست"));
         }
@@ -664,7 +665,7 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
     };
     if items.is_empty() { return Err("فاکتور ردیف ندارد؛ ابطال خودکار ممکن نیست".into()); }
 
-    for (product_id, item_name, quantity, _unit_cost, quantity_before, average_cost_before) in items {
+    for (product_id, item_name, quantity, _unit_cost, quantity_before, average_cost_before) in items.into_iter().rev() {
         if quantity <= 0 { return Err(format!("تعداد نامعتبر برای «{item_name}»؛ ابطال لغو شد")); }
         let Some(product_id) = product_id else {
             if kind == "sale" && item_name.starts_with("خدمت:") { continue; }
