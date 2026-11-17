@@ -322,8 +322,8 @@ pub fn create_invoice_with_payment_split(
         if is_service {
             let service_name = lookup.strip_prefix("خدمت:").unwrap_or("").trim();
             tx.execute(
-                "INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before)
-                 VALUES(?1,NULL,?2,?3,?4,?5,NULL,NULL,NULL)",
+                "INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before,buy_price_before)
+                 VALUES(?1,NULL,?2,?3,?4,?5,NULL,NULL,NULL,NULL)",
                 params![invoice_id, format!("خدمت: {service_name}"), quantity, unit_price, line_total],
             ).map_err(|e| e.to_string())?;
             continue;
@@ -338,13 +338,13 @@ pub fn create_invoice_with_payment_split(
         };
 
         let product: Option<(i64, i64, String, i64)> = tx.query_row(
-            "SELECT id,quantity,name,average_cost FROM products
+            "SELECT id,quantity,name,average_cost,buy_price FROM products
              WHERE name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1 LIMIT 1",
             [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         ).optional().map_err(|e| e.to_string())?;
 
-        let (product_id, item_name, unit_cost, quantity_before, average_cost_before) =
-            if let Some((id, stock, name, average_cost)) = product {
+        let (product_id, item_name, unit_cost, quantity_before, average_cost_before, buy_price_before) =
+            if let Some((id, stock, name, average_cost, buy_price)) = product {
                 if input.kind == "sale" {
                     if stock < quantity {
                         return Err(format!("موجودی «{lookup}» کافی نیست؛ موجودی فعلی: {stock}"));
@@ -352,14 +352,14 @@ pub fn create_invoice_with_payment_split(
                     let changed = tx.execute("UPDATE products SET quantity=quantity-?1 WHERE id=?2 AND quantity>=?1",
                         params![quantity, id]).map_err(|e| e.to_string())?;
                     if changed != 1 { return Err(format!("موجودی «{lookup}» کافی نیست")); }
-                    (id, name, Some(average_cost), Some(stock), Some(average_cost))
+                    (id, name, Some(average_cost), Some(stock), Some(average_cost), Some(buy_price))
                 } else {
                     let next_quantity = stock.checked_add(quantity)
                         .ok_or_else(|| format!("موجودی «{lookup}» بیش از ظرفیت عددی است"))?;
                     let next_average = weighted_average_cost(stock, average_cost, quantity, inventory_unit_cost)?;
                     tx.execute("UPDATE products SET quantity=?1,buy_price=?2,average_cost=?3 WHERE id=?4",
                         params![next_quantity, unit_price, next_average, id]).map_err(|e| e.to_string())?;
-                    (id, name, Some(inventory_unit_cost), Some(stock), Some(average_cost))
+                    (id, name, Some(inventory_unit_cost), Some(stock), Some(average_cost), Some(buy_price))
                 }
             } else if input.kind == "purchase" {
                 let code = format!("AUTO-{}", tx.query_row(
@@ -369,16 +369,16 @@ pub fn create_invoice_with_payment_split(
                     "INSERT INTO products(name,code,buy_price,sell_price,quantity,average_cost) VALUES(?1,?2,?3,?3,?4,?5)",
                     params![lookup, code, unit_price, quantity, inventory_unit_cost],
                 ).map_err(|e| e.to_string())?;
-                (tx.last_insert_rowid(), lookup, Some(inventory_unit_cost), Some(0), Some(0))
+                (tx.last_insert_rowid(), lookup, Some(inventory_unit_cost), Some(0), Some(0), Some(0))
             } else {
                 return Err(format!("کالای «{lookup}» در انبار پیدا نشد؛ ابتدا کالا را ثبت کنید"));
             };
 
         tx.execute(
-            "INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            "INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before,buy_price_before)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
             params![invoice_id, product_id, item_name, quantity, unit_price, line_total,
-                unit_cost, quantity_before, average_cost_before],
+                unit_cost, quantity_before, average_cost_before, buy_price_before],
         ).map_err(|e| e.to_string())?;
     }
 
@@ -654,18 +654,19 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
 
     let items = {
         let mut statement = tx.prepare(
-            "SELECT product_id,item_name,quantity,unit_cost,quantity_before,average_cost_before
+            "SELECT product_id,item_name,quantity,unit_price,unit_cost,quantity_before,average_cost_before,buy_price_before
              FROM invoice_items WHERE invoice_id=?1 ORDER BY id"
         ).map_err(|e| e.to_string())?;
         let rows = statement.query_map([invoice_id], |r| Ok((
             r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?,
-            r.get::<_, Option<i64>>(3)?, r.get::<_, Option<i64>>(4)?, r.get::<_, Option<i64>>(5)?
+            r.get::<_, i64>(3)?, r.get::<_, Option<i64>>(4)?, r.get::<_, Option<i64>>(5)?,
+            r.get::<_, Option<i64>>(6)?, r.get::<_, Option<i64>>(7)?
         ))).map_err(|e| e.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
     };
     if items.is_empty() { return Err("فاکتور ردیف ندارد؛ ابطال خودکار ممکن نیست".into()); }
 
-    for (product_id, item_name, quantity, _unit_cost, quantity_before, average_cost_before) in items.into_iter().rev() {
+    for (product_id, item_name, quantity, unit_price, unit_cost, quantity_before, average_cost_before, buy_price_before) in items.into_iter().rev() {
         if quantity <= 0 { return Err(format!("تعداد نامعتبر برای «{item_name}»؛ ابطال لغو شد")); }
         let Some(product_id) = product_id else {
             if kind == "sale" && item_name.starts_with("خدمت:") { continue; }
@@ -673,6 +674,8 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
         };
         let previous_quantity = quantity_before.ok_or_else(|| format!("نسخهٔ قدیمی ردیف «{item_name}» snapshot موجودی ندارد؛ ابطال خودکار امن نیست"))?;
         let previous_average = average_cost_before.ok_or_else(|| format!("نسخهٔ قدیمی ردیف «{item_name}» snapshot بهای میانگین ندارد؛ ابطال خودکار امن نیست"))?;
+        let previous_buy_price = buy_price_before.ok_or_else(|| format!("نسخهٔ قدیمی ردیف «{item_name}» snapshot قیمت خرید ندارد؛ ابطال خودکار امن نیست"))?;
+        let historical_unit_cost = unit_cost.ok_or_else(|| format!("ردیف «{item_name}» snapshot بهای تمام‌شده ندارد؛ ابطال خودکار امن نیست"))?;
 
         let later_invoice_movements: i64 = tx.query_row(
             "SELECT COUNT(*) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
@@ -692,9 +695,9 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
             return Err(format!("پس از ثبت فاکتور، گردش دیگری برای «{item_name}» وجود دارد؛ برای جلوگیری از تغییر نادرست میانگین بهای تمام‌شده، ابطال خودکار مجاز نیست"));
         }
 
-        let (current_quantity, _current_average): (i64, i64) = tx.query_row(
-            "SELECT quantity,average_cost FROM products WHERE id=?1", [product_id],
-            |r| Ok((r.get(0)?,r.get(1)?))
+        let (current_quantity, current_average, current_buy_price): (i64, i64, i64) = tx.query_row(
+            "SELECT quantity,average_cost,buy_price FROM products WHERE id=?1", [product_id],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
         ).optional().map_err(|e| e.to_string())?
             .ok_or(format!("کالای «{item_name}» پیدا نشد؛ ابطال امن ممکن نیست"))?;
         let expected_quantity = if kind == "sale" {
@@ -702,11 +705,17 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
         } else {
             previous_quantity.checked_add(quantity).ok_or("snapshot موجودی خرید بیش از ظرفیت عددی است")?
         };
-        if current_quantity != expected_quantity {
-            return Err(format!("موجودی «{item_name}» بعد از فاکتور تغییر کرده؛ ابطال امن متوقف شد"));
+        let expected_average = if kind == "sale" {
+            previous_average
+        } else {
+            weighted_average_cost(previous_quantity, previous_average, quantity, historical_unit_cost)?
+        };
+        let expected_buy_price = if kind == "sale" { previous_buy_price } else { unit_price };
+        if current_quantity != expected_quantity || current_average != expected_average || current_buy_price != expected_buy_price {
+            return Err(format!("موجودی یا بهای خرید «{item_name}» بعد از فاکتور تغییر کرده؛ ابطال امن متوقف شد"));
         }
-        tx.execute("UPDATE products SET quantity=?1,average_cost=?2 WHERE id=?3",
-            params![previous_quantity, previous_average, product_id]).map_err(|e| e.to_string())?;
+        tx.execute("UPDATE products SET quantity=?1,average_cost=?2,buy_price=?3 WHERE id=?4",
+            params![previous_quantity, previous_average, previous_buy_price, product_id]).map_err(|e| e.to_string())?;
     }
 
     if credit_applied > 0 {
