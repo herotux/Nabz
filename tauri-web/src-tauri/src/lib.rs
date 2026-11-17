@@ -889,4 +889,40 @@ mod accounting_tests {
   assert_eq!(scalar(&c,"SELECT COUNT(*) FROM invoices"),0);
   assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),10);
  }
+ #[test]
+ fn tauri_invoice_adapter_uses_shared_cost_snapshot_and_consumes_customer_credit(){
+  let mut c=database();
+  c.execute("UPDATE contacts SET customer_credit_balance=30 WHERE name='Ali'",[]).unwrap();
+  let invoice=save_invoice_with_connection(json!({"kind":"sale","customer":"Ali","payment_status":"paid","items":[{"item":"Pen","qty":1,"price":20}],"discount":0,"date":"2026-11-17"}),&mut c).unwrap();
+  let (paid,credit,cash):(i64,i64,i64)=c.query_row(
+   "SELECT i.paid,i.credit_applied,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE kind='receipt' AND notes LIKE '%فاکتور فروش%') FROM invoices i WHERE i.id=?1",
+   [invoice],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+  ).unwrap();
+  let (unit_cost,qty_before,avg_before):(Option<i64>,Option<i64>,Option<i64>)=c.query_row(
+   "SELECT unit_cost,quantity_before,average_cost_before FROM invoice_items WHERE invoice_id=?1",[invoice],
+   |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+  ).unwrap();
+  assert_eq!((paid,credit,cash),(20,20,0));
+  assert_eq!((unit_cost,qty_before,avg_before),(Some(10),Some(10),Some(10)));
+  assert_eq!(scalar(&c,"SELECT customer_credit_balance FROM contacts WHERE name='Ali'"),10);
+  core_void_invoice(&mut c,invoice).unwrap();
+  assert_eq!(scalar(&c,"SELECT customer_credit_balance FROM contacts WHERE name='Ali'"),30);
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),10);
+  assert_eq!(scalar(&c,&format!("SELECT voided FROM invoices WHERE id={invoice}")),1);
+ }
+
+ #[test]
+ fn tauri_invoice_adapter_keeps_old_cogs_when_later_purchase_changes_average_cost(){
+  let mut c=database();
+  c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Supplier','supplier',0)",[]).unwrap();
+  let sale=save_invoice_with_connection(json!({"kind":"sale","customer":"Ali","payment_status":"credit","items":[{"item":"PEN","qty":2,"price":20}],"discount":0,"date":"2026-11-16"}),&mut c).unwrap();
+  let purchase=save_invoice_with_connection(json!({"kind":"purchase","customer":"Supplier","items":[{"item":"PEN","qty":2,"price":30}],"discount":0,"date":"2026-11-17"}),&mut c).unwrap();
+  let cost:i64=c.query_row("SELECT unit_cost FROM invoice_items WHERE invoice_id=?1",[sale],|r|r.get(0)).unwrap();
+  let average:i64=scalar(&c,"SELECT average_cost FROM products WHERE code='PEN'");
+  let purchase_cost:i64=c.query_row("SELECT unit_cost FROM invoice_items WHERE invoice_id=?1",[purchase],|r|r.get(0)).unwrap();
+  assert_eq!(cost,10);
+  assert_eq!(purchase_cost,30);
+  assert!(average>10);
+ }
+
 }
