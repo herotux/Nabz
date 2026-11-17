@@ -1657,6 +1657,10 @@ mod tests {
     #[test]
     fn voiding_a_purchase_restores_previous_quantity_average_and_buy_price() {
         let mut connection = database();
+        create_product(&connection, &ProductInput {
+            name: "Pen".into(), code: "PEN".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 10, min_quantity: 0,
+        }).unwrap();
         create_contact(&connection, &ContactInput {
             name: "تأمین‌کننده ابطال".into(), kind: "supplier".into(),
             phone: String::new(), opening_balance: 0, notes: String::new(),
