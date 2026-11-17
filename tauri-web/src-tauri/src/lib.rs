@@ -272,11 +272,11 @@ fn export_data(db:State<'_,Db>)->Result<Value,String>{
   "paid":r.get::<_,i64>(9)?,"notes":r.get::<_,String>(10)?,"voided":r.get::<_,i64>(11)?,
   "credit_applied":r.get::<_,i64>(12)?
 })))?;
- let invoice_items=collect_json_rows(&c,"SELECT id,invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before FROM invoice_items",|r|Ok(json!({
+ let invoice_items=collect_json_rows(&c,"SELECT id,invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before,buy_price_before FROM invoice_items",|r|Ok(json!({
   "id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"product_id":r.get::<_,Option<i64>>(2)?,
   "item_name":r.get::<_,String>(3)?,"quantity":r.get::<_,i64>(4)?,"unit_price":r.get::<_,i64>(5)?,
   "line_total":r.get::<_,i64>(6)?,"unit_cost":r.get::<_,Option<i64>>(7)?,
-  "quantity_before":r.get::<_,Option<i64>>(8)?,"average_cost_before":r.get::<_,Option<i64>>(9)?
+  "quantity_before":r.get::<_,Option<i64>>(8)?,"average_cost_before":r.get::<_,Option<i64>>(9)?,"buy_price_before":r.get::<_,Option<i64>>(10)?
 })))?;
  let payments=collect_json_rows(&c,"SELECT id,kind,contact_id,contact_name,amount,method,payment_date,notes FROM payments",|r|Ok(json!({
   "id":r.get::<_,i64>(0)?,"kind":r.get::<_,String>(1)?,"contact_id":r.get::<_,Option<i64>>(2)?,
@@ -369,7 +369,8 @@ fn validate_backup(data:&Value)->Result<(),String>{
       &&x["unit_price"].as_i64().unwrap_or(-1)>=0&&backup_has_int(x,"line_total")&&x["line_total"].as_i64().unwrap_or(-1)>=0
       &&(x.get("unit_cost").is_none()||x["unit_cost"].is_null()||x["unit_cost"].as_i64().unwrap_or(-1)>=0)
       &&(x.get("quantity_before").is_none()||x["quantity_before"].is_null()||x["quantity_before"].as_i64().unwrap_or(-1)>=0)
-      &&(x.get("average_cost_before").is_none()||x["average_cost_before"].is_null()||x["average_cost_before"].as_i64().unwrap_or(-1)>=0)),
+      &&(x.get("average_cost_before").is_none()||x["average_cost_before"].is_null()||x["average_cost_before"].as_i64().unwrap_or(-1)>=0)
+      &&(x.get("buy_price_before").is_none()||x["buy_price_before"].is_null()||x["buy_price_before"].as_i64().unwrap_or(-1)>=0)),
     "payments"=>!(backup_has_int(x,"id")&&backup_has_string(x,"kind")&&["receipt","payment"].contains(&x["kind"].as_str().unwrap_or(""))
       &&backup_has_optional_int(x,"contact_id")&&backup_has_string(x,"contact_name")&&backup_has_int(x,"amount")
       &&x["amount"].as_i64().unwrap_or(0)>0&&backup_has_string(x,"method")&&backup_has_string(x,"payment_date")&&backup_has_string(x,"notes")),
@@ -496,12 +497,12 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
     x.get("credit_applied").and_then(Value::as_i64).unwrap_or(0)]).map_err(|e|e.to_string())?;
  }
  for x in data["invoice_items"].as_array().unwrap(){
-  tx.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before)
-   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+  tx.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before,buy_price_before)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
    params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["product_id"].as_i64(),x["item_name"].as_str().unwrap_or(""),
     x["quantity"].as_i64().unwrap_or(0),x["unit_price"].as_i64().unwrap_or(0),x["line_total"].as_i64().unwrap_or(0),
     x.get("unit_cost").and_then(Value::as_i64),x.get("quantity_before").and_then(Value::as_i64),
-    x.get("average_cost_before").and_then(Value::as_i64)]).map_err(|e|e.to_string())?;
+    x.get("average_cost_before").and_then(Value::as_i64),x.get("buy_price_before").and_then(Value::as_i64)]).map_err(|e|e.to_string())?;
  }
  for x in data["payments"].as_array().unwrap(){
   tx.execute("INSERT INTO payments(id,kind,contact_id,contact_name,amount,method,payment_date,notes)
