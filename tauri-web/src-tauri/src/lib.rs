@@ -1071,6 +1071,44 @@ mod accounting_tests {
  }
 
  #[test]
+ fn contact_ledger_exposes_debit_credit_returns_and_payment_allocations() {
+  let mut c=database();
+  c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Vendor Ledger','supplier',15)",[]).unwrap();
+  let sale=save_invoice_with_connection(json!({"kind":"sale","customer":"Ali","payment_status":"paid","method":"cash","items":[{"item":"Pen","qty":1,"price":50}],"discount":0,"date":"2026-11-17"}),&mut c).unwrap();
+  c.execute("UPDATE invoices SET total=40,paid=45 WHERE id=?1",[sale]).unwrap();
+  c.execute("INSERT INTO sales_returns(invoice_id,return_date,amount,notes,credit_refund) VALUES(?1,'2026-11-17',10,'برگشت مشتری',0)",[sale]).unwrap();
+  let sale_return=c.last_insert_rowid();
+  c.execute("INSERT INTO sales_refunds(invoice_id,return_id,refund_date,amount,method,notes) VALUES(?1,?2,'2026-11-17',5,'cash','بازپرداخت مشتری')",params![sale,sale_return]).unwrap();
+
+  let purchase=save_invoice_with_connection(json!({"kind":"purchase","customer":"Vendor Ledger","items":[{"item":"Pen","qty":1,"price":80}],"discount":0,"date":"2026-11-17"}),&mut c).unwrap();
+  save_payment_with_connection(json!({"kind":"payment","customer":"Vendor Ledger","amount":80,"method":"cash","date":"2026-11-17"}),&mut c).unwrap();
+  c.execute("UPDATE invoices SET total=60,paid=70 WHERE id=?1",[purchase]).unwrap();
+  c.execute("INSERT INTO purchase_returns(invoice_id,return_date,amount,notes,credit_refund) VALUES(?1,'2026-11-17',20,'مرجوعی تأمین‌کننده',0)",[purchase]).unwrap();
+  let purchase_return=c.last_insert_rowid();
+  c.execute("INSERT INTO purchase_refunds(invoice_id,return_id,refund_date,amount,method,notes) VALUES(?1,?2,'2026-11-17',10,'cash','بازپرداخت تأمین‌کننده')",params![purchase,purchase_return]).unwrap();
+
+  let customer_id:i64=c.query_row("SELECT id FROM contacts WHERE name='Ali'",[],|r|r.get(0)).unwrap();
+  let customer=contact_ledger_with_connection(customer_id,&c).unwrap();
+  let customer_invoice=customer["entries"].as_array().unwrap().iter().find(|x|x["entry_type"]=="invoice").unwrap();
+  let customer_payment=customer["entries"].as_array().unwrap().iter().find(|x|x["entry_type"]=="payment").unwrap();
+  assert_eq!((customer_invoice["debit"].as_i64(),customer_invoice["credit"].as_i64()),(Some(50),Some(0)));
+  assert_eq!((customer_payment["debit"].as_i64(),customer_payment["credit"].as_i64()),(Some(0),Some(50)));
+  assert_eq!(customer["sales_returns"][0]["credit"].as_i64(),Some(10));
+  assert_eq!(customer["refunds"][0]["debit"].as_i64(),Some(5));
+  assert_eq!(customer["payment_allocations"][0]["allocation_type"].as_str(),Some("invoice"));
+
+  let supplier_id:i64=c.query_row("SELECT id FROM contacts WHERE name='Vendor Ledger'",[],|r|r.get(0)).unwrap();
+  let supplier=contact_ledger_with_connection(supplier_id,&c).unwrap();
+  let supplier_invoice=supplier["entries"].as_array().unwrap().iter().find(|x|x["entry_type"]=="invoice").unwrap();
+  let supplier_payment=supplier["entries"].as_array().unwrap().iter().find(|x|x["entry_type"]=="payment").unwrap();
+  assert_eq!((supplier_invoice["debit"].as_i64(),supplier_invoice["credit"].as_i64()),(Some(0),Some(80)));
+  assert_eq!((supplier_payment["debit"].as_i64(),supplier_payment["credit"].as_i64()),(Some(80),Some(0)));
+  assert_eq!(supplier["purchase_returns"][0]["debit"].as_i64(),Some(20));
+  assert_eq!(supplier["refunds"][0]["credit"].as_i64(),Some(10));
+  assert_eq!(supplier["ledger_balances"]["opening_credit"].as_i64(),Some(15));
+ }
+
+ #[test]
  fn wrong_contact_role_is_rejected_without_financial_or_stock_side_effects() {
   let mut c=database();
   let purchase=json!({"kind":"purchase","customer":"Ali","items":[{"item":"Pen","qty":2,"price":10}],"discount":0});
