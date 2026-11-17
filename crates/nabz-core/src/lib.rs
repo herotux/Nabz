@@ -636,7 +636,7 @@ mod tests {
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         let columns: i64 = connection.query_row(
             "SELECT COUNT(*) FROM pragma_table_info('invoice_items')
-             WHERE name IN ('unit_cost','quantity_before','average_cost_before')",
+             WHERE name IN ('unit_cost','quantity_before','average_cost_before','buy_price_before')",
             [], |r| r.get(0)
         ).unwrap();
         let credit: i64 = connection.query_row(
@@ -645,7 +645,7 @@ mod tests {
             [], |r| r.get(0)
         ).unwrap();
         assert_eq!(version, 7);
-        assert_eq!(columns, 3);
+        assert_eq!(columns, 4);
         assert_eq!(credit, 2);
     }
 
