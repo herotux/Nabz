@@ -244,7 +244,28 @@ function ProductsPage({products,query,setQuery,busy,onAdd,onDelete}:{products:Pr
 }
 function MiniStat({label,value,icon:Icon}:{label:string;value:number;icon:typeof Boxes}){return <div className="mini-stat"><i><Icon size={18}/></i><span>{label}</span><b>{money(value)}</b></div>}
 function ReportsPage({summary}:{summary:Summary}){
- return <><PageHeading title="گزارش‌ها" subtitle="خلاصه عملکرد مالی و موجودی فروشگاه"/><div className="report-grid">{[{label:'فروش امروز',value:summary.sales_today},{label:'دریافت امروز',value:summary.receipts_today},{label:'بدهی مشتریان',value:summary.customer_balance},{label:'ارزش موجودی',value:summary.inventory_value}].map(x=><div className="surface report-tile" key={x.label}><span>{x.label}</span><b>{money(x.value)} <small>تومان</small></b></div>)}</div><div className="surface report-note"><BarChart3 size={22}/><div><b>گزارش‌های مبتنی بر داده واقعی</b><p>مقادیر این صفحه از پایگاه داده محلی محاسبه می‌شوند. گزارش بازه‌ای و گردش تفصیلی در مرحله بعدی بازطراحی منتقل می‌شوند.</p></div></div></>;
+ const [start,setStart]=useState(()=>new Date(Date.now()-29*86400000).toISOString().slice(0,10));
+ const [end,setEnd]=useState(isoToday);
+ const [report,setReport]=useState<Record<string,number|string>>({});
+ const [busy,setBusy]=useState(false);
+ const [error,setError]=useState('');
+ useEffect(()=>{
+  let active=true;setBusy(true);setError('');
+  invoke<Record<string,number|string>>('reports_period',{startDate:start,endDate:end})
+   .then(v=>{if(active)setReport(v)})
+   .catch(e=>{if(active)setError(String(e))})
+   .finally(()=>{if(active)setBusy(false)});
+  return ()=>{active=false};
+ },[start,end]);
+ const tiles=[
+  {label:'فروش در بازه',value:Number(report.sales_total||0)},
+  {label:'خرید در بازه',value:Number(report.purchases_total||0)},
+  {label:'دریافت در بازه',value:Number(report.receipts_total||0)},
+  {label:'پرداخت در بازه',value:Number(report.payments_total||0)},
+  {label:'بدهی فعلی مشتریان',value:summary.customer_balance},
+  {label:'ارزش فعلی موجودی',value:summary.inventory_value}
+ ];
+ return <><PageHeading title="گزارش‌ها" subtitle="گزارش مالی با بازه شمسی و محاسبه از پایگاه داده محلی"/><div className="surface report-filter"><JalaliDateField label="از تاریخ" value={start} onChange={setStart}/><JalaliDateField label="تا تاریخ" value={end} onChange={setEnd}/><div className="report-range-info">{busy?'در حال محاسبه گزارش…':error?'خطا در دریافت گزارش':money(Number(report.sales_count||0))+' فاکتور فروش · '+money(Number(report.purchases_count||0))+' فاکتور خرید'}</div></div>{error&&<div className="error-banner">{error}</div>}<div className="report-grid">{tiles.map(x=><div className="surface report-tile" key={x.label}><span>{x.label}</span><b>{money(x.value)} <small>تومان</small></b></div>)}</div><div className="surface report-note"><BarChart3 size={22}/><div><b>بازه گزارش</b><p>جمع فروش، خرید، دریافت و پرداخت فقط از تاریخ شروع تا تاریخ پایان انتخاب‌شده محاسبه می‌شود. مانده مشتریان و ارزش موجودی، وضعیت فعلی هستند و به بازه تاریخی محدود نمی‌شوند.</p></div></div></>;
 }
 function PrintingPage({notify}:{notify:(s:string)=>void}){
  const [barcode,setBarcode]=useState('626000001');
