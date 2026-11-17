@@ -1,17 +1,20 @@
-name: Nabz Tauri Web CI
+name: Nabz Tauri / Arch CI
 
 on:
   push:
     branches:
       - main
-      - tauri-web-prototype
       - ui/react-tauri-redesign
     paths:
       - "tauri-web/**"
+      - "docs/architecture/**"
+      - "README.md"
       - ".github/workflows/tauri-web-ci.yml"
   pull_request:
     paths:
       - "tauri-web/**"
+      - "docs/architecture/**"
+      - "README.md"
       - ".github/workflows/tauri-web-ci.yml"
   workflow_dispatch:
 
@@ -19,11 +22,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: nabz-tauri-web-${{ github.ref }}
+  group: nabz-tauri-arch-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-and-build-linux:
+  test-and-build-arch:
     runs-on: ubuntu-22.04
     defaults:
       run:
@@ -89,10 +92,24 @@ jobs:
       - name: Build frontend and type-check
         run: npm run build
 
+      - name: Verify release versions are consistent
+        run: |
+          python3 - <<'PY'
+          import json, re, tomllib
+          from pathlib import Path
+          frontend = json.loads(Path("package.json").read_text())["version"]
+          tauri = json.loads(Path("src-tauri/tauri.conf.json").read_text())["version"]
+          cargo = tomllib.loads(Path("src-tauri/Cargo.toml").read_text())["package"]["version"]
+          pkgbuild = re.search(r"^pkgver=(.+)$", Path("packaging/arch/PKGBUILD").read_text(), re.M).group(1)
+          versions = {"package.json": frontend, "tauri.conf.json": tauri, "Cargo.toml": cargo, "PKGBUILD": pkgbuild}
+          print(versions)
+          assert len(set(versions.values())) == 1, "Version mismatch between app and Arch package"
+          PY
+
       - name: Run Rust and SQLite tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-      - name: Build optimized Linux executable
+      - name: Build optimized Tauri executable
         run: cargo build --release --manifest-path src-tauri/Cargo.toml --bin nabz-tauri
 
       - name: Prepare Arch package inputs
@@ -138,7 +155,7 @@ jobs:
           test -n "$(find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print -quit)"
           file packaging/arch/*.pkg.tar.zst
 
-      - name: Upload Manjaro / Arch installer
+      - name: Upload Arch / Manjaro package
         uses: actions/upload-artifact@v4
         with:
           name: nabz-manjaro-arch-x86_64
