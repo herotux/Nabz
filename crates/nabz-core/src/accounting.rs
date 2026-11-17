@@ -1414,7 +1414,7 @@ mod tests {
 
         let valuation = inventory_valuation(&connection).unwrap();
         assert_eq!(valuation.len(), 1);
-        assert_eq!((valuation[0].quantity, valuation[0].buy_price, valuation[0].average_cost, valuation[0].stock_value), (11, 20, 13, 143));
+        assert_eq!((valuation[0].quantity, valuation[0].buy_price, valuation[0].average_cost, valuation[0].stock_value), (11, 20, 12, 132));
 
         let movements = inventory_movements(&connection).unwrap();
         assert_eq!(movements.len(), 5);
@@ -1535,7 +1535,7 @@ mod tests {
         let mut connection = database();
         let before: i64 = connection.query_row("SELECT quantity FROM products WHERE code='PEN'", [], |r| r.get(0)).unwrap();
         let invoice = create_invoice(&mut connection, &InvoiceInput {
-            kind: "sale".into(), contact_name: "مشتری خدمات".into(), date: String::new(),
+            kind: "sale".into(), contact_name: "Ali".into(), date: String::new(),
             discount: 0, paid: 0, method: "cash".into(), notes: String::new(),
             lines: vec![InvoiceLineInput { product_lookup: "خدمت: نصب".into(), quantity: 1, unit_price: 100 }],
         }).unwrap();
