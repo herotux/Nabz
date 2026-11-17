@@ -1534,6 +1534,14 @@ mod tests {
     #[test]
     fn service_lines_do_not_touch_stock_or_receive_a_fake_cogs_snapshot() {
         let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "Ali".into(), kind: "customer".into(), phone: String::new(),
+            opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        create_product(&connection, &ProductInput {
+            name: "Pen".into(), code: "PEN".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 10, min_quantity: 0,
+        }).unwrap();
         let before: i64 = connection.query_row("SELECT quantity FROM products WHERE code='PEN'", [], |r| r.get(0)).unwrap();
         let invoice = create_invoice(&mut connection, &InvoiceInput {
             kind: "sale".into(), contact_name: "Ali".into(), date: String::new(),
@@ -1551,6 +1559,10 @@ mod tests {
     #[test]
     fn void_is_refused_after_a_later_stock_movement_and_does_not_guess_cost() {
         let mut connection = database();
+        create_product(&connection, &ProductInput {
+            name: "Pen".into(), code: "PEN".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 10, min_quantity: 0,
+        }).unwrap();
         create_contact(&connection, &ContactInput {
             name: "مشتری ابطال ناامن".into(), kind: "customer".into(),
             phone: String::new(), opening_balance: 0, notes: String::new(),
@@ -1573,6 +1585,14 @@ mod tests {
     #[test]
     fn voiding_a_credit_paid_sale_restores_the_customer_advance() {
         let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "Ali".into(), kind: "customer".into(), phone: String::new(),
+            opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        create_product(&connection, &ProductInput {
+            name: "Pen".into(), code: "PEN".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 10, min_quantity: 0,
+        }).unwrap();
         connection.execute("UPDATE contacts SET customer_credit_balance=30 WHERE name='Ali'", []).unwrap();
         let invoice = create_invoice_with_payment_split(&mut connection, &InvoiceInput {
             kind: "sale".into(), contact_name: "Ali".into(), date: "2026-11-17".into(),
@@ -1592,6 +1612,14 @@ mod tests {
     #[test]
     fn historical_sale_cost_does_not_change_after_a_later_purchase() {
         let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "Ali".into(), kind: "customer".into(), phone: String::new(),
+            opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        create_product(&connection, &ProductInput {
+            name: "Pen".into(), code: "PEN".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 10, min_quantity: 0,
+        }).unwrap();
         create_contact(&connection, &ContactInput {
             name: "تأمین‌کننده هزینه".into(), kind: "supplier".into(),
             phone: String::new(), opening_balance: 0, notes: String::new(),
