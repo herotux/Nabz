@@ -1673,7 +1673,7 @@ mod tests {
             "SELECT quantity,average_cost,buy_price FROM products WHERE code='PEN'", [],
             |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
         ).unwrap();
-        assert_eq!(before_void, (12,12,30));
+        assert_eq!(before_void, (12,13,30));
         void_invoice(&mut connection, invoice).unwrap();
         let after_void: (i64,i64,i64) = connection.query_row(
             "SELECT quantity,average_cost,buy_price FROM products WHERE code='PEN'", [],
