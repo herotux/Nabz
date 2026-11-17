@@ -398,6 +398,11 @@ fn validate_backup(data:&Value)->Result<(),String>{
  };
  let contact_ids=ids("contacts")?;let product_ids=ids("products")?;let invoice_ids=ids("invoices")?;
  let item_ids=ids("invoice_items")?;let payment_ids=ids("payments")?;
+ let invoice_kinds:HashMap<i64,String>=data["invoices"].as_array().unwrap().iter()
+  .map(|row|(row["id"].as_i64().unwrap(),row["kind"].as_str().unwrap_or("").to_owned())).collect();
+ let voided_invoices:HashSet<i64>=data["invoices"].as_array().unwrap().iter()
+  .filter(|row|row.get("voided").and_then(Value::as_i64).unwrap_or(0)==1)
+  .filter_map(|row|row["id"].as_i64()).collect();
  let mut codes=HashSet::new();
  for p in data["products"].as_array().unwrap(){if !codes.insert(p["code"].as_str().unwrap_or("")){return Err("کد کالا در فایل پشتیبان تکراری است".into())}}
  let mut numbers=HashSet::new();let mut subtotals:HashMap<i64,i64>=HashMap::new();
@@ -427,16 +432,23 @@ fn validate_backup(data:&Value)->Result<(),String>{
   if normalize_contact_kind(kind).is_none()||bal<0||cc<0||sc<0||(normalize_contact_kind(kind)==Some("both")&&bal!=0){return Err("نوع یا ماندهٔ افتتاحیهٔ طرف‌حساب معتبر نیست".into())}
  }
  let mut void_invoice_ids=HashSet::new();
+ let mut void_row_ids=HashSet::new();
  for row in backup_optional_array(data,"invoice_voids"){
+  let id=row.get("id").and_then(Value::as_i64).unwrap_or(0);
   let invoice_id=row.get("invoice_id").and_then(Value::as_i64).unwrap_or(0);
-  if !invoice_ids.contains(&invoice_id)||!void_invoice_ids.insert(invoice_id)
-   ||!["sale","purchase"].contains(&row.get("kind").and_then(Value::as_str).unwrap_or(""))
-   ||row.get("cash_refund").and_then(Value::as_i64).unwrap_or(-1)<0
-   ||row.get("credit_refund").and_then(Value::as_i64).unwrap_or(-1)<0{
+  let kind=row.get("kind").and_then(Value::as_str).unwrap_or("");
+  let cash_refund=row.get("cash_refund").and_then(Value::as_i64).unwrap_or(-1);
+  let credit_refund=row.get("credit_refund").and_then(Value::as_i64).unwrap_or(-1);
+  if id<=0||!void_row_ids.insert(id)||!invoice_ids.contains(&invoice_id)
+   ||!voided_invoices.contains(&invoice_id)||invoice_kinds.get(&invoice_id).map(String::as_str)!=Some(kind)
+   ||!void_invoice_ids.insert(invoice_id)||!["sale","purchase"].contains(&kind)
+   ||cash_refund<0||credit_refund<0||(kind=="purchase"&&cash_refund!=0){
     return Err("رکورد ابطال فاکتور در پشتیبان معتبر نیست".into());
   }
  }
+ let mut allocation_ids=HashSet::new();
  for row in backup_optional_array(data,"payment_allocations"){
+  let id=row.get("id").and_then(Value::as_i64).unwrap_or(0);
   let payment_id=row.get("payment_id").and_then(Value::as_i64);
   let invoice_id=row.get("invoice_id").and_then(Value::as_i64);
   let contact_id=row.get("contact_id").and_then(Value::as_i64);
@@ -447,9 +459,10 @@ fn validate_backup(data:&Value)->Result<(),String>{
    "advance_application"=>payment_id.is_none()&&invoice_id.is_some()&&contact_id.is_some(),
    _=>false
   };
-  if !valid||payment_id.is_some_and(|id|!payment_ids.contains(&id))
-    ||invoice_id.is_some_and(|id|!invoice_ids.contains(&id))
-    ||contact_id.is_some_and(|id|!contact_ids.contains(&id))
+  if id<=0||!allocation_ids.insert(id)||!valid
+    ||payment_id.is_some_and(|value|!payment_ids.contains(&value))
+    ||invoice_id.is_some_and(|value|!invoice_ids.contains(&value))
+    ||contact_id.is_some_and(|value|!contact_ids.contains(&value))
     ||row.get("amount").and_then(Value::as_i64).unwrap_or(0)<=0{
     return Err("رکورد تخصیص دریافت/پرداخت در پشتیبان معتبر نیست".into());
   }
