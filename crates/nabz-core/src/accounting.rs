@@ -1653,4 +1653,33 @@ mod tests {
     }
 
 
+    #[test]
+    fn voiding_a_purchase_restores_previous_quantity_average_and_buy_price() {
+        let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "تأمین‌کننده ابطال".into(), kind: "supplier".into(),
+            phone: String::new(), opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        let invoice = create_invoice(&mut connection, &InvoiceInput {
+            kind: "purchase".into(), contact_name: "تأمین‌کننده ابطال".into(),
+            date: "2026-11-17".into(), discount: 0, paid: 0, method: "cash".into(),
+            notes: String::new(),
+            lines: vec![
+                InvoiceLineInput { product_lookup: "PEN".into(), quantity: 1, unit_price: 20 },
+                InvoiceLineInput { product_lookup: "PEN".into(), quantity: 1, unit_price: 30 },
+            ],
+        }).unwrap();
+        let before_void: (i64,i64,i64) = connection.query_row(
+            "SELECT quantity,average_cost,buy_price FROM products WHERE code='PEN'", [],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+        ).unwrap();
+        assert_eq!(before_void, (12,12,30));
+        void_invoice(&mut connection, invoice).unwrap();
+        let after_void: (i64,i64,i64) = connection.query_row(
+            "SELECT quantity,average_cost,buy_price FROM products WHERE code='PEN'", [],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+        ).unwrap();
+        assert_eq!(after_void, (10,10,10));
+    }
+
 }
