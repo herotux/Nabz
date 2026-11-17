@@ -1,67 +1,62 @@
-# نبض | حسابداری شخصی
+# نبض | حسابداری فروشگاهی
 
-برنامهٔ سبک حسابداری شخصی با Rust، رابط فارسی راست‌چین، فونت فارسی Vazirmatn تعبیه‌شده، تاریخ شمسی و ذخیره‌سازی محلی SQLite.
+نبض یک نرم‌افزار حسابداری فروشگاهی فارسی و راست‌چین برای کسب‌وکارهای کوچک و متوسط است.
 
-## ویژگی‌ها
-- ثبت درآمد و هزینه به تومان
-- نسخهٔ فروشگاهی: کالا، SKU و بارکد، سبد فروش و کسر موجودی
-- ثبت فاکتور خرید و افزایش موجودی به‌صورت تراکنشی
-- ثبت مشتری و تأمین‌کننده، ثبت هزینه‌های فروشگاه و گزارش فروش/خرید/هزینه
-- خروجی CSV فروش‌ها و پشتیبان‌گیری محلی از پایگاه داده
-- تاریخ شمسی و ارقام فارسی
-- دسته‌بندی و یادداشت تراکنش
-- جست‌وجو، حذف، و جمع درآمد/هزینه/خالص
-- ذخیره‌سازی محلی در `~/.local/share/nabz/nabz.sqlite3`
-- بدون نیاز به حساب کاربری یا اینترنت هنگام اجرا
+## مسیر فنی قطعی
 
-## دریافت فایل نصب لینوکس
-هر بار که GitHub Actions ساخت را با موفقیت تمام کند، فایل‌های خروجی در بخش **Artifacts** همان اجرای workflow قرار می‌گیرند:
-[اجرای ساخت لینوکس](https://github.com/herotux/Nabz/actions/workflows/build-linux.yml)
+نسخهٔ فعال محصول با **React + TypeScript + Vite + Tauri 2 + Rust + SQLite** توسعه داده می‌شود.
 
-سه خروجی ساخته می‌شوند: **AppImage**، بستهٔ **Flatpak** و آرشیو قابل‌حمل. برای نصب Flatpak روی مانجارو، ابتدا مطمئن شو Flatpak نصب است و Flathub اضافه شده:
+- رابط کاربری: `tauri-web/src`
+- فرمان‌ها و دسترسی SQLite: `tauri-web/src-tauri`
+- بستهٔ لینوکس هدف: Arch/Manjaro با فرمت `.pkg.tar.zst`
+- وضعیت و نقشهٔ راه: [وضعیت پیاده‌سازی](tauri-web/IMPLEMENTATION_STATUS.md) و [فهرست کارها](tauri-web/TODO.md)
+- تصمیم‌های معماری: [Architecture decisions](docs/architecture/DECISIONS.md)
+- گزارش فاز صفر: [Phase zero](docs/architecture/PHASE_ZERO.md)
+
+## اجرای نسخهٔ توسعه
+
+پیش‌نیازها: Node.js 20 یا جدیدتر، Rust stable و پیش‌نیازهای Tauri 2 برای لینوکس.
 
 ```bash
-sudo pacman -S --needed flatpak
-flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install --user ./Nabz-x86_64.flatpak
+cd tauri-web
+npm install
+npm run tauri dev
 ```
 
-برای AppImage:
+برای بررسی frontend:
 
 ```bash
-chmod +x Nabz-x86_64.AppImage
-./Nabz-x86_64.AppImage
+cd tauri-web
+npm run build
 ```
 
-برای ساخت Release رسمی، یک تگ نسخه مانند `v0.1.0` ایجاد کنید؛ workflow فایل‌های نصب را به Release اضافه می‌کند.
-
-## نسخهٔ کسب‌وکار
-
-طرح نسخهٔ فروشگاهی سبک شامل کالا و بارکد، قیمت خرید و فروش، موجودی و هشدار کمبود، خرید از تأمین‌کننده، فروش سریع، برگشت کالا، حساب مشتری/تأمین‌کننده، هزینه‌های مغازه، گزارش سود، پشتیبان‌گیری، **چاپ فاکتور روی فیش‌زن ۵۸/۸۰ میلی‌متری و چاپگر A4، تولید و چاپ برچسب بارکد، و اسکنر USB** در [مشخصات نسخهٔ کسب‌وکار](docs/business-edition.md) ثبت شده است. این سند نقشهٔ راه است. نسخهٔ فعلی اکنون کالا و فروش بارکدی، ثبت خرید و ورود موجودی، ثبت طرف‌حساب، ثبت هزینهٔ فروشگاه، خلاصهٔ گزارش، خروجی CSV فروش‌ها و پشتیبان‌گیری محلی را دارد؛ سایر امکانات سند هنوز در صف توسعه‌اند.
-
-## نسخهٔ Raspberry Pi
-
-از workflow جداگانهٔ [Build Raspberry Pi packages](https://github.com/herotux/Nabz/actions/workflows/build-raspberry-pi.yml) دو آرشیو ARM ساخته می‌شود:
-
-- `Nabz-linux-aarch64-unknown-linux-gnu.tar.gz` — برای Raspberry Pi OS نسخهٔ ۶۴ بیتی.
-- `Nabz-linux-armv7-unknown-linux-gnueabihf.tar.gz` — برای Raspberry Pi OS نسخهٔ ۳۲ بیتی.
-
-پس از موفقیت workflow، آرشیو مناسب را از بخش **Artifacts** همان اجرای GitHub Actions دریافت و روی رزبری پای استخراج کن. این‌ها بسته‌های قابل‌حمل هستند، نه فایل AppImage یا بستهٔ Flatpak. ساخت برای ARM با شبیه‌سازی معماری انجام می‌شود؛ اجرای نهایی باید روی مدل رزبری پای و نسخهٔ Raspberry Pi OS مقصد آزمایش شود.
-
-## ساخت از سورس
-نیازمندی‌ها: Rust stable و وابستگی‌های توسعهٔ لینوکس برای `eframe`.
+برای ساخت باینری Tauri:
 
 ```bash
-./scripts/fetch-font.sh
-cargo test
-cargo run --release
+cargo build --release --manifest-path tauri-web/src-tauri/Cargo.toml --bin nabz-tauri
 ```
 
-## تست‌ها
-تست‌های واحد برای تبدیل تاریخ میلادی به شمسی، اعتبارسنجی تاریخ شمسی، ارقام فارسی و قالب‌بندی مبلغ در `cargo test` اجرا می‌شوند. هر push و pull request در GitHub Actions بررسی و ساخته می‌شود.
+## بستهٔ Arch / Manjaro
 
-## حریم خصوصی
-اطلاعات حسابداری به‌صورت محلی ذخیره می‌شوند و برنامه آن‌ها را به سرور ارسال نمی‌کند.
+گردش‌کار فعال GitHub Actions بستهٔ بومی Arch/Manjaro را می‌سازد و artifact آن را با نام `nabz-manjaro-arch-x86_64` منتشر می‌کند. پس از دریافت فایل:
 
-## مجوز
-برنامه تحت MIT است. فونت Vazirmatn تحت SIL Open Font License است؛ فایل مجوز در `assets/OFL.txt` قرار می‌گیرد.
+```bash
+sudo pacman -U ./nabz-tauri-0.1.0-1-x86_64.pkg.tar.zst
+```
+
+این بسته هنوز تا زمان نصب و آزمون روی دستگاه واقعی Manjaro، نسخهٔ پایدار محسوب نمی‌شود.
+
+**مسیرهای AppImage، Flatpak و deb دیگر روش انتشار نبض نیستند.** گردش‌کارهای قدیمی مربوط به برنامهٔ egui و prototype از شاخهٔ مرجع حذف شده‌اند. ساخت Raspberry Pi با Tauri در مرحلهٔ بعدی اضافه خواهد شد.
+
+## حفظ داده و نسخهٔ قدیمی
+
+کد قدیمی egui در ریشهٔ مخزن فعلاً فقط برای بررسی و طراحی مهاجرت داده نگه داشته شده و خروجی انتشار فعال نیست.
+
+- دیتابیس Tauri فعلی در لینوکس معمولاً: `~/.local/share/com.herotux.nabz.webprototype/nabz.sqlite3`
+- دیتابیس egui قدیمی: `~/.local/share/nabz/nabz.sqlite3`
+
+این دو مسیر جدا هستند. مهاجرت خودکار هنوز انجام نشده است؛ هیچ‌کدام را حذف، جایگزین یا با دیگری ادغام نکنید. پیش از استفاده از نسخهٔ آزمایشی، از هر دو دیتابیس نسخهٔ پشتیبان تهیه کنید.
+
+## وضعیت انتشار
+
+شاخهٔ `ui/react-tauri-redesign` و [PR شمارهٔ ۸](https://github.com/herotux/Nabz/pull/8) مرجع توسعه‌اند. PR هنوز Draft است و تا تکمیل هستهٔ مالی، مهاجرت امن داده، آزمون پذیرش و تست Manjaro نباید در `main` ادغام یا برای حسابداری واقعی استفاده شود.
