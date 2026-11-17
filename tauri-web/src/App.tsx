@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   Activity, ArrowDownLeft, ArrowUpRight, BarChart3, Bell, Boxes, CalendarDays,
@@ -89,7 +90,7 @@ function App(){
   };
   const closeEntry=()=>setEntry(null);
   const setField=(key:string,value:string)=>setForm(old=>({...old,[key]:value}));
-  const saveEntry=async(e:React.FormEvent)=>{
+  const saveEntry=async(e:FormEvent)=>{
     e.preventDefault();if(!entry)return;setBusy(true);
     try{
       let id:number|void=undefined;
@@ -155,7 +156,7 @@ function App(){
         {page==='dashboard'&&<Dashboard summary={summary} trend={trend} days={days} setDays={setDays} records={records} busy={busy} onAction={openEntry} onNavigate={setPage} onPrint={printInvoice}/>}
         {page==='contacts'&&<RecordsPage title="طرف‌حساب‌ها" subtitle="مدیریت مشتریان، تأمین‌کنندگان و مانده حساب آن‌ها" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('contact')} onDelete={id=>removeRecord('contacts',id)} columns={['نام طرف‌حساب','شماره تماس','مانده حساب','نوع','تاریخ ثبت']} />}
         {page==='invoices'&&<RecordsPage title="فاکتورها" subtitle="فاکتورهای فروش و خرید ثبت‌شده در فروشگاه" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('sale')} onDelete={id=>removeRecord('invoices',id)} onPrint={printInvoice} columns={['شرح فاکتور','نوع','مبلغ کل','وضعیت','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('purchase')}><Plus size={15}/> خرید جدید</button></>} />}
-        {page==='payments'&&<RecordsPage title="دریافت و پرداخت" subtitle="ثبت و پیگیری دریافت وجه و پرداخت به تأمین‌کنندگان" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('receipt')} onDelete={id=>removeRecord('payments',id)} columns={['طرف‌حساب','نوع عملیات','مبلغ','روش','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('payment')}><ArrowUpRight size={15}/> ثبت پرداخت</button></>} />}
+        {page==='payments'&&<RecordsPage title="دریافت و پرداخت" subtitle="ثبت و پیگیری دریافت وجه و پرداخت به تأمین‌کنندگان" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('receipt')} columns={['طرف‌حساب','نوع عملیات','مبلغ','روش','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('payment')}><ArrowUpRight size={15}/> ثبت پرداخت</button></>} />}
         {page==='products'&&<ProductsPage products={filteredProducts} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('product')} onDelete={id=>removeRecord('products',id)}/>}
         {page==='reports'&&<ReportsPage summary={summary}/>}
         {page==='printing'&&<PrintingPage notify={notify}/>}
@@ -168,10 +169,10 @@ function App(){
   </div>;
 }
 
-function PageHeading({eyebrow,title,subtitle,children}:{eyebrow?:string;title:string;subtitle:string;children?:React.ReactNode}){
+function PageHeading({eyebrow,title,subtitle,children}:{eyebrow?:string;title:string;subtitle:string;children?:ReactNode}){
  return <div className="page-heading"><div><div className="eyebrow">{eyebrow||'مدیریت فروشگاه'}</div><h1>{title}</h1><p>{subtitle}</p></div><div className="heading-actions">{children}</div></div>;
 }
-function PrimaryButton({children,onClick}:{children:React.ReactNode;onClick:()=>void}){
+function PrimaryButton({children,onClick}:{children:ReactNode;onClick:()=>void}){
  return <button className="primary-btn" onClick={onClick}><Plus size={17}/>{children}</button>;
 }
 function Dashboard({summary,trend,days,setDays,records,busy,onAction,onNavigate,onPrint}:{summary:Summary;trend:Trend[];days:number;setDays:(n:number)=>void;records:RecordRow[];busy:boolean;onAction:(e:Entry)=>void;onNavigate:(p:Page)=>void;onPrint:(id:number)=>void}){
@@ -186,7 +187,7 @@ function Dashboard({summary,trend,days,setDays,records,busy,onAction,onNavigate,
   <article className="surface recent-card"><div className="surface-heading"><div><h2>آخرین رویدادها</h2><p>آخرین فاکتورها و دریافت / پرداخت‌ها</p></div><button className="text-btn" onClick={()=>onNavigate('invoices')}>همه فاکتورها <ChevronLeft size={15}/></button></div><RecordsTable records={records} kind="recent" onPrint={onPrint}/></article>
  </>;
 }
-function RecordsPage({title,subtitle,records,query,setQuery,busy,onAdd,onDelete,onPrint,columns,extra}:{title:string;subtitle:string;records:RecordRow[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onDelete:(id:number)=>void;onPrint?:(id:number)=>void;columns:string[];extra?:React.ReactNode}){
+function RecordsPage({title,subtitle,records,query,setQuery,busy,onAdd,onDelete,onPrint,columns,extra}:{title:string;subtitle:string;records:RecordRow[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onDelete:(id:number)=>void;onPrint?:(id:number)=>void;columns:string[];extra?:ReactNode}){
  return <><PageHeading title={title} subtitle={subtitle}><div className="button-row">{extra}<PrimaryButton onClick={onAdd}>{title==='طرف‌حساب‌ها'?'طرف‌حساب جدید':title==='فاکتورها'?'فاکتور فروش':'ثبت دریافت'}</PrimaryButton></div></PageHeading><div className="surface list-surface"><div className="list-toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="جست‌وجو در فهرست..."/></div><div className="toolbar-meta"><span>{money(records.length)} مورد</span><button className="filter-btn"><SlidersHorizontal size={15}/> فیلتر</button></div></div><RecordsTable records={records} kind={title==='طرف‌حساب‌ها'?'contacts':title==='فاکتورها'?'invoices':'payments'} columns={columns} onDelete={onDelete} onPrint={onPrint}/>{busy&&<div className="table-loading">در حال دریافت اطلاعات...</div>}</div></>;
 }
 function RecordsTable({records,kind,columns,onDelete,onPrint}:{records:RecordRow[];kind:string;columns?:string[];onDelete?:(id:number)=>void;onPrint?:(id:number)=>void}){
@@ -209,7 +210,7 @@ function SettingsPage({settings,setSettings,onSave,onBackup,onRestore}:{settings
  return <><PageHeading title="تنظیمات" subtitle="اطلاعات فروشگاه، تنظیمات عمومی و حفاظت از داده‌ها"/><div className="settings-grid"><section className="surface settings-card"><h2><Store size={18}/> اطلاعات فروشگاه</h2><label className="field-label">نام فروشگاه<input value={settings.shop_name||''} onChange={e=>update('shop_name',e.target.value)} placeholder="نام فروشگاه"/></label><label className="field-label">شماره تماس<input value={settings.shop_phone||''} onChange={e=>update('shop_phone',e.target.value)} placeholder="شماره تماس"/></label><label className="field-label">نشانی<input value={settings.shop_address||''} onChange={e=>update('shop_address',e.target.value)} placeholder="نشانی فروشگاه"/></label><label className="field-label">شناسه مالیاتی<input value={settings.shop_tax||''} onChange={e=>update('shop_tax',e.target.value)} placeholder="اختیاری"/></label><button className="primary-btn" onClick={onSave}>ذخیره تنظیمات</button></section><section className="surface settings-card"><h2><ShieldIcon/> پشتیبان‌گیری و بازیابی</h2><p>برای جلوگیری از ازدست‌رفتن اطلاعات، به‌صورت منظم نسخه پشتیبان تهیه کن.</p><button className="secondary-btn wide" onClick={onBackup}><Download size={16}/> دریافت نسخه پشتیبان</button><label className="secondary-btn wide file-label"><Upload size={16}/> بازیابی از فایل پشتیبان<input type="file" accept=".json,application/json" onChange={e=>onRestore(e.target.files?.[0])}/></label></section></div></>;
 }
 function ShieldIcon(){return <CreditCard size={18}/>}
-function EntryModal({entry,form,setField,lines,setLines,onClose,onSubmit,busy}:{entry:Entry;form:Record<string,string>;setField:(k:string,v:string)=>void;lines:{item:string;qty:string;price:string}[];setLines:(v:{item:string;qty:string;price:string}[])=>void;onClose:()=>void;onSubmit:(e:React.FormEvent)=>void;busy:boolean}){
+function EntryModal({entry,form,setField,lines,setLines,onClose,onSubmit,busy}:{entry:Entry;form:Record<string,string>;setField:(k:string,v:string)=>void;lines:{item:string;qty:string;price:string}[];setLines:(v:{item:string;qty:string;price:string}[])=>void;onClose:()=>void;onSubmit:(e:FormEvent)=>void;busy:boolean}){
  const titles:Record<Entry,string>={contact:'ثبت طرف‌حساب جدید',product:'ثبت کالای جدید',sale:'فاکتور فروش جدید',purchase:'فاکتور خرید جدید',receipt:'ثبت دریافت وجه',payment:'ثبت پرداخت وجه'};
  const field=(key:string,label:string,placeholder='',type='text')=><label className="field-label">{label}<input type={type} value={form[key]||''} onChange={e=>setField(key,e.target.value)} placeholder={placeholder}/></label>;
  return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><form className="entry-modal" onSubmit={onSubmit}><div className="modal-heading"><div><span className="eyebrow">فرم ثبت اطلاعات</span><h2>{titles[entry]}</h2></div><button type="button" className="icon-btn" onClick={onClose}><X size={20}/></button></div>
