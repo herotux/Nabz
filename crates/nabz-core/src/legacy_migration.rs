@@ -422,6 +422,12 @@ pub fn import_legacy_egui_database(
                  VALUES('receipt',NULL,'مشتری گذری',?1,'cash',COALESCE(NULLIF(?2,''),date('now','localtime')),?3)",
                 params![sale.total, sale.date, format!("دریافت فرض‌شدهٔ نقدی بابت فروش قدیمی #{}", sale.id)],
             ).map_err(|e| e.to_string())?;
+            let payment_id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
+                 VALUES(?1,?2,NULL,'invoice',?3)",
+                params![payment_id, invoice_id, sale.total],
+            ).map_err(|e| e.to_string())?;
         }
         next_number += 1;
         summary.sales += 1;
@@ -498,6 +504,12 @@ pub fn import_legacy_egui_database(
                  VALUES('payment',?1,?2,?3,'cash',COALESCE(NULLIF(?4,''),date('now','localtime')),?5)",
                 params![contact_id, supplier, purchase.paid, purchase.date,
                     format!("پرداخت ثبت‌شده در خرید قدیمی #{}", purchase.id)],
+            ).map_err(|e| e.to_string())?;
+            let payment_id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
+                 VALUES(?1,?2,?3,'invoice',?4)",
+                params![payment_id, invoice_id, contact_id, purchase.paid],
             ).map_err(|e| e.to_string())?;
         }
         next_number += 1;
