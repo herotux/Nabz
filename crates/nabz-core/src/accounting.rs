@@ -27,6 +27,9 @@ fn validate_contact(input: &ContactInput) -> Result<(), String> {
     if input.name.trim().is_empty() {
         return Err("نام طرف‌حساب الزامی است".into());
     }
+    if input.opening_balance < 0 {
+        return Err("ماندهٔ افتتاحیهٔ منفی فعلاً پشتیبانی نمی‌شود".into());
+    }
     if !["customer", "supplier", "both"].contains(&input.kind.as_str()) {
         return Err("نوع طرف‌حساب معتبر نیست".into());
     }
@@ -52,6 +55,58 @@ pub fn create_contact(connection: &Connection, input: &ContactInput) -> Result<i
         params![name, input.kind, input.phone.trim(), input.opening_balance, input.notes.trim()],
     ).map_err(|e| e.to_string())?;
     Ok(connection.last_insert_rowid())
+}
+
+/// Save a contact while protecting role and opening-balance history once it has ledger entries.
+pub fn save_contact(
+    connection: &Connection,
+    id: Option<i64>,
+    input: &ContactInput,
+) -> Result<i64, String> {
+    if let Some(id) = id {
+        if id <= 0 {
+            return Err("شناسه طرف‌حساب نامعتبر است".into());
+        }
+        let old: Option<(String,i64)> = connection.query_row(
+            "SELECT kind,opening_balance FROM contacts WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?,row.get(1)?)),
+        ).optional().map_err(|e| e.to_string())?;
+        let Some((old_kind,old_balance)) = old else {
+            return Err("طرف‌حساب پیدا نشد".into());
+        };
+        let history: i64 = connection.query_row(
+            "SELECT (SELECT COUNT(*) FROM invoices WHERE contact_id=?1)+
+                    (SELECT COUNT(*) FROM payments WHERE contact_id=?1)",
+            [id],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        if history > 0 {
+            if input.kind != old_kind || input.opening_balance != old_balance {
+                return Err("این طرف‌حساب سابقه مالی دارد؛ نوع و مانده افتتاحیه برای حفظ دفتر مالی قابل تغییر نیست.".into());
+            }
+            if input.name.trim().is_empty() {
+                return Err("نام طرف‌حساب الزامی است".into());
+            }
+        } else {
+            validate_contact(input)?;
+        }
+        let name = input.name.trim();
+        let duplicate: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE AND id<>?2",
+            params![name,id],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        if duplicate > 0 {
+            return Err("طرف‌حساب دیگری با این نام وجود دارد".into());
+        }
+        connection.execute(
+            "UPDATE contacts SET name=?1,kind=?2,phone=?3,opening_balance=?4 WHERE id=?5",
+            params![name,input.kind,input.phone.trim(),input.opening_balance,id],
+        ).map_err(|e| e.to_string())?;
+        return Ok(id);
+    }
+    create_contact(connection,input)
 }
 
 pub fn update_contact(connection: &Connection, id: i64, name: &str, phone: &str) -> Result<(), String> {
@@ -155,7 +210,7 @@ fn allocate_purchase_discount(line_totals:&[i64],discount:i64,subtotal:i64)->Res
 pub fn create_product(connection: &Connection, input: &ProductInput) -> Result<i64, String> {
     validate_product(input)?;
     connection.execute(
-        "INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES(?1,?2,?3,?4,?5,?6,?7,?4)",
+        "INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES(?1,?2,?3,?4,?5,?6,?7,CASE WHEN ?6>0 THEN ?4 ELSE 0 END)",
         params![input.name.trim(), input.code.trim(), input.barcode.trim(), input.buy_price, input.sell_price, input.quantity, input.min_quantity],
     ).map_err(|e| if e.to_string().contains("UNIQUE") {
         "کد کالا تکراری است".to_string()
@@ -163,6 +218,52 @@ pub fn create_product(connection: &Connection, input: &ProductInput) -> Result<i
         e.to_string()
     })?;
     Ok(connection.last_insert_rowid())
+}
+
+/// Save a product while preserving the stock and cost snapshots of historical invoices.
+pub fn save_product(
+    connection: &Connection,
+    id: Option<i64>,
+    input: &ProductInput,
+) -> Result<i64, String> {
+    validate_product(input)?;
+    if let Some(id) = id {
+        if id <= 0 {
+            return Err("شناسه کالا نامعتبر است".into());
+        }
+        let exists: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM products WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        if exists == 0 {
+            return Err("کالا پیدا نشد".into());
+        }
+        let has_history: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM invoice_items WHERE product_id=?1",
+            [id],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        let result = if has_history > 0 {
+            connection.execute(
+                "UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,min_quantity=?6 WHERE id=?7",
+                params![input.name.trim(),input.code.trim(),input.barcode.trim(),input.buy_price,input.sell_price,input.min_quantity,id],
+            )
+        } else {
+            connection.execute(
+                "UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,quantity=?6,min_quantity=?7,
+                   average_cost=CASE WHEN ?6=0 THEN 0 WHEN quantity=0 THEN ?4 ELSE average_cost END WHERE id=?8",
+                params![input.name.trim(),input.code.trim(),input.barcode.trim(),input.buy_price,input.sell_price,input.quantity,input.min_quantity,id],
+            )
+        };
+        result.map_err(|e| if e.to_string().contains("UNIQUE") {
+            "کد کالا تکراری است".to_string()
+        } else {
+            e.to_string()
+        })?;
+        return Ok(id);
+    }
+    create_product(connection,input)
 }
 
 pub fn update_product(connection: &Connection, id: i64, input: &ProductInput) -> Result<(), String> {
