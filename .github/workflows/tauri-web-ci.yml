@@ -122,11 +122,13 @@ jobs:
           docker run --rm \
             -v "$PWD/packaging/arch:/pkg" \
             archlinux:latest bash -lc '
-              pacman -Syu --noconfirm --needed base-devel
+              pacman -Syu --noconfirm --needed base-devel webkit2gtk-4.1 gtk3 openssl
               useradd --create-home builder
               chown -R builder:builder /pkg
               cd /pkg
               runuser -u builder -- makepkg --cleanbuild --noconfirm
+              pacman -U --noconfirm /pkg/*.pkg.tar.zst
+              pacman -Ql nabz-tauri
             '
 
       - name: Verify generated package
