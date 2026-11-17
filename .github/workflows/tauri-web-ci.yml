@@ -32,13 +32,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Linux dependencies for Tauri 2
+      - name: Install Linux build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential pkg-config libssl-dev libxdo-dev curl wget file patchelf libfuse2 \
-            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev xdg-utils
+            build-essential pkg-config libssl-dev libxdo-dev curl wget file patchelf \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libgtk-3-dev libglib2.0-dev
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -58,35 +58,33 @@ jobs:
           python3 - <<'PY'
           import struct, zlib
           from pathlib import Path
-
           size = 256
           rows = []
           for y in range(size):
               row = bytearray([0])
               for x in range(size):
                   edge = min(x, y, size - 1 - x, size - 1 - y)
-                  bg = (min(20 + x // 32, 28), min(112 + y // 12, 140), min(170 + x // 16, 195), 255)
+                  bg = (20, 128, 88, 255)
                   if edge < 10:
-                      bg = (18, 92, 148, 255)
+                      bg = (13, 105, 71, 255)
                   mark = (62 <= x <= 91 and 62 <= y <= 190) or (165 <= x <= 194 and 62 <= y <= 190)
                   mark = mark or (62 <= x <= 194 and abs(y - (190 - (x - 62) * 128 / 132)) <= 14)
                   row.extend((245, 249, 255, 255) if mark else bg)
               rows.append(bytes(row))
           def chunk(kind, data):
               return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
-          raw = b"".join(rows)
-          png = b"\x89PNG\r\n\x1a\n"
+          png = b"\\x89PNG\\r\\n\\x1a\\n"
           png += chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
-          png += chunk(b"IDAT", zlib.compress(raw, 9))
+          png += chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
           png += chunk(b"IEND", b"")
           target = Path("src-tauri/icons/icon.png")
+          target.parent.mkdir(parents=True, exist_ok=True)
           target.write_bytes(png)
-          print(f"Generated valid {size}x{size} RGBA PNG: {target} ({len(png)} bytes)")
           PY
           file src-tauri/icons/icon.png
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: Build frontend and type-check
         run: npm run build
@@ -94,22 +92,53 @@ jobs:
       - name: Run Rust and SQLite tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-      - name: Build Linux packages
-        run: npm run tauri build
+      - name: Build optimized Linux executable
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml --bin nabz-tauri
 
-      - name: Verify generated packages
+      - name: Prepare Arch package inputs
         run: |
-          set -eu
-          find src-tauri/target/release/bundle -type f \
-            \( -name '*.AppImage' -o -name '*.deb' \) -size +0c -print
-          test -n "$(find src-tauri/target/release/bundle -type f \( -name '*.AppImage' -o -name '*.deb' \) -size +0c -print -quit)"
+          set -eux
+          test -s src-tauri/target/release/nabz-tauri
+          mkdir -p packaging/arch
+          install -Dm755 src-tauri/target/release/nabz-tauri packaging/arch/nabz-tauri
+          install -Dm644 src-tauri/icons/icon.png packaging/arch/nabz.png
+          cat > packaging/arch/nabz.desktop <<'DESKTOP'
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=نبض
+          GenericName=حسابداری فروشگاهی
+          Comment=حسابداری فروشگاهی فارسی
+          Exec=nabz
+          Icon=nabz
+          Terminal=false
+          Categories=Office;Finance;
+          StartupNotify=true
+          DESKTOP
 
-      - name: Upload Linux installers
+      - name: Build native Arch / Manjaro package
+        run: |
+          docker run --rm \
+            -v "$PWD/packaging/arch:/pkg" \
+            archlinux:latest bash -lc '
+              pacman -Syu --noconfirm --needed base-devel
+              useradd --create-home builder
+              chown -R builder:builder /pkg
+              cd /pkg
+              runuser -u builder -- makepkg --cleanbuild --noconfirm
+            '
+
+      - name: Verify generated package
+        run: |
+          set -eux
+          find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print
+          test -n "$(find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print -quit)"
+          file packaging/arch/*.pkg.tar.zst
+
+      - name: Upload Manjaro / Arch installer
         uses: actions/upload-artifact@v4
         with:
-          name: nabz-linux-installers
-          path: |
-            tauri-web/src-tauri/target/release/bundle/**/*.AppImage
-            tauri-web/src-tauri/target/release/bundle/**/*.deb
+          name: nabz-manjaro-arch-x86_64
+          path: tauri-web/packaging/arch/*.pkg.tar.zst
           if-no-files-found: error
           retention-days: 14
