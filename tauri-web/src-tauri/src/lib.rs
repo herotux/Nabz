@@ -723,7 +723,7 @@ fn get_contact_ledger(id:i64,db:State<'_,Db>)->Result<Value,String>{
   let mut st=c.prepare("SELECT id,invoice_id,refund_date,amount,method,notes,'sale' AS kind FROM sales_refunds WHERE invoice_id IN (SELECT id FROM invoices WHERE contact_id=?1)
    UNION ALL
    SELECT id,invoice_id,refund_date,amount,method,notes,'purchase' AS kind FROM purchase_refunds WHERE invoice_id IN (SELECT id FROM invoices WHERE contact_id=?1)
-   ORDER BY refund_date,id").map_err(|e|e.to_string())?;
+   ORDER BY 3,1").map_err(|e|e.to_string())?;
   let rows=st.query_map([id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"date":r.get::<_,String>(2)?,"amount":r.get::<_,i64>(3)?,"method":r.get::<_,String>(4)?,"notes":r.get::<_,String>(5)?,"kind":r.get::<_,String>(6)?}))).map_err(|e|e.to_string())?;
   rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
  };
