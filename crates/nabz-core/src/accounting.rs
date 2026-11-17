@@ -1063,6 +1063,7 @@ pub fn profit_loss_report(connection: &Connection, from: &str, to: &str) -> Resu
     let uncosted_sales = sum(
         "SELECT COALESCE(SUM(ii.line_total),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
          WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NULL
+         AND ii.item_name NOT LIKE 'خدمت:%'
          AND (?1='' OR i.invoice_date>=?1) AND (?2='' OR i.invoice_date<=?2)"
     )?;
     let expenses = sum("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE (?1='' OR expense_date>=?1) AND (?2='' OR expense_date<=?2)")?;
