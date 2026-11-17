@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import JsBarcode from 'jsbarcode';
 import {
   Activity, ArrowDownLeft, ArrowUpRight, BarChart3, Bell, Boxes, CalendarDays,
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Command, CreditCard,
@@ -169,6 +170,43 @@ function App(){
   </div>;
 }
 
+
+function latinDigits(value:string){return value.replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));}
+function jalaliParts(iso:string){
+ if(!iso)return {year:1405,month:1,day:1};
+ const d=new Date(iso+'T12:00:00');
+ const p=new Intl.DateTimeFormat('en-u-ca-persian',{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(d);
+ return {year:Number(p.find(x=>x.type==='year')?.value),month:Number(p.find(x=>x.type==='month')?.value),day:Number(p.find(x=>x.type==='day')?.value)};
+}
+function gregorianToJalali(iso:string){
+ if(!iso)return '';
+ const p=jalaliParts(iso);
+ return p.year+'/'+String(p.month).padStart(2,'0')+'/'+String(p.day).padStart(2,'0');
+}
+function jalaliToGregorian(raw:string):string|null{
+ const m=latinDigits(raw).trim().match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+ if(!m)return null;
+ const y=Number(m[1]),mo=Number(m[2]),day=Number(m[3]);
+ if(mo<1||mo>12||day<1||day>31)return null;
+ const start=Date.UTC(y+621,0,1);
+ for(let i=0;i<370;i++){
+  const d=new Date(start+i*86400000);
+  const p=jalaliParts(d.toISOString().slice(0,10));
+  if(p.year===y&&p.month===mo&&p.day===day)return d.toISOString().slice(0,10);
+ }
+ return null;
+}
+function JalaliDateField({value,onChange,label}:{value:string;onChange:(v:string)=>void;label:string}){
+ const [text,setText]=useState(gregorianToJalali(value));
+ const [invalid,setInvalid]=useState(false);
+ useEffect(()=>{setText(gregorianToJalali(value));setInvalid(false)},[value]);
+ return <label className="field-label">{label}<input type="text" inputMode="numeric" dir="ltr" value={text} placeholder="۱۴۰۵/۰۸/۲۶" aria-invalid={invalid} className={invalid?'date-invalid':''} onChange={e=>{
+  const next=e.target.value;setText(next);
+  const converted=jalaliToGregorian(next);
+  if(converted){onChange(converted);setInvalid(false)}else setInvalid(next.length>=10);
+ }} onBlur={()=>{if(!jalaliToGregorian(text)){setText(gregorianToJalali(value));setInvalid(false)}}}/><small className="date-hint">{invalid?'تاریخ شمسی معتبر وارد کن':'سال/ماه/روز شمسی'}</small></label>;
+}
+
 function PageHeading({eyebrow,title,subtitle,children}:{eyebrow?:string;title:string;subtitle:string;children?:ReactNode}){
  return <div className="page-heading"><div><div className="eyebrow">{eyebrow||'مدیریت فروشگاه'}</div><h1>{title}</h1><p>{subtitle}</p></div><div className="heading-actions">{children}</div></div>;
 }
@@ -210,7 +248,14 @@ function ReportsPage({summary}:{summary:Summary}){
 }
 function PrintingPage({notify}:{notify:(s:string)=>void}){
  const [barcode,setBarcode]=useState('626000001');
- return <><PageHeading title="چاپ و بارکد" subtitle="آماده‌سازی برچسب کالا و تنظیمات چاپ"/><div className="surface print-panel"><div><h2>پیش‌نمایش بارکد</h2><p>کد کالا را وارد کن تا پیش‌نمایش برچسب ساخته شود.</p><label className="field-label">کد بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr"/></label><button className="primary-btn" onClick={()=>{window.print();notify('پنجره چاپ باز شد.')}}><Printer size={16}/> چاپ برچسب</button></div><div className="barcode-preview"><div className="barcode-lines"/><b>{barcode||'626000001'}</b><small>نبض · محصول</small></div></div></>;
+ const [barcodeError,setBarcodeError]=useState('');
+ const barcodeRef=useRef<SVGSVGElement>(null);
+ useEffect(()=>{
+  if(!barcodeRef.current)return;
+  try{JsBarcode(barcodeRef.current,barcode,{format:'CODE128',displayValue:true,lineColor:'#1d2c24',width:2,height:76,margin:10,font:'Tahoma',fontSize:13});setBarcodeError('')}
+  catch{setBarcodeError('کد بارکد خالی یا نامعتبر است.')}
+ },[barcode]);
+ return <><PageHeading title="چاپ و بارکد" subtitle="تولید بارکد استاندارد و چاپ برچسب کالا"/><div className="surface print-panel"><div><h2>بارکد کالا</h2><p>می‌توانی کد را تایپ کنی یا با اسکنر USB/HID در همین کادر اسکن کنی.</p><label className="field-label">کد یا بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr" autoFocus/></label>{barcodeError&&<p className="barcode-error">{barcodeError}</p>}<button className="primary-btn" onClick={()=>{if(!barcodeError){window.print();notify('پنجره چاپ برچسب باز شد.')}}}><Printer size={16}/> چاپ برچسب</button></div><div className="barcode-preview"><svg ref={barcodeRef} role="img" aria-label="پیش‌نمایش بارکد تولیدشده"/></div></div></>;
 }
 function SettingsPage({settings,setSettings,onSave,onBackup,onRestore}:{settings:Record<string,string>;setSettings:(v:Record<string,string>)=>void;onSave:()=>void;onBackup:()=>void;onRestore:(f?:File)=>void}){
  const update=(k:string,v:string)=>setSettings({...settings,[k]:v});
@@ -224,8 +269,8 @@ function EntryModal({entry,form,setField,lines,setLines,onClose,onSubmit,busy}:{
   <div className="modal-fields">
    {entry==='contact'&&<>{field('name','نام طرف‌حساب','نام و نام خانوادگی یا شرکت')}<div className="form-two">{<label className="field-label">نوع طرف‌حساب<select value={form.kind} onChange={e=>setField('kind',e.target.value)}><option value="customer">مشتری</option><option value="supplier">تأمین‌کننده</option><option value="both">هر دو</option></select></label>}{field('phone','شماره تماس','اختیاری')}</div>{field('balance','مانده افتتاحیه','۰','number')}{field('notes','یادداشت','توضیحات تکمیلی')}</>}
    {entry==='product'&&<>{field('name','نام کالا','مثلاً کابل افشان')}<div className="form-two">{field('code','کد کالا','SKU-001')}{field('barcode','بارکد','اختیاری')}</div><div className="form-three">{field('qty','موجودی اولیه','۰','number')}{field('buy','قیمت خرید','۰','number')}{field('sell','قیمت فروش','۰','number')}</div>{field('min','حداقل موجودی','۰','number')}</>}
-   {(entry==='sale'||entry==='purchase')&&<>{field('customer',entry==='sale'?'نام مشتری':'نام تأمین‌کننده','برای فروش نقدی گذری خالی بگذار')}<div className="invoice-lines-title"><b>اقلام فاکتور</b><button type="button" className="text-btn" onClick={()=>setLines([...lines,{item:'',qty:'1',price:'0'}])}><Plus size={15}/> افزودن ردیف</button></div>{lines.map((line,i)=><div className="invoice-line" key={i}><input aria-label="نام کالا یا خدمت" placeholder="نام کالا یا خدمت" value={line.item} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,item:e.target.value}:x))}/><input aria-label="تعداد" type="number" min="1" value={line.qty} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,qty:e.target.value}:x))}/><input aria-label="قیمت واحد" type="number" min="0" value={line.price} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,price:e.target.value}:x))}/><button type="button" className="icon-btn" onClick={()=>setLines(lines.filter((_,j)=>j!==i))}><X size={16}/></button></div>)}<div className="form-two">{field('discount','تخفیف','۰','number')}{field('date','تاریخ میلادی','', 'date')}</div>{entry==='sale'&&<div className="form-two"><label className="field-label">وضعیت پرداخت<select value={form.status} onChange={e=>setField('status',e.target.value)}><option value="paid">تسویه کامل</option><option value="partial">پرداخت جزئی</option><option value="credit">نسیه</option></select></label>{form.status==='partial'&&field('paid','مبلغ دریافتی','۰','number')}</div>}{field('notes','یادداشت','اختیاری')}</>}
-   {(entry==='receipt'||entry==='payment')&&<>{field('customer','نام طرف‌حساب','ابتدا طرف‌حساب را ثبت کن')}{field('amount','مبلغ','۰','number')}<div className="form-two"><label className="field-label">روش پرداخت<select value={form.method} onChange={e=>setField('method',e.target.value)}><option value="cash">نقدی</option><option value="card">کارت</option><option value="transfer">انتقال بانکی</option></select></label>{field('date','تاریخ','', 'date')}</div>{field('notes','یادداشت','اختیاری')}</>}
+   {(entry==='sale'||entry==='purchase')&&<>{field('customer',entry==='sale'?'نام مشتری':'نام تأمین‌کننده','برای فروش نقدی گذری خالی بگذار')}<div className="invoice-lines-title"><b>اقلام فاکتور</b><button type="button" className="text-btn" onClick={()=>setLines([...lines,{item:'',qty:'1',price:'0'}])}><Plus size={15}/> افزودن ردیف</button></div>{lines.map((line,i)=><div className="invoice-line" key={i}><input aria-label="نام کالا یا خدمت" placeholder="نام کالا یا خدمت" value={line.item} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,item:e.target.value}:x))}/><input aria-label="تعداد" type="number" min="1" value={line.qty} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,qty:e.target.value}:x))}/><input aria-label="قیمت واحد" type="number" min="0" value={line.price} onChange={e=>setLines(lines.map((x,j)=>j===i?{...x,price:e.target.value}:x))}/><button type="button" className="icon-btn" onClick={()=>setLines(lines.filter((_,j)=>j!==i))}><X size={16}/></button></div>)}<div className="form-two">{field('discount','تخفیف','۰','number')}<JalaliDateField label="تاریخ فاکتور" value={form.date||isoToday} onChange={v=>setField('date',v)}/></div>{entry==='sale'&&<div className="form-two"><label className="field-label">وضعیت پرداخت<select value={form.status} onChange={e=>setField('status',e.target.value)}><option value="paid">تسویه کامل</option><option value="partial">پرداخت جزئی</option><option value="credit">نسیه</option></select></label>{form.status==='partial'&&field('paid','مبلغ دریافتی','۰','number')}</div>}{field('notes','یادداشت','اختیاری')}</>}
+   {(entry==='receipt'||entry==='payment')&&<>{field('customer','نام طرف‌حساب','ابتدا طرف‌حساب را ثبت کن')}{field('amount','مبلغ','۰','number')}<div className="form-two"><label className="field-label">روش پرداخت<select value={form.method} onChange={e=>setField('method',e.target.value)}><option value="cash">نقدی</option><option value="card">کارت</option><option value="transfer">انتقال بانکی</option></select></label><JalaliDateField label="تاریخ تراکنش" value={form.date||isoToday} onChange={v=>setField('date',v)}/></div>{field('notes','یادداشت','اختیاری')}</>}
   </div><div className="modal-actions"><button type="button" className="secondary-btn" onClick={onClose}>انصراف</button><button type="submit" className="primary-btn" disabled={busy}>{busy?'در حال ثبت...':'ثبت اطلاعات'}</button></div>
  </form></div>;
 }
