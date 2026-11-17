@@ -82,16 +82,14 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
   quantity:num(&payload,"qty"),
   min_quantity:num(&payload,"min"),
  };
- let id=core_save_product(c,payload.get("id").and_then(Value::as_i64),&input)?;
  let category=text(&payload,"category");
  let unit=text(&payload,"unit");
  let unit=if unit.is_empty(){"عدد".to_string()}else{unit};
  let wholesale=num(&payload,"wholesale");
- let is_service=payload.get("is_service").and_then(Value::as_bool).unwrap_or(false);
  if wholesale<0{return Err("قیمت عمده نمی‌تواند منفی باشد".into())}
- if is_service && num(&payload,"qty")!=0{return Err("برای خدمت، موجودی باید صفر باشد".into())}
- c.execute("UPDATE products SET category=?1,unit=?2,wholesale_price=?3,is_service=?4,quantity=CASE WHEN ?4=1 THEN 0 ELSE quantity END,average_cost=CASE WHEN ?4=1 THEN 0 ELSE average_cost END WHERE id=?5",
-  rusqlite::params![category,unit,wholesale,if is_service{1}else{0},id]).map_err(|e|e.to_string())?;
+ let id=core_save_product(c,payload.get("id").and_then(Value::as_i64),&input)?;
+ c.execute("UPDATE products SET category=?1,unit=?2,wholesale_price=?3 WHERE id=?4",
+  rusqlite::params![category,unit,wholesale,id]).map_err(|e|e.to_string())?;
  Ok(id)
 }
 #[tauri::command]
