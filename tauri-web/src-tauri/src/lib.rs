@@ -6,8 +6,9 @@ use tauri::{Manager, State};
 use nabz_core::accounting::{
     adjust_inventory, create_expense, create_invoice_with_payment_split, inventory_valuation,
     list_expenses, profit_loss_report, record_payment, return_purchase_items, return_sale_items,
-    void_invoice as core_void_invoice, ExpenseInput, InvoiceInput, InvoiceLineInput,
-    PaymentInput, ReturnLineInput,
+    save_contact as core_save_contact, save_product as core_save_product,
+    void_invoice as core_void_invoice, ContactInput, ExpenseInput, InvoiceInput, InvoiceLineInput,
+    PaymentInput, ProductInput, ReturnLineInput,
 };
 
 struct Db(Mutex<Connection>);
@@ -49,28 +50,16 @@ fn save_contact(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  save_contact_with_connection(payload,&c)
 }
 fn save_contact_with_connection(payload:Value,c:&Connection)->Result<i64,String>{
- let n=text(&payload,"name");
- if n.is_empty(){return Err("نام طرف‌حساب الزامی است".into())}
  let raw_kind=text(&payload,"kind");
  let kind=normalize_contact_kind(&raw_kind).ok_or("نوع طرف‌حساب را از گزینه‌های موجود انتخاب کنید")?;
- let balance=num(&payload,"balance");
- if let Some(id)=payload.get("id").and_then(Value::as_i64){
-  if id<=0{return Err("شناسه طرف‌حساب نامعتبر است".into())}
-  let old:Option<(String,i64)>=c.query_row("SELECT kind,opening_balance FROM contacts WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|e|e.to_string())?;
-  let Some((old_kind,old_balance))=old else{return Err("طرف‌حساب پیدا نشد".into())};
-  let history:i64=c.query_row("SELECT (SELECT COUNT(*) FROM invoices WHERE contact_id=?1)+(SELECT COUNT(*) FROM payments WHERE contact_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
-  if history>0&&(kind!=old_kind||balance!=old_balance){return Err("این طرف‌حساب سابقه مالی دارد؛ نوع و مانده افتتاحیه برای حفظ دفتر مالی قابل تغییر نیست.".into())}
-  if history==0{validate_opening_balance(kind,balance)?}
-  let duplicate:i64=c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE AND id<>?2",params![n,id],|r|r.get(0)).map_err(|e|e.to_string())?;
-  if duplicate>0{return Err("طرف‌حساب دیگری با این نام وجود دارد".into())}
-  c.execute("UPDATE contacts SET name=?1,kind=?2,phone=?3,opening_balance=?4 WHERE id=?5",params![n,kind,text(&payload,"phone"),balance,id]).map_err(|e|e.to_string())?;
-  return Ok(id)
- }
- let existing:i64=c.query_row("SELECT COUNT(*) FROM contacts WHERE name=?1 COLLATE NOCASE",[&n],|r|r.get(0)).map_err(|e|e.to_string())?;
- if existing>0{return Err("طرف‌حسابی با این نام قبلاً ثبت شده است".into())}
- validate_opening_balance(kind,balance)?;
- c.execute("INSERT INTO contacts(name,kind,phone,opening_balance,notes) VALUES(?1,?2,?3,?4,?5)",params![n,kind,text(&payload,"phone"),balance,text(&payload,"notes")]).map_err(|e|e.to_string())?;
- Ok(c.last_insert_rowid())
+ let input=ContactInput{
+  name:text(&payload,"name"),
+  kind:kind.to_string(),
+  phone:text(&payload,"phone"),
+  opening_balance:num(&payload,"balance"),
+  notes:text(&payload,"notes"),
+ };
+ core_save_contact(c,payload.get("id").and_then(Value::as_i64),&input)
 }
 #[tauri::command]
 fn save_product(payload:Value,db:State<'_,Db>)->Result<i64,String>{
@@ -78,24 +67,16 @@ fn save_product(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  save_product_with_connection(payload,&c)
 }
 fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>{
- let n=text(&payload,"name");let code=text(&payload,"code");let qty=num(&payload,"qty");let buy=num(&payload,"buy");let sell=num(&payload,"sell");let min=num(&payload,"min");let barcode=text(&payload,"barcode");
- if n.is_empty()||code.is_empty(){return Err("نام و کد کالا الزامی است".into())}
- if qty<0||buy<0||sell<0||min<0{return Err("موجودی، حداقل موجودی و قیمت نمی‌تواند منفی باشد".into())}
- if let Some(id)=payload.get("id").and_then(Value::as_i64){
-  if id<=0{return Err("شناسه کالا نامعتبر است".into())}
-  let exists:i64=c.query_row("SELECT COUNT(*) FROM products WHERE id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
-  if exists==0{return Err("کالا پیدا نشد".into())}
-  let has_history:i64=c.query_row("SELECT COUNT(*) FROM invoice_items WHERE product_id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
-  let result=if has_history>0{
-   c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,min_quantity=?6 WHERE id=?7",params![n,code,barcode,buy,sell,min,id])
-  }else{
-   c.execute("UPDATE products SET name=?1,code=?2,barcode=?3,buy_price=?4,sell_price=?5,quantity=?6,min_quantity=?7,average_cost=CASE WHEN ?6=0 THEN 0 WHEN quantity=0 THEN ?4 ELSE average_cost END WHERE id=?8",params![n,code,barcode,buy,sell,qty,min,id])
-  };
-  result.map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;
-  return Ok(id)
- }
- c.execute("INSERT INTO products(name,code,barcode,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES(?1,?2,?3,?4,?5,?6,?7,CASE WHEN ?6>0 THEN ?4 ELSE 0 END)",params![n,code,barcode,buy,sell,qty,min]).map_err(|e|if e.to_string().contains("UNIQUE"){"کد کالا تکراری است".into()}else{e.to_string()})?;
- Ok(c.last_insert_rowid())
+ let input=ProductInput{
+  name:text(&payload,"name"),
+  code:text(&payload,"code"),
+  barcode:text(&payload,"barcode"),
+  buy_price:num(&payload,"buy"),
+  sell_price:num(&payload,"sell"),
+  quantity:num(&payload,"qty"),
+  min_quantity:num(&payload,"min"),
+ };
+ core_save_product(c,payload.get("id").and_then(Value::as_i64),&input)
 }
 #[tauri::command]
 fn save_invoice(payload:Value,db:State<'_,Db>)->Result<i64,String>{
