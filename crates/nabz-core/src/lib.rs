@@ -1036,12 +1036,12 @@ mod tests {
              PRAGMA user_version=0;"
         ).unwrap();
         initialize(&connection).unwrap();
-        let (version,credit,quantity,average,voided,unit_cost):(i64,i64,i64,i64,i64,Option<i64>) = connection.query_row(
-            "SELECT (SELECT user_version FROM pragma_user_version),
-                    c.customer_credit_balance,p.quantity,p.average_cost,i.voided,ii.unit_cost
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let (credit,quantity,average,voided,unit_cost):(i64,i64,i64,i64,Option<i64>) = connection.query_row(
+            "SELECT c.customer_credit_balance,p.quantity,p.average_cost,i.voided,ii.unit_cost
              FROM contacts c JOIN products p ON p.id=1 JOIN invoices i ON i.id=1
              JOIN invoice_items ii ON ii.id=1 WHERE c.id=1",
-            [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
+            [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
         ).unwrap();
         assert_eq!((version,credit,quantity,average,voided,unit_cost),(7,75,7,42,0,None));
     }
