@@ -123,7 +123,7 @@ fn weighted_average_after_removal(
     let remaining_value = current_value.checked_sub(removed_value)
         .ok_or("بهای کالای مرجوعی از ارزش ثبت‌شدهٔ موجودی بیشتر است؛ مرجوعی امن متوقف شد")?;
     remaining_value.checked_add(remaining_quantity / 2)
-        .ok_or("گرد کردن میانگین پس از مرجوعی بیش از ظرفیت عددی است")
+        .ok_or_else(|| "گرد کردن میانگین پس از مرجوعی بیش از ظرفیت عددی است".to_string())
         .map(|value| value / remaining_quantity)
 }
 
