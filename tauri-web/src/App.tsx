@@ -304,7 +304,7 @@ function ProductsPage({products,movements,query,setQuery,busy,onAdd,onEdit,onDel
   const headers=['تاریخ','کالا','نوع رویداد','شماره سند یا علت','تغییر موجودی','مانده پس از رویداد'];
   const cell=(v:unknown)=>{let value=String(v??'');if(/^[=+@-]/.test(value))value="'"+value;return '"'+value.replace(/"/g,'""')+'"';};
   const rows=movements.map(m=>[m.movement_date,m.product_name,m.movement_type,m.reference,m.quantity_delta,m.balance_after]);
-  const csv='\\uFEFF'+[headers,...rows].map(row=>row.map(cell).join(',')).join('\\r\\n');
+  const csv='\uFEFF'+[headers,...rows].map(row=>row.map(cell).join(',')).join('\r\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='nabz-stock-movements-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(url);
  };
  const exportCsv=()=>{
