@@ -1222,4 +1222,19 @@ mod accounting_tests {
   assert!(average>10);
  }
 
+ #[test]
+ fn service_product_is_excluded_from_stock_and_duplicate_barcodes_are_rejected() {
+  let c=database();
+  let service=json!({"name":"Installation","code":"SERVICE-01","barcode":"SRV-001","qty":0,"buy":0,"sell":250,"min":0,"category":"خدمات","unit":"سرویس","wholesale":0,"is_service":true});
+  let id=save_product_with_connection(service,&c).unwrap();
+  let (is_service,quantity,average):(i64,i64,i64)=c.query_row(
+   "SELECT is_service,quantity,average_cost FROM products WHERE id=?1",[id],
+   |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+  ).unwrap();
+  assert_eq!((is_service,quantity,average),(1,0,0));
+  let duplicate=json!({"name":"Duplicate","code":"SERVICE-02","barcode":"SRV-001","qty":0,"buy":0,"sell":100,"min":0,"unit":"عدد","is_service":false});
+  assert!(save_product_with_connection(duplicate,&c).is_err());
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM products WHERE barcode='SRV-001'"),1);
+ }
+
 }
