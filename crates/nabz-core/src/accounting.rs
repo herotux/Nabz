@@ -548,6 +548,8 @@ pub fn create_invoice_with_payment_split_idempotent(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReturnLineInput {
+    /// Preferred stable reference; avoids ambiguity when an invoice has repeated product rows.
+    pub invoice_item_id: Option<i64>,
     pub product_lookup: String,
     pub quantity: i64,
 }
@@ -579,30 +581,31 @@ pub fn return_sale_items(
     let mut gross_return = 0_i64;
     for (index, line) in lines.iter().enumerate() {
         let lookup = line.product_lookup.trim();
-        if lookup.is_empty() || line.quantity <= 0 {
-            return Err(format!("ردیف {}: کالا و تعداد برگشتی مثبت الزامی است", index + 1));
+        if line.quantity <= 0 || (line.invoice_item_id.is_none() && lookup.is_empty()) {
+            return Err(format!("ردیف {}: شناسه کالا و تعداد برگشتی مثبت الزامی است", index + 1));
         }
-        if !seen.insert(lookup.to_lowercase()) {
-            return Err(format!("کالای «{lookup}» را فقط یک بار در فهرست برگشت وارد کنید"));
+        let seen_key = line.invoice_item_id.map(|id|format!("id:{id}")).unwrap_or_else(||lookup.to_lowercase());
+        if !seen.insert(seen_key) {
+            return Err(format!("ردیف برگشت «{}» را فقط یک بار وارد کنید", if lookup.is_empty() { "انتخاب‌شده" } else { lookup }));
         }
         let matches = {
             let mut statement = tx.prepare(
                 "SELECT ii.id,ii.product_id,ii.quantity,ii.unit_price,ii.item_name,ii.unit_cost
                  FROM invoice_items ii JOIN products p ON p.id=ii.product_id
                  WHERE ii.invoice_id=?1 AND
-                 (ii.item_name=?2 COLLATE NOCASE OR p.code=?2 OR p.barcode=?2)
+                 ((?2 IS NOT NULL AND ii.id=?2) OR
+                  (?2 IS NULL AND (ii.item_name=?3 COLLATE NOCASE OR p.code=?3 OR p.barcode=?3)))
                  ORDER BY ii.id"
             ).map_err(|e| e.to_string())?;
-            let rows = statement.query_map(params![invoice_id, lookup], |r| {
+            let rows = statement.query_map(params![invoice_id, line.invoice_item_id, lookup], |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?.unwrap_or(0),
                     r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?,
                     r.get::<_, Option<i64>>(5)?))
             }).map_err(|e| e.to_string())?;
-            let collected = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
-            collected
+            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
         };
         if matches.len() != 1 {
-            return Err(format!("کالای «{lookup}» در این فاکتور یکتا نیست یا پیدا نشد؛ از کد یکتا استفاده کنید"));
+            return Err(format!("ردیف انتخاب‌شدهٔ فاکتور پیدا نشد یا یکتا نیست: {}", if lookup.is_empty() { "شناسه ردیف" } else { lookup }));
         }
         let (item_id, product_id, original_qty, unit_price, item_name, historical_cost) =
             matches.into_iter().next().expect("one match");
@@ -700,25 +703,27 @@ pub fn return_purchase_items(
     let mut gross_return = 0_i64;
     for (index, line) in lines.iter().enumerate() {
         let lookup = line.product_lookup.trim();
-        if lookup.is_empty() || line.quantity <= 0 {
-            return Err(format!("ردیف {}: کالا و تعداد مرجوعی مثبت الزامی است", index + 1));
+        if line.quantity <= 0 || (line.invoice_item_id.is_none() && lookup.is_empty()) {
+            return Err(format!("ردیف {}: شناسه کالا و تعداد مرجوعی مثبت الزامی است", index + 1));
         }
-        if !seen.insert(lookup.to_lowercase()) {
-            return Err(format!("کالای «{lookup}» را فقط یک بار در فهرست مرجوعی وارد کنید"));
+        let seen_key = line.invoice_item_id.map(|id|format!("id:{id}")).unwrap_or_else(||lookup.to_lowercase());
+        if !seen.insert(seen_key) {
+            return Err(format!("ردیف مرجوعی «{}» را فقط یک بار وارد کنید", if lookup.is_empty() { "انتخاب‌شده" } else { lookup }));
         }
         let matches = {
             let mut st = tx.prepare(
                 "SELECT ii.id,ii.product_id,ii.quantity,ii.unit_price,ii.item_name,ii.unit_cost
                  FROM invoice_items ii JOIN products p ON p.id=ii.product_id
-                 WHERE ii.invoice_id=?1 AND (ii.item_name=?2 COLLATE NOCASE OR p.code=?2 OR p.barcode=?2)
+                 WHERE ii.invoice_id=?1 AND
+                  ((?2 IS NOT NULL AND ii.id=?2) OR
+                   (?2 IS NULL AND (ii.item_name=?3 COLLATE NOCASE OR p.code=?3 OR p.barcode=?3)))
                  ORDER BY ii.id"
             ).map_err(|e| e.to_string())?;
-            let rows = st.query_map(params![invoice_id,lookup],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<i64>>(5)?)))
+            let rows = st.query_map(params![invoice_id,line.invoice_item_id,lookup],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<i64>>(5)?)))
                 .map_err(|e|e.to_string())?;
-            let collected = rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
-            collected
+            rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
         };
-        if matches.len()!=1 { return Err(format!("کالای «{lookup}» در این فاکتور یکتا نیست یا پیدا نشد؛ از کد یکتا استفاده کنید")); }
+        if matches.len()!=1 { return Err(format!("ردیف مرجوعی فاکتور پیدا نشد یا یکتا نیست: {}", if lookup.is_empty() { "شناسه ردیف" } else { lookup })); }
         let (item_id,product_id,original_qty,unit_price,item_name,historical_cost)=matches.into_iter().next().expect("one match");
         if product_id<=0 { return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ مرجوعی ممکن نیست")); }
         let historical_cost = historical_cost.ok_or_else(|| format!("بهای خرید تاریخی «{item_name}» موجود نیست؛ برای جلوگیری از خطای ارزش انبار، مرجوعی متوقف شد"))?;
