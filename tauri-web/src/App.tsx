@@ -55,6 +55,7 @@ function App(){
   const [lines,setLines]=useState([{item:'',qty:'1',price:'0'}]);
   const [settings,setSettings]=useState<Record<string,string>>({});
   const [mobileOpen,setMobileOpen]=useState(false);
+  const invoiceSubmitLock=useRef(false);
 
   const notify=useCallback((message:string)=>{setToast(message);window.setTimeout(()=>setToast(''),3200)},[]);
   const load=useCallback(async()=>{
@@ -113,6 +114,7 @@ function App(){
   const setField=(key:string,value:string)=>setForm(old=>({...old,[key]:value}));
   const saveEntry=async(e:FormEvent)=>{
     e.preventDefault();if(!entry)return;
+    if(invoiceSubmitLock.current){notify('درخواست ثبت قبلی هنوز در حال انجام است.');return}
     if(entry==='sale'||entry==='purchase'){
       if(!lines.length||lines.some(x=>!x.item.trim())){notify('تمام ردیف‌های فاکتور باید کالا یا خدمت داشته باشند.');return}
       if(lines.some(x=>!Number.isSafeInteger(Number(x.qty))||Number(x.qty)<=0||!Number.isSafeInteger(Number(x.price))||Number(x.price)<0)){notify('تعداد باید عدد صحیح مثبت و قیمت واحد باید عدد صحیح نامنفی باشد.');return}
@@ -121,6 +123,7 @@ function App(){
       if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(discount)||discount<0||discount>subtotal){notify('مبلغ تخفیف یا جمع فاکتور معتبر نیست.');return}
       if(entry==='sale'&&form.status==='partial'&&(!Number.isSafeInteger(Number(form.paid))||Number(form.paid)<=0||Number(form.paid)>=subtotal-discount)){notify('مبلغ دریافتی باید بیشتر از صفر و کمتر از مبلغ نهایی باشد.');return}
     }
+    if(entry==='sale'||entry==='purchase')invoiceSubmitLock.current=true;
     setBusy(true);
     try{
       let id:number|void=undefined;
@@ -137,7 +140,7 @@ function App(){
       notify('اطلاعات با موفقیت ثبت شد'+(id?' · شناسه '+id:''));
       closeEntry();await load();
     }catch(e){notify('ثبت انجام نشد: '+String(e))}
-    finally{setBusy(false)}
+    finally{invoiceSubmitLock.current=false;setBusy(false)}
   };
   const adjustProductStock=async(p:Product)=>{
     if(p.is_service){notify('خدمت موجودی انبار ندارد.');return}
