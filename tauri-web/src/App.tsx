@@ -68,6 +68,7 @@ function App(){
   const [settings,setSettings]=useState<Record<string,string>>({});
   const [mobileOpen,setMobileOpen]=useState(false);
   const invoiceSubmitLock=useRef(false);
+  const draftSaveLock=useRef(false);
   const invoiceRequestKey=useRef('');
 
   const notify=useCallback((message:string)=>{setToast(message);window.setTimeout(()=>setToast(''),3200)},[]);
@@ -131,7 +132,8 @@ function App(){
     catch(e){notify('دریافت جزئیات فاکتور ناموفق بود: '+String(e))}
   };
   const saveInvoiceDraft=async()=>{
-    if(entry!=='sale'&&entry!=='purchase')return;
+    if((entry!=='sale'&&entry!=='purchase')||draftSaveLock.current)return;
+    draftSaveLock.current=true;
     const payload={kind:entry==='purchase'?'purchase':'sale',customer:form.customer||'',date:form.date||isoToday,
       discount:Number(form.discount||0),notes:form.notes||'',payment_status:form.status||'paid',
       paid_amount:Number(form.paid||0),method:form.method||'cash',items:lines};
@@ -141,6 +143,7 @@ function App(){
       setInvoiceDrafts(await invoke<InvoiceDraft[]>('list_invoice_drafts'));
       notify('پیش‌نویس فاکتور ذخیره شد؛ می‌توانی بعداً ادامه بدهی.');
     }catch(e){notify('ذخیره پیش‌نویس ناموفق بود: '+String(e))}
+    finally{draftSaveLock.current=false}
   };
   const resumeInvoiceDraft=async(id:number)=>{
     try{
@@ -303,8 +306,8 @@ function App(){
     {entry&&<EntryModal entry={entry} products={products.filter(p=>p.is_active)} form={form} setField={setField} lines={lines} setLines={setLines} onClose={closeEntry} onSubmit={saveEntry} onSaveDraft={saveInvoiceDraft} hasDraft={draftId!==null} busy={busy} editing={editingId!==null}/>}
     {ledger&&<ContactLedgerModal ledger={ledger} onClose={()=>setLedger(null)}/>}
     {invoiceDetail&&<InvoiceDetailModal detail={invoiceDetail} onClose={()=>setInvoiceDetail(null)} onPrint={()=>printInvoice(invoiceDetail.invoice.id)} onReturn={()=>{setReturnInvoice(invoiceDetail);setInvoiceDetail(null)}} onPay={()=>{setPaymentInvoice(invoiceDetail);setInvoiceDetail(null)}} onVoid={()=>{setInvoiceDetail(null);void removeRecord('invoices',invoiceDetail.invoice.id)}}/>}
-    {returnInvoice&&<InvoiceReturnModal detail={returnInvoice} onClose={()=>setReturnInvoice(null)} onSubmit={submitInvoiceReturn}/>}
-    {paymentInvoice&&<InvoicePaymentModal detail={paymentInvoice} onClose={()=>setPaymentInvoice(null)} onSubmit={submitInvoicePayment}/>}
+    {returnInvoice&&<InvoiceReturnModal detail={returnInvoice} onClose={()=>{setInvoiceDetail(returnInvoice);setReturnInvoice(null)}} onSubmit={submitInvoiceReturn}/>}
+    {paymentInvoice&&<InvoicePaymentModal detail={paymentInvoice} onClose={()=>{setInvoiceDetail(paymentInvoice);setPaymentInvoice(null)}} onSubmit={submitInvoicePayment}/>}
     {toast&&<div className="toast"><Check size={16}/>{toast}</div>}
   </div>;
 }
