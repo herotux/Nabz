@@ -839,6 +839,27 @@ mod tests {
     }
 
     #[test]
+    fn v11_to_v12_migration_keeps_legacy_duplicate_barcodes_without_blocking_database() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute_batch(
+            "DROP TRIGGER IF EXISTS trg_products_active_barcode_unique_insert;
+             DROP TRIGGER IF EXISTS trg_products_active_barcode_unique_update;
+             PRAGMA user_version=11;"
+        ).unwrap();
+        connection.execute("INSERT INTO products(name,code,barcode) VALUES('قدیمی ۱','OLD-BAR-1','DUP-OLD')",[]).unwrap();
+        connection.execute("INSERT INTO products(name,code,barcode) VALUES('قدیمی ۲','OLD-BAR-2','DUP-OLD')",[]).unwrap();
+        migrate(&connection).unwrap();
+        let (version,duplicates):(i64,i64)=connection.query_row(
+            "SELECT (SELECT user_version FROM pragma_user_version),(SELECT COUNT(*) FROM products WHERE barcode='DUP-OLD' AND is_active=1)",
+            [],|r|Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        assert_eq!(version,12);
+        assert_eq!(duplicates,2);
+        assert!(connection.execute("INSERT INTO products(name,code,barcode) VALUES('جدید','NEW-BAR','DUP-OLD')",[]).is_err());
+    }
+
+    #[test]
     fn schema_v11_adds_product_catalog_metadata_and_stock_indexes() {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
