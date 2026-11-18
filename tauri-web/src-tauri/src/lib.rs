@@ -379,7 +379,12 @@ fn validate_backup(data:&Value)->Result<(),String>{
       &&backup_has_int(x,"buy_price")&&backup_has_int(x,"sell_price")&&backup_has_int(x,"quantity")&&backup_has_int(x,"min_quantity")
       &&x["buy_price"].as_i64().unwrap_or(-1)>=0&&x["sell_price"].as_i64().unwrap_or(-1)>=0
       &&x["quantity"].as_i64().unwrap_or(-1)>=0&&x["min_quantity"].as_i64().unwrap_or(-1)>=0
-      &&(x.get("average_cost").is_none()||x["average_cost"].as_i64().unwrap_or(-1)>=0)),
+      &&(x.get("average_cost").is_none()||x["average_cost"].as_i64().unwrap_or(-1)>=0)
+      &&(x.get("wholesale_price").is_none()||x["wholesale_price"].as_i64().unwrap_or(-1)>=0)
+      &&(x.get("is_service").is_none()||[0,1].contains(&x["is_service"].as_i64().unwrap_or(-1)))
+      &&(x.get("is_active").is_none()||[0,1].contains(&x["is_active"].as_i64().unwrap_or(-1)))
+      &&(x.get("category").is_none()||x["category"].is_string())
+      &&(x.get("unit").is_none()||x["unit"].is_string())),
     "invoices"=>!(backup_has_int(x,"id")&&backup_has_int(x,"number")&&backup_has_string(x,"kind")
       &&["sale","purchase"].contains(&x["kind"].as_str().unwrap_or(""))&&backup_has_optional_int(x,"contact_id")
       &&backup_has_string(x,"contact_name")&&backup_has_string(x,"invoice_date")&&backup_has_int(x,"subtotal")
