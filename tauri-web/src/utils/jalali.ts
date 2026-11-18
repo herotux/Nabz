@@ -24,7 +24,7 @@ export function jalaliParts(iso: string): { year: number; month: number; day: nu
 
 export function formatJalaliDate(iso: string): string {
   const day = iso?.slice(0, 10) || '';
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(day)) return iso || '—';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return iso || '—';
 
   return gregorianToJalali(day)
     .split('/')
@@ -42,7 +42,7 @@ export function gregorianToJalali(iso: string): string {
 }
 
 export function jalaliToGregorian(raw: string): string | null {
-  const match = latinDigits(raw).trim().match(/^(\\d{4})[\\/-](\\d{1,2})[\\/-](\\d{1,2})$/);
+  const match = latinDigits(raw).trim().match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
   if (!match) return null;
 
   const year = Number(match[1]);
