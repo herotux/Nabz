@@ -850,10 +850,8 @@ mod tests {
         connection.execute("INSERT INTO products(name,code,barcode) VALUES('قدیمی ۱','OLD-BAR-1','DUP-OLD')",[]).unwrap();
         connection.execute("INSERT INTO products(name,code,barcode) VALUES('قدیمی ۲','OLD-BAR-2','DUP-OLD')",[]).unwrap();
         migrate(&connection).unwrap();
-        let (version,duplicates):(i64,i64)=connection.query_row(
-            "SELECT (SELECT user_version FROM pragma_user_version),(SELECT COUNT(*) FROM products WHERE barcode='DUP-OLD' AND is_active=1)",
-            [],|r|Ok((r.get(0)?,r.get(1)?))
-        ).unwrap();
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let duplicates:i64=connection.query_row("SELECT COUNT(*) FROM products WHERE barcode='DUP-OLD' AND is_active=1",[],|r|r.get(0)).unwrap();
         assert_eq!(version,12);
         assert_eq!(duplicates,2);
         assert!(connection.execute("INSERT INTO products(name,code,barcode) VALUES('جدید','NEW-BAR','DUP-OLD')",[]).is_err());
