@@ -94,7 +94,11 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
  if is_service && input.quantity!=0 {
   return Err("خدمت موجودی انبار ندارد؛ موجودی آن باید صفر باشد".into())
  }
- if !input.barcode.is_empty() {
+ let barcode_changed=if let Some(id)=payload.get("id").and_then(Value::as_i64) {
+  let current:String=c.query_row("SELECT barcode FROM products WHERE id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  current!=input.barcode
+ } else { true };
+ if barcode_changed && !input.barcode.is_empty() {
   let duplicate:i64=c.query_row("SELECT COUNT(*) FROM products WHERE barcode=?1 AND is_active=1 AND (?2 IS NULL OR id<>?2)",rusqlite::params![input.barcode,payload.get("id").and_then(Value::as_i64)],|r|r.get(0)).map_err(|e|e.to_string())?;
   if duplicate>0{return Err("این بارکد قبلاً برای کالای دیگری ثبت شده است".into())}
  }
@@ -657,7 +661,7 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
     SELECT 1 FROM products WHERE barcode=NEW.barcode AND is_active=1
    ) BEGIN SELECT RAISE(ABORT,'بارکد کالای فعال تکراری است'); END;
    CREATE TRIGGER IF NOT EXISTS trg_products_active_barcode_unique_update
-   BEFORE UPDATE OF barcode,is_active ON products WHEN NEW.is_active=1 AND NEW.barcode<>'' AND EXISTS(
+   BEFORE UPDATE OF barcode,is_active ON products WHEN NEW.is_active=1 AND NEW.barcode<>'' AND (NEW.barcode<>OLD.barcode OR NEW.is_active<>OLD.is_active) AND EXISTS(
     SELECT 1 FROM products WHERE barcode=NEW.barcode AND is_active=1 AND id<>NEW.id
    ) BEGIN SELECT RAISE(ABORT,'بارکد کالای فعال تکراری است'); END;
    CREATE TRIGGER IF NOT EXISTS inventory_adjustments_no_update BEFORE UPDATE ON inventory_adjustments
