@@ -162,6 +162,12 @@ function App(){
   };
   const toggleProductActive=async(p:Product)=>{const active=!p.is_active;if(!window.confirm(active?'این کالا دوباره در فاکتورهای جدید قابل انتخاب شود؟':'این کالا از فهرست انتخاب فاکتورهای جدید خارج شود؟ سابقه آن حفظ می‌شود.'))return;try{await invoke('set_product_active',{productId:p.id,active});notify(active?'کالا فعال شد.':'کالا غیرفعال شد و سوابق آن باقی ماند.');await load()}catch(e){notify('تغییر وضعیت کالا انجام نشد: '+String(e))}};
   const removeRecord=async(kind:string,id:number)=>{
+    if(kind==='invoices'){
+      if(!window.confirm('این فاکتور به‌صورت امن باطل شود؟ سابقه فاکتور حذف نمی‌شود و عملیات معکوس فقط در صورت نبود گردش ناسازگار انجام خواهد شد.'))return;
+      try{await invoke('void_invoice',{invoiceId:id});notify('فاکتور با موفقیت باطل شد؛ سابقه آن حفظ شده است.');await load()}
+      catch(e){notify('ابطال فاکتور انجام نشد: '+String(e))}
+      return;
+    }
     if(!window.confirm('این رکورد حذف شود؟'))return;
     try{await invoke('delete_record',{kind,id});notify('رکورد حذف شد.');await load()}
     catch(e){notify('حذف انجام نشد: '+String(e))}
@@ -313,7 +319,7 @@ function RecordsTable({records,kind,columns,onDelete,onPrint,onEdit,onView}:{rec
   const second=kind==='contacts'?(r.detail||'—'):kind==='invoices'?(r.detail==='sale'?'فروش':r.detail==='purchase'?'خرید':r.detail):kind==='payments'?(r.detail==='receipt'?'دریافت وجه':r.detail==='payment'?'پرداخت وجه':r.detail):r.detail;
   const status=kind==='contacts'?contactKind(r.status):kind==='payments'?paymentMethod(r.status):r.status||'ثبت‌شده';
   const statusClass=kind==='contacts'?'info':kind==='payments'?'success':(/بدهکار|کم‌موجود|در انتظار/.test(status)?'warning':/بستانکار/.test(status)?'info':'success');
-  return <tr key={r.id}><td><b>{r.name}</b>{kind==='recent'&&<small className="sub-cell">{second}</small>}</td><td>{kind==='recent'?'—':second}</td><td className="amount-cell">{money(r.amount)} <small>تومان</small></td><td><span className={'status '+statusClass}>{status}</span></td><td>{formatJalaliDate(r.date)}</td><td><div className="row-actions">{kind==='invoices'&&onPrint&&<button title="چاپ فاکتور" onClick={()=>onPrint(r.id)}><Printer size={16}/></button>}{kind==='contacts'&&onView&&<button title="گردش حساب" onClick={()=>onView(r.id)}><Eye size={16}/></button>}{kind==='contacts'&&onEdit&&<button title="ویرایش طرف‌حساب" onClick={()=>onEdit(r)}><Pencil size={16}/></button>}{onDelete&&<button title="حذف" onClick={()=>onDelete(r.id)}><Trash2 size={16}/></button>}</div></td></tr>;
+  return <tr key={r.id}><td><b>{r.name}</b>{kind==='recent'&&<small className="sub-cell">{second}</small>}</td><td>{kind==='recent'?'—':second}</td><td className="amount-cell">{money(r.amount)} <small>تومان</small></td><td><span className={'status '+statusClass}>{status}</span></td><td>{formatJalaliDate(r.date)}</td><td><div className="row-actions">{kind==='invoices'&&onPrint&&<button title="چاپ فاکتور" onClick={()=>onPrint(r.id)}><Printer size={16}/></button>}{kind==='contacts'&&onView&&<button title="گردش حساب" onClick={()=>onView(r.id)}><Eye size={16}/></button>}{kind==='contacts'&&onEdit&&<button title="ویرایش طرف‌حساب" onClick={()=>onEdit(r)}><Pencil size={16}/></button>}{onDelete&&<button title={kind==='invoices'?'ابطال امن فاکتور':'حذف'} aria-label={kind==='invoices'?'ابطال امن فاکتور':'حذف رکورد'} onClick={()=>onDelete(r.id)}>{kind==='invoices'?<X size={16}/>:<Trash2 size={16}/>}</button>}</div></td></tr>;
  })}{!records.length&&<tr><td colSpan={6} className="empty-cell">هنوز اطلاعاتی ثبت نشده است.</td></tr>}</tbody></table></div>;
 }
 function ProductsPage({products,movements,query,setQuery,busy,onAdd,onEdit,onToggleActive,onAdjust,onPrintLabel}:{products:Product[];movements:InventoryMovement[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onEdit:(p:Product)=>void;onToggleActive:(p:Product)=>void;onAdjust:(p:Product)=>void;onPrintLabel:(p:Product)=>void}){
