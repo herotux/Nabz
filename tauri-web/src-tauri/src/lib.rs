@@ -754,10 +754,11 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
 fn parse_return_lines(lines:Vec<Value>)->Result<Vec<ReturnLineInput>,String>{
  let parsed=lines.into_iter().map(|x|{
   let lookup=x.get("item").or_else(||x.get("product_lookup")).and_then(Value::as_str).unwrap_or("").trim().to_owned();
+  let invoice_item_id=x.get("invoice_item_id").and_then(Value::as_i64);
   let quantity=x.get("qty").or_else(||x.get("quantity")).and_then(|v|v.as_i64().or_else(||v.as_str().and_then(|n|n.parse().ok()))).unwrap_or(0);
-  ReturnLineInput{product_lookup:lookup,quantity}
+  ReturnLineInput{invoice_item_id,product_lookup:lookup,quantity}
  }).collect::<Vec<_>>();
- if parsed.is_empty()||parsed.iter().any(|x|x.product_lookup.is_empty()||x.quantity<=0){return Err("ردیف‌های برگشت باید کالا و تعداد مثبت داشته باشند".into())}
+ if parsed.is_empty()||parsed.iter().any(|x|(x.invoice_item_id.is_none()&&x.product_lookup.is_empty())||x.invoice_item_id.is_some_and(|id|id<=0)||x.quantity<=0){return Err("ردیف‌های برگشت باید شناسهٔ فاکتور یا کد کالا و تعداد مثبت داشته باشند".into())}
  Ok(parsed)
 }
 #[tauri::command]
