@@ -15,7 +15,10 @@ type Entry = 'contact'|'product'|'sale'|'purchase'|'receipt'|'payment';
 type RecordRow = {id:number;name:string;detail:string;amount:number;status:string;date:string};
 type Product = {id:number;name:string;code:string;barcode:string;quantity:number;buy_price:number;average_cost:number;sell_price:number;min_quantity:number;category:string;unit:string;wholesale_price:number;is_service:boolean;is_active:boolean};
 type InventoryMovement = {product_id:number;product_name:string;movement_date:string;movement_type:string;reference:string;quantity_delta:number;balance_after:number};
-type Summary = {sales_today:number;receipts_today:number;customer_balance:number;inventory_value:number;contacts:number;products:number;invoices:number};
+type Summary = {sales_today:number;receipts_today:number;customer_balance:number;supplier_balance:number;inventory_value:number;contacts:number;products:number;invoices:number;sales_month:number;purchases_month:number;gross_profit_month:number;net_profit_month:number;low_stock_count:number};
+type ReportTrend = {date:string;total:number};
+type ReportProduct = {name:string;code:string;quantity:number};
+type ReportData = {start_date:string;end_date:string;sales_total:number;purchases_total:number;receipts_total:number;payments_total:number;sales_returns_total:number;purchase_returns_total:number;sales_count:number;purchases_count:number;cost_of_goods_sold:number;gross_profit:number;expenses_total:number;net_profit:number;uncosted_sales:number;inventory_value:number;customer_balance:number;supplier_balance:number;low_stock_count:number;daily_sales:ReportTrend[];top_products:ReportProduct[];expenses_are_store_wide:boolean};
 type Trend = {date:string;total:number};
 type InvoicePrint = {invoice:{id:number;number:number;kind:string;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string};items:{item_name:string;quantity:number;unit_price:number;line_total:number}[];shop:Record<string,string>};
 type ContactLedger = {contact:{id:number;name:string;kind:string;phone:string;opening_balance:number;customer_credit_balance:number;supplier_credit_balance:number};entries:{id:number;number?:number;entry_type:string;kind:string;date:string;amount:number;paid?:number;method?:string;notes:string}[]};
@@ -36,8 +39,9 @@ const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string
 const pageTitles:Record<Page,string> = {dashboard:'نمای کلی',contacts:'طرف‌حساب‌ها',invoices:'فاکتورها',payments:'دریافت و پرداخت',products:'کالا و انبار',reports:'گزارش‌ها',printing:'چاپ و بارکد',settings:'تنظیمات'};
 const money=(n:number)=>new Intl.NumberFormat('fa-IR').format(Number.isFinite(n)?n:0);
 const today=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{day:'numeric',month:'long',year:'numeric'}).format(new Date());
-const isoToday=new Date().toISOString().slice(0,10);
-const emptySummary:Summary={sales_today:0,receipts_today:0,customer_balance:0,inventory_value:0,contacts:0,products:0,invoices:0};
+const localIso=(date:Date)=>date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');
+const isoToday=localIso(new Date());
+const emptySummary:Summary={sales_today:0,receipts_today:0,customer_balance:0,supplier_balance:0,inventory_value:0,contacts:0,products:0,invoices:0,sales_month:0,purchases_month:0,gross_profit_month:0,net_profit_month:0,low_stock_count:0};
 
 function App(){
   const [page,setPage]=useState<Page>('dashboard');
@@ -297,7 +301,7 @@ function App(){
         {page==='invoices'&&<><InvoiceDraftsPanel drafts={invoiceDrafts} onResume={resumeInvoiceDraft} onDelete={deleteInvoiceDraft}/><RecordsPage title="فاکتورها" subtitle="فاکتورهای فروش و خرید ثبت‌شده در فروشگاه" records={filteredInvoices} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('sale')} onDelete={id=>removeRecord('invoices',id)} onPrint={printInvoice} onView={viewInvoice} columns={['شرح فاکتور','نوع','مبلغ کل','وضعیت','تاریخ']} extra={<><select className="invoice-filter" aria-label="نوع فاکتور" value={invoiceKindFilter} onChange={e=>setInvoiceKindFilter(e.target.value)}><option value="all">همه انواع</option><option value="sale">فروش</option><option value="purchase">خرید</option></select><select className="invoice-filter" aria-label="وضعیت فاکتور" value={invoiceStatusFilter} onChange={e=>setInvoiceStatusFilter(e.target.value)}><option value="all">همه وضعیت‌ها</option><option value="unpaid">پرداخت‌نشده</option><option value="partial">پرداخت جزئی</option><option value="settled">تسویه</option><option value="void">باطل‌شده</option></select><JalaliDateField label="از تاریخ" value={invoiceDateFrom} onChange={setInvoiceDateFrom}/><JalaliDateField label="تا تاریخ" value={invoiceDateTo} onChange={setInvoiceDateTo}/><button className="secondary-btn" onClick={()=>openEntry('purchase')}><Plus size={15}/> خرید جدید</button></>} /></>}
         {page==='payments'&&<RecordsPage title="دریافت و پرداخت" subtitle="ثبت و پیگیری دریافت وجه و پرداخت به تأمین‌کنندگان" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('receipt')} columns={['طرف‌حساب','نوع عملیات','مبلغ','روش','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('payment')}><ArrowUpRight size={15}/> ثبت پرداخت</button></>} />}
         {page==='products'&&<ProductsPage products={filteredProducts} movements={movements} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('product')} onEdit={openProductEdit} onToggleActive={toggleProductActive} onAdjust={adjustProductStock} onPrintLabel={printProductLabel}/> }
-        {page==='reports'&&<ReportsPage summary={summary}/>}
+        {page==='reports'&&<ReportsPage/>}
         {page==='printing'&&<PrintingPage notify={notify}/>}
         {page==='settings'&&<SettingsPage settings={settings} setSettings={setSettings} onSave={saveSettings} onBackup={backup} onRestore={restore}/>}
         <footer className="page-footer"><span>نبض · مدیریت مالی هوشمند فروشگاه</span><span>نسخه آزمایشی رابط React</span></footer>
@@ -377,9 +381,10 @@ function Dashboard({summary,trend,days,setDays,records,busy,onAction,onNavigate,
  const max=Math.max(1,...trend.map(x=>x.total));
  const coords=trend.map((x,i)=>({x:trend.length<2?50:i*100/(trend.length-1),y:92-(x.total/max)*76}));
  const path=coords.map((p,i)=>(i?'L':'M')+p.x+' '+p.y).join(' ');
- const cards=[{label:'فروش امروز',value:summary.sales_today,icon:ShoppingCart,tone:'blue',hint:'مجموع فاکتورهای فروش'},{label:'دریافت‌های امروز',value:summary.receipts_today,icon:ArrowDownLeft,tone:'green',hint:'وجوه دریافت‌شده'},{label:'مانده حساب مشتریان',value:summary.customer_balance,icon:Wallet,tone:'amber',hint:'مانده بدهی مشتریان'},{label:'ارزش موجودی انبار',value:summary.inventory_value,icon:Package,tone:'violet',hint:'بر اساس قیمت خرید'}];
+ const cards=[{label:'فروش امروز',value:summary.sales_today,icon:ShoppingCart,tone:'blue',hint:'مجموع فاکتورهای فروش'},{label:'دریافت خالص امروز',value:summary.receipts_today,icon:ArrowDownLeft,tone:'green',hint:'پس از بازپرداخت‌ها'},{label:'بدهی مشتریان',value:summary.customer_balance,icon:Wallet,tone:'amber',hint:'ماندهٔ فعلی حساب‌ها'},{label:'بدهی تأمین‌کنندگان',value:summary.supplier_balance,icon:CreditCard,tone:'violet',hint:'ماندهٔ فعلی حساب‌ها'},{label:'ارزش موجودی انبار',value:summary.inventory_value,icon:Package,tone:'blue',hint:'بر پایهٔ میانگین بهای تمام‌شده'},{label:'سود ناخالص ماه',value:summary.gross_profit_month,icon:Activity,tone:'green',hint:'فروش ماه منهای بهای تمام‌شده'}];
  return <><PageHeading title="خوش آمدی 👋" subtitle="نمایی روشن از وضعیت مالی فروشگاهت در یک نگاه."><span className="today-label"><CalendarDays size={15}/>{today}</span><PrimaryButton onClick={()=>onAction('sale')}>فاکتور فروش</PrimaryButton></PageHeading>
   <div className="stat-grid">{cards.map(c=><article className="stat-card" key={c.label}><div className="stat-top"><span>{c.label}</span><i className={'stat-icon '+c.tone}><c.icon size={19}/></i></div><div className="stat-value">{money(c.value)}<small>تومان</small></div><div className="stat-foot"><span>{c.hint}</span><Activity size={14}/></div></article>)}</div>
+  <div className="mini-stat-grid dashboard-month-stats"><MiniStat label="فروش ماه جاری" value={summary.sales_month} icon={ShoppingCart}/><MiniStat label="خرید ماه جاری" value={summary.purchases_month} icon={Package}/><MiniStat label="سود خالص ماه" value={summary.net_profit_month} icon={Activity}/><MiniStat label="کالاهای کم‌موجود" value={summary.low_stock_count} icon={Boxes}/></div>
   <div className="dashboard-grid"><article className="surface chart-card"><div className="surface-heading"><div><h2>روند فروش</h2><p>مقایسه فروش در روزهای اخیر</p></div><select value={days} onChange={e=>setDays(Number(e.target.value))}><option value={7}>۷ روز اخیر</option><option value={30}>۳۰ روز اخیر</option></select></div><div className="chart-legend"><span><i/> فروش روزانه</span><b>{money(trend.reduce((a,b)=>a+b.total,0))} <small>تومان</small></b></div><div className="sales-chart"><div className="chart-y"><span>{money(max)}</span><span>{money(Math.round(max*.66))}</span><span>{money(Math.round(max*.33))}</span><span>۰</span></div><div className="chart-main"><div className="chart-grid"><i/><i/><i/><i/></div><svg viewBox="0 0 100 100" preserveAspectRatio="none"><defs><linearGradient id="salesFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#16a36b" stopOpacity=".20"/><stop offset="100%" stopColor="#16a36b" stopOpacity="0"/></linearGradient></defs><path d={path+' L100 100 L0 100 Z'} fill="url(#salesFill)"/><path d={path||'M0 92 L100 92'} fill="none" stroke="#159b67" strokeWidth="1.8" vectorEffect="non-scaling-stroke"/>{coords.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="1.4" fill="#fff" stroke="#159b67" strokeWidth=".8" vectorEffect="non-scaling-stroke"/>)}</svg><div className="chart-x">{trend.filter((_,i)=>i===0||i===trend.length-1||i%Math.max(1,Math.floor(trend.length/5))===0).map(p=><span key={p.date}>{new Date(p.date+'T12:00:00').toLocaleDateString('fa-IR-u-ca-persian',{day:'numeric',month:'short'})}</span>)}</div></div></div>{busy&&<div className="loading-line"/>}</article>
    <article className="surface quick-card"><div className="surface-heading"><div><h2>دسترسی سریع</h2><p>کارهای روزمره فروشگاه</p></div><Sparkles size={18} className="muted-icon"/></div><div className="quick-list"><button onClick={()=>onAction('sale')}><i className="quick-icon green"><ShoppingCart size={18}/></i><span><b>فاکتور فروش</b><small>ثبت فروش جدید</small></span><ChevronLeft size={17}/></button><button onClick={()=>onAction('receipt')}><i className="quick-icon blue"><ArrowDownLeft size={18}/></i><span><b>ثبت دریافت</b><small>دریافت وجه از مشتری</small></span><ChevronLeft size={17}/></button><button onClick={()=>onAction('contact')}><i className="quick-icon violet"><Users size={18}/></i><span><b>طرف‌حساب جدید</b><small>افزودن مشتری یا تأمین‌کننده</small></span><ChevronLeft size={17}/></button><button onClick={()=>onAction('product')}><i className="quick-icon amber"><Package size={18}/></i><span><b>کالای جدید</b><small>ثبت کالا در انبار</small></span><ChevronLeft size={17}/></button></div></article></div>
   <article className="surface recent-card"><div className="surface-heading"><div><h2>آخرین رویدادها</h2><p>آخرین فاکتورها و دریافت / پرداخت‌ها</p></div><button className="text-btn" onClick={()=>onNavigate('invoices')}>همه فاکتورها <ChevronLeft size={15}/></button></div><RecordsTable records={records} kind="recent" onPrint={onPrint}/></article>
@@ -432,29 +437,92 @@ function ProductsPage({products,movements,query,setQuery,busy,onAdd,onEdit,onTog
  return <><PageHeading title="کالا و انبار" subtitle="کنترل موجودی، بارکد و قیمت خرید و فروش"><div className="heading-actions"><button className="secondary-btn" onClick={exportCsv} disabled={!sorted.length}><Download size={15}/> خروجی کالاها</button><PrimaryButton onClick={onAdd}>افزودن کالا</PrimaryButton></div></PageHeading><div className="mini-stat-grid"><MiniStat label="تعداد اقلام فعال" value={activeStock.length} icon={Boxes}/><MiniStat label="مجموع موجودی" value={activeStock.reduce((n,p)=>n+p.quantity,0)} icon={Package}/><MiniStat label="نیازمند تأمین" value={lowStockItems.length} icon={Activity}/></div><div className="surface list-surface"><div className="list-toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="جست‌وجوی نام، کد یا بارکد..."/></div><div className="toolbar-meta"><span>{money(filtered.length)} کالا</span><select className="stock-select" value={activeFilter} onChange={e=>setActiveFilter(e.target.value)}><option value="active">فعال‌ها</option><option value="inactive">غیرفعال‌ها</option><option value="all">همه وضعیت‌ها</option></select><select className="stock-select" value={stockFilter} onChange={e=>setStockFilter(e.target.value)}><option value="all">همه کالاها</option><option value="low">موجودی کم</option><option value="available">موجود</option></select><select className="stock-select" value={sortBy} onChange={e=>setSortBy(e.target.value)} aria-label="مرتب‌سازی کالاها"><option value="name">مرتب‌سازی: نام</option><option value="quantity">بیشترین موجودی</option><option value="buy">بیشترین قیمت خرید</option><option value="sell">بیشترین قیمت فروش</option></select></div></div><div className="list-toolbar inventory-catalog-filters"><select className="stock-select" value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)}><option value="all">همه دسته‌ها</option>{categories.map(x=><option key={x} value={x}>{x}</option>)}</select><select className="stock-select" value={unitFilter} onChange={e=>setUnitFilter(e.target.value)}><option value="all">همه واحدها</option>{units.map(x=><option key={x} value={x}>{x}</option>)}</select><label className="field-label">حداقل قیمت فروش<input type="number" min="0" value={priceMin} onChange={e=>setPriceMin(e.target.value)} placeholder="از"/></label><label className="field-label">حداکثر قیمت فروش<input type="number" min="0" value={priceMax} onChange={e=>setPriceMax(e.target.value)} placeholder="تا"/></label></div><div className="table-wrap"><table className="data-table"><thead><tr>{['نام کالا','دسته‌بندی','کد / بارکد','موجودی','واحد','خرید','میانگین بها','فروش','عمده','وضعیت','عملیات'].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{visible.map(p=><tr key={p.id}><td><b>{p.name}</b></td><td>{p.category||'—'}</td><td><span>{p.code}</span><small className="mono">{p.barcode||'—'}</small></td><td>{p.is_service?'—':money(p.quantity)}</td><td>{p.unit||'عدد'}</td><td>{money(p.buy_price)}</td><td>{money(p.average_cost)}</td><td className="amount-cell">{money(p.sell_price)}</td><td>{money(p.wholesale_price||0)}</td><td><span className={'status '+(!p.is_active?'muted':p.is_service?'success':p.quantity<=p.min_quantity?'warning':'success')}>{!p.is_active?'غیرفعال':p.is_service?'خدمت':p.quantity<=p.min_quantity?'کم‌موجود':'موجود'}</span></td><td><div className="row-actions">{!p.is_service&&<button title="اصلاح موجودی" onClick={()=>onAdjust(p)}><SlidersHorizontal size={16}/></button>}<button title="ویرایش کالا" onClick={()=>onEdit(p)}><Pencil size={16}/></button><button title="چاپ برچسب کالا" onClick={()=>onPrintLabel(p)}><Printer size={16}/></button><button title={p.is_active?'غیرفعال‌سازی کالا':'فعال‌سازی کالا'} onClick={()=>onToggleActive(p)}>{p.is_active?<Trash2 size={16}/>:<RefreshCw size={16}/>}</button></div></td></tr>)}{!visible.length&&<tr><td colSpan={11} className="empty-cell">{busy?'در حال دریافت...':'کالایی با این فیلتر پیدا نشد.'}</td></tr>}</tbody></table></div><Pagination page={page} pages={pages} onChange={setPage}/></div><div className="surface list-surface inventory-ledger"><div className="surface-heading"><div><h2>گزارش گردش انبار</h2><p>فیلتر بازهٔ شمسی و کالا؛ مانده پس از هر رویداد بر پایه دفتر کامل محاسبه شده است</p></div><div className="heading-actions"><button className="secondary-btn" onClick={exportMovementsCsv} disabled={!movementRows.length}><Download size={15}/> خروجی گردش</button><span className="status success">{money(movementRows.length)} رویداد</span></div></div><div className="form-two inventory-filters"><JalaliDateField label="از تاریخ" value={movementFrom} onChange={setMovementFrom}/><JalaliDateField label="تا تاریخ" value={movementTo} onChange={setMovementTo}/></div><div className="list-toolbar"><label className="field-label">فیلتر کالا<select className="stock-select" value={movementProduct} onChange={e=>setMovementProduct(e.target.value)}><option value="all">همه کالاها</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label></div><div className="table-wrap"><table className="data-table"><thead><tr><th>تاریخ</th><th>کالا</th><th>نوع رویداد</th><th>شماره سند / علت</th><th>ورودی / خروجی</th><th>مانده</th></tr></thead><tbody>{movementRows.slice(0,200).map((m,i)=><tr key={m.product_id+'-'+m.movement_date+'-'+i}><td>{formatJalaliDate(m.movement_date)}</td><td><b>{m.product_name}</b></td><td>{m.movement_type}</td><td>{m.reference}</td><td>{m.quantity_delta>0?'+':''}{money(m.quantity_delta)}</td><td>{money(m.balance_after)}</td></tr>)}{!movementRows.length&&<tr><td colSpan={6} className="empty-cell">در این بازه گردش انباری ثبت نشده است.</td></tr>}</tbody></table></div><div className="inventory-alerts"><div className="surface-heading"><div><h3>گزارش هشدار انبار</h3><p>کالاهای کم‌موجود و بدون گردش در بازه شمسی</p></div><label className="field-label">آستانه مشترک کم‌موجودی (خالی = حداقل هر کالا)<input type="number" min="0" value={lowStockThreshold} onChange={e=>setLowStockThreshold(e.target.value)} placeholder="حداقل اختصاصی کالا"/></label></div><div className="form-three"><div><b>کالاهای کم‌موجود ({money(lowStockItems.length)})</b>{lowStockItems.slice(0,30).map(p=><p key={p.id}>{p.name} · موجودی {money(p.quantity)} · حداقل {money(p.min_quantity)}</p>)}{!lowStockItems.length&&<p>کالای کم‌موجودی وجود ندارد.</p>}</div><div><b>کم‌گردش ({money(lowMovementItems.length)})</b><label className="field-label">حداکثر تعداد رویداد در بازه<input type="number" min="1" value={lowMovementThreshold} onChange={e=>setLowMovementThreshold(e.target.value)}/></label>{lowMovementItems.slice(0,30).map(p=><p key={p.id}>{p.name} · {money(periodMovements.filter(m=>m.product_id===p.id).length)} رویداد</p>)}{!lowMovementItems.length&&<p>کالای کم‌گردشی در بازه وجود ندارد.</p>}</div><div><b>بدون گردش در بازه ({money(noMovementItems.length)})</b>{noMovementItems.slice(0,30).map(p=><p key={p.id}>{p.name} · موجودی {money(p.quantity)}</p>)}{!noMovementItems.length&&<p>همه کالاهای فعال در این بازه گردش داشته‌اند.</p>}</div></div></div></div></>;
 }
 function MiniStat({label,value,icon:Icon}:{label:string;value:number;icon:typeof Boxes}){return <div className="mini-stat"><i><Icon size={18}/></i><span>{label}</span><b>{money(value)}</b></div>}
-function ReportsPage({summary}:{summary:Summary}){
- const [start,setStart]=useState(()=>new Date(Date.now()-29*86400000).toISOString().slice(0,10));
+function reportCsvCell(value:string|number){
+ const raw=String(value??'');
+ const safe=/^[=+@\\-\\t\\r]/.test(raw)?"'"+raw:raw;
+ return '"'+safe.replace(/"/g,'""')+'"';
+}
+function downloadReportCsv(report:ReportData){
+ const rows:(string|number)[][]=[
+  ['بخش','عنوان','مقدار','واحد'],
+  ['خلاصه','فروش خالص فاکتورها',report.sales_total,'تومان'],
+  ['خلاصه','خرید خالص فاکتورها',report.purchases_total,'تومان'],
+  ['خلاصه','دریافت خالص',report.receipts_total,'تومان'],
+  ['خلاصه','پرداخت خالص',report.payments_total,'تومان'],
+  ['خلاصه','برگشت فروش (اطلاعاتی)',report.sales_returns_total,'تومان'],
+  ['خلاصه','مرجوعی خرید (اطلاعاتی)',report.purchase_returns_total,'تومان'],
+  ['خلاصه','بهای تمام‌شده کالای فروش‌رفته',report.cost_of_goods_sold,'تومان'],
+  ['خلاصه','سود ناخالص',report.gross_profit,'تومان'],
+  ['خلاصه','هزینه‌های عملیاتی',report.expenses_total,'تومان'],
+  ['خلاصه','سود خالص',report.net_profit,'تومان'],
+  ['خلاصه','فروش فاقد بهای تاریخی',report.uncosted_sales,'تومان'],
+  ['وضعیت فعلی','بدهی مشتریان',report.customer_balance,'تومان'],
+  ['وضعیت فعلی','بدهی تأمین‌کنندگان',report.supplier_balance,'تومان'],
+  ['وضعیت فعلی','ارزش موجودی',report.inventory_value,'تومان'],
+  ['کالای پرفروش','نام کالا','کد','تعداد خالص'],
+  ...report.top_products.map(p=>['کالای پرفروش',p.name,p.code,p.quantity])
+ ];
+ const csv='\\uFEFF'+rows.map(row=>row.map(reportCsvCell).join(',')).join('\\r\\n');
+ const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+ const anchor=document.createElement('a');anchor.href=url;anchor.download='nabz-report-'+report.start_date+'-'+report.end_date+'.csv';anchor.click();URL.revokeObjectURL(url);
+}
+function ReportsPage(){
+ const [start,setStart]=useState(()=>{const d=new Date();d.setDate(d.getDate()-29);return localIso(d)});
  const [end,setEnd]=useState(isoToday);
- const [report,setReport]=useState<Record<string,number|string>>({});
+ const [contactId,setContactId]=useState('');
+ const [contacts,setContacts]=useState<RecordRow[]>([]);
+ const [report,setReport]=useState<ReportData|null>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
+ useEffect(()=>{let active=true;invoke<RecordRow[]>('list_records',{kind:'contacts'}).then(v=>{if(active)setContacts(v)}).catch(e=>{if(active)setError(String(e))});return()=>{active=false}},[]);
  useEffect(()=>{
   let active=true;setBusy(true);setError('');
-  invoke<Record<string,number|string>>('reports_period',{startDate:start,endDate:end})
+  invoke<ReportData>('reports_period',{startDate:start,endDate:end,contactId:contactId?Number(contactId):null})
    .then(v=>{if(active)setReport(v)})
-   .catch(e=>{if(active)setError(String(e))})
+   .catch(e=>{if(active){setReport(null);setError(String(e))}})
    .finally(()=>{if(active)setBusy(false)});
   return ()=>{active=false};
- },[start,end]);
+ },[start,end,contactId]);
+ const preset=(days:number)=>{const e=new Date();const s=new Date(e);s.setDate(s.getDate()-(days-1));setStart(localIso(s));setEnd(localIso(e))};
+ const thisMonth=()=>{const d=new Date();setStart(localIso(new Date(d.getFullYear(),d.getMonth(),1)));setEnd(localIso(d))};
+ const value=(key:keyof ReportData)=>Number(report?.[key]??0);
  const tiles=[
-  {label:'فروش در بازه',value:Number(report.sales_total||0)},
-  {label:'خرید در بازه',value:Number(report.purchases_total||0)},
-  {label:'دریافت در بازه',value:Number(report.receipts_total||0)},
-  {label:'پرداخت در بازه',value:Number(report.payments_total||0)},
-  {label:'بدهی فعلی مشتریان',value:summary.customer_balance},
-  {label:'ارزش فعلی موجودی',value:summary.inventory_value}
+  {label:'فروش خالص فاکتورها',value:value('sales_total')},
+  {label:'خرید خالص فاکتورها',value:value('purchases_total')},
+  {label:'دریافت خالص',value:value('receipts_total')},
+  {label:'پرداخت خالص',value:value('payments_total')},
+  {label:'برگشت فروش',value:value('sales_returns_total')},
+  {label:'مرجوعی خرید',value:value('purchase_returns_total')},
+  {label:'بهای تمام‌شده فروش',value:value('cost_of_goods_sold')},
+  {label:'سود ناخالص',value:value('gross_profit')},
+  {label:'هزینه‌های عملیاتی',value:value('expenses_total')},
+  {label:'سود خالص',value:value('net_profit')},
+  {label:'بدهی فعلی مشتریان',value:value('customer_balance')},
+  {label:'بدهی فعلی تأمین‌کنندگان',value:value('supplier_balance')},
+  {label:'ارزش فعلی موجودی',value:value('inventory_value')},
+  {label:'کالاهای کم‌موجود',value:value('low_stock_count'),unit:'قلم'}
  ];
- return <><PageHeading title="گزارش‌ها" subtitle="گزارش مالی با بازه شمسی و محاسبه از پایگاه داده محلی"/><div className="surface report-filter"><JalaliDateField label="از تاریخ" value={start} onChange={setStart}/><JalaliDateField label="تا تاریخ" value={end} onChange={setEnd}/><div className="report-range-info">{busy?'در حال محاسبه گزارش…':error?'خطا در دریافت گزارش':money(Number(report.sales_count||0))+' فاکتور فروش · '+money(Number(report.purchases_count||0))+' فاکتور خرید'}</div></div>{error&&<div className="error-banner">{error}</div>}<div className="report-grid">{tiles.map(x=><div className="surface report-tile" key={x.label}><span>{x.label}</span><b>{money(x.value)} <small>تومان</small></b></div>)}</div><div className="surface report-note"><BarChart3 size={22}/><div><b>بازه گزارش</b><p>جمع فروش، خرید، دریافت و پرداخت فقط از تاریخ شروع تا تاریخ پایان انتخاب‌شده محاسبه می‌شود. مانده مشتریان و ارزش موجودی، وضعیت فعلی هستند و به بازه تاریخی محدود نمی‌شوند.</p></div></div></>;
+ const trend=report?.daily_sales||[];
+ const max=Math.max(1,...trend.map(x=>x.total));
+ const coords=trend.map((x,i)=>({x:trend.length<2?50:i*100/(trend.length-1),y:92-(x.total/max)*76}));
+ const path=coords.map((p,i)=>(i?'L':'M')+p.x+' '+p.y).join(' ');
+ return <><PageHeading title="گزارش‌ها" subtitle="گزارش مالی و عملیاتی از دفتر واقعی SQLite"><button className="secondary-btn" disabled={!report||busy} onClick={()=>report&&downloadReportCsv(report)}><Download size={15}/> خروجی CSV فارسی</button></PageHeading>
+  <div className="surface report-filter report-filter-expanded">
+   <JalaliDateField label="از تاریخ" value={start} onChange={setStart}/>
+   <JalaliDateField label="تا تاریخ" value={end} onChange={setEnd}/>
+   <label className="field-label">طرف‌حساب<select value={contactId} onChange={e=>setContactId(e.target.value)}><option value="">همه طرف‌حساب‌ها</option>{contacts.map(c=><option key={c.id} value={c.id}>{c.name} · {c.status==='supplier'?'تأمین‌کننده':c.status==='both'?'هر دو':'مشتری'}</option>)}</select></label>
+   <div className="report-presets"><button className="secondary-btn" onClick={()=>preset(7)}>۷ روز</button><button className="secondary-btn" onClick={()=>preset(30)}>۳۰ روز</button><button className="secondary-btn" onClick={thisMonth}>ماه جاری</button></div>
+   <div className="report-range-info">{busy?'در حال محاسبه گزارش…':error?'خطا در دریافت گزارش':report?money(report.sales_count)+' فاکتور فروش · '+money(report.purchases_count)+' فاکتور خرید':'بازه را برای دریافت گزارش انتخاب کن'}</div>
+  </div>
+  {error&&<div className="error-banner">{error}</div>}
+  <div className="report-grid report-grid-expanded">{tiles.map(x=><div className="surface report-tile" key={x.label}><span>{x.label}</span><b>{money(x.value)} <small>{x.unit||'تومان'}</small></b></div>)}</div>
+  {report&&report.uncosted_sales>0&&<div className="report-warning"><Activity size={18}/><div><b>سود ناخالص کامل نیست</b><p>مبلغ {money(report.uncosted_sales)} تومان از فروش کالاها snapshot بهای تمام‌شده تاریخی ندارد؛ این مبلغ در بهای تمام‌شده و سود محاسبه نشده است. قیمت خرید فعلی جایگزین بهای تاریخی نشده.</p></div></div>}
+  <div className="report-analysis-grid">
+   <section className="surface report-analysis-card"><div className="surface-heading"><div><h2>روند روزانه فروش</h2><p>بر اساس تاریخ فاکتور؛ روزهای بدون فروش هم نمایش داده می‌شوند</p></div><b>{money(trend.reduce((sum,x)=>sum+x.total,0))} تومان</b></div><div className="report-trend-chart"><div className="chart-grid"><i/><i/><i/><i/></div><svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d={path+' L100 100 L0 100 Z'} fill="#159b6714"/><path d={path||'M0 92 L100 92'} fill="none" stroke="#159b67" strokeWidth="1.8" vectorEffect="non-scaling-stroke"/>{coords.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="1.2" fill="#fff" stroke="#159b67" strokeWidth=".8" vectorEffect="non-scaling-stroke"/>)}</svg></div><div className="report-trend-labels">{trend.filter((_,i)=>i===0||i===trend.length-1||i%Math.max(1,Math.floor(trend.length/6))===0).map(p=><span key={p.date}>{formatJalaliDate(p.date)}</span>)}</div></section>
+   <section className="surface report-analysis-card"><div className="surface-heading"><div><h2>کالاهای پرفروش</h2><p>بر اساس تعداد خالص پس از برگشت</p></div></div><div className="table-wrap"><table className="data-table report-products-table"><thead><tr><th>کالا / خدمت</th><th>کد</th><th>تعداد خالص</th></tr></thead><tbody>{(report?.top_products||[]).map((p,i)=><tr key={p.code+'-'+p.name}><td><b>{p.name}</b></td><td>{p.code||'—'}</td><td>{money(p.quantity)}</td></tr>)}{!report?.top_products?.length&&<tr><td colSpan={3} className="empty-cell">در این بازه فروش ثبت نشده است.</td></tr>}</tbody></table></div></section>
+  </div>
+  <div className="surface report-note"><BarChart3 size={22}/><div><b>روش محاسبه و دامنه فیلتر</b><p>فروش و خرید بر اساس تاریخ فاکتور و مبلغ فعلی سند پس از برگشت‌ها محاسبه می‌شوند؛ جمع برگشت‌ها جداگانه بر اساس تاریخ برگشت گزارش می‌شود و دوباره از فروش کسر نمی‌شود. بهای تمام‌شده بر اساس snapshot هر ردیف و مقدار برگشت‌نخورده است. هزینه‌ها و ارزش موجودی، داده‌های کل فروشگاه هستند و با فیلتر طرف‌حساب محدود نمی‌شوند.</p></div></div>
+ </>;
 }
 function PrintingPage({notify}:{notify:(s:string)=>void}){
  const [barcode,setBarcode]=useState('626000001');

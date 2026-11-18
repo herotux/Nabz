@@ -13,7 +13,12 @@ use nabz_core::accounting::{
 
 struct Db(Mutex<Connection>);
 #[derive(Serialize)]
-struct Summary { sales_today:i64, receipts_today:i64, customer_balance:i64, inventory_value:i64, contacts:i64, products:i64, invoices:i64 }
+struct Summary {
+ sales_today:i64, receipts_today:i64, customer_balance:i64, supplier_balance:i64,
+ inventory_value:i64, contacts:i64, products:i64, invoices:i64,
+ sales_month:i64, purchases_month:i64, gross_profit_month:i64, net_profit_month:i64,
+ low_stock_count:i64,
+}
 #[derive(Serialize)]
 struct Record { id:i64, name:String, detail:String, amount:i64, status:String, date:String }
 #[derive(Serialize)]
@@ -25,7 +30,28 @@ fn normalize_contact_kind(raw:&str)->Option<&'static str>{ nabz_core::normalize_
 fn init(c:&Connection)->Result<(),String>{ nabz_core::initialize(c) }
 #[tauri::command] fn app_version()-> &'static str { env!("CARGO_PKG_VERSION") }
 #[tauri::command] fn db_status(db:State<'_,Db>)->Result<String,String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.query_row("PRAGMA database_list",[],|r|r.get(2)).map_err(|e|e.to_string())}
-#[tauri::command] fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{let c=db.0.lock().map_err(|e|e.to_string())?;Ok(Summary{sales_today:c.query_row("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date=date('now','localtime')",[],|r|r.get(0)).map_err(|e|e.to_string())?,receipts_today:c.query_row("COALESCE((SELECT SUM(amount) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')),0)-COALESCE((SELECT SUM(amount) FROM sales_refunds WHERE refund_date=date('now','localtime')),0)-COALESCE((SELECT SUM(cash_refund) FROM invoice_voids WHERE kind='sale' AND void_date=date('now','localtime')),0)",[],|r|r.get(0)).map_err(|e|e.to_string())?,customer_balance:c.query_row("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both')),0)",[],|r|r.get(0)).map_err(|e|e.to_string())?,inventory_value:c.query_row("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products WHERE is_service=0",[],|r|r.get(0)).map_err(|e|e.to_string())?,contacts:c.query_row("SELECT COUNT(*) FROM contacts",[],|r|r.get(0)).map_err(|e|e.to_string())?,products:c.query_row("SELECT COUNT(*) FROM products WHERE is_active=1",[],|r|r.get(0)).map_err(|e|e.to_string())?,invoices:c.query_row("SELECT COUNT(*) FROM invoices",[],|r|r.get(0)).map_err(|e|e.to_string())?})}
+#[tauri::command]
+fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let today:String=c.query_row("SELECT date('now','localtime')",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ let month_start:String=c.query_row("SELECT strftime('%Y-%m-01',date('now','localtime'))",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ let month=reports_period_with_connection(&c,&month_start,&today)?;
+ let value=|key:&str|month.get(key).and_then(Value::as_i64).unwrap_or(0);
+ let q=|sql:&str|->Result<i64,String>{c.query_row(sql,[],|r|r.get(0)).map_err(|e|e.to_string())};
+ Ok(Summary{
+  sales_today:q("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date=date('now','localtime')")?,
+  receipts_today:q("SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE kind='receipt' AND payment_date=date('now','localtime')),0)-COALESCE((SELECT SUM(amount) FROM sales_refunds WHERE refund_date=date('now','localtime')),0)-COALESCE((SELECT SUM(cash_refund) FROM invoice_voids WHERE kind='sale' AND void_date=date('now','localtime')),0)")?,
+  customer_balance:q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both')),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both')),0)")?,
+  supplier_balance:q("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='purchase' AND voided=0),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('supplier','both')),0)-COALESCE((SELECT SUM(supplier_credit_balance) FROM contacts WHERE kind IN ('supplier','both')),0)")?,
+  inventory_value:q("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products WHERE is_service=0")?,
+  contacts:q("SELECT COUNT(*) FROM contacts")?,
+  products:q("SELECT COUNT(*) FROM products WHERE is_active=1")?,
+  invoices:q("SELECT COUNT(*) FROM invoices")?,
+  sales_month:value("sales_total"), purchases_month:value("purchases_total"),
+  gross_profit_month:value("gross_profit"), net_profit_month:value("net_profit"),
+  low_stock_count:q("SELECT COUNT(*) FROM products WHERE is_active=1 AND is_service=0 AND quantity<=min_quantity")?,
+ })
+}
 #[tauri::command] fn list_records(kind:String,db:State<'_,Db>)->Result<Vec<Record>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let sql=match kind.as_str(){"contacts"=>"SELECT id,name,phone,opening_balance,kind,datetime(created_at) FROM contacts ORDER BY id DESC","products"=>"SELECT id,name,code,quantity,sell_price,'موجود', '' FROM products ORDER BY id DESC","invoices"=>"SELECT id,'فاکتور #'||number||' · '||contact_name,kind,total,CASE WHEN voided=1 THEN 'باطل‌شده' WHEN paid>=total THEN 'تسویه' WHEN paid>0 THEN 'پرداخت جزئی' ELSE 'پرداخت‌نشده' END,invoice_date FROM invoices ORDER BY invoice_date DESC,number DESC","payments"=>"SELECT id,contact_name,kind,amount,method,payment_date FROM payments ORDER BY id DESC",_=>return Err("فهرست نامعتبر است".into())};let mut s=c.prepare(sql).map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Record{id:r.get(0)?,name:r.get(1)?,detail:r.get(2)?,amount:r.get(3)?,status:r.get(4)?,date:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 #[tauri::command] fn list_products(db:State<'_,Db>)->Result<Vec<ProductRecord>,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
@@ -293,25 +319,75 @@ fn reports_summary_with_connection(c:&Connection)->Result<Value,String>{
   "invoices":q("SELECT COUNT(*) FROM invoices")?
  }))
 }
+fn valid_iso_date(value:&str)->bool{
+ let bytes=value.as_bytes();
+ if bytes.len()!=10||bytes[4]!=b'-'||bytes[7]!=b'-'||!bytes.iter().enumerate().all(|(i,b)|i==4||i==7||b.is_ascii_digit()){return false}
+ let year=value[0..4].parse::<i32>().ok();
+ let month=value[5..7].parse::<u32>().ok();
+ let day=value[8..10].parse::<u32>().ok();
+ let (Some(year),Some(month),Some(day))=(year,month,day) else{return false};
+ let leap=year%4==0&&(year%100!=0||year%400==0);
+ let max=match month{1|3|5|7|8|10|12=>31,4|6|9|11=>30,2=>if leap{29}else{28},_=>return false};
+ day>=1&&day<=max
+}
 #[tauri::command]
-fn reports_period(start_date:String,end_date:String,db:State<'_,Db>)->Result<Value,String>{
- if start_date>end_date{return Err("تاریخ شروع باید قبل از تاریخ پایان باشد.".into())}
- let valid=|s:&str|{let b=s.as_bytes();s.len()==10&&b[4]==b'-'&&b[7]==b'-'&&b.iter().enumerate().all(|(i,x)|i==4||i==7||x.is_ascii_digit())};
- if !valid(&start_date)||!valid(&end_date){return Err("تاریخ باید با قالب میلادی ISO ارسال شود.".into())}
+fn reports_period(start_date:String,end_date:String,contact_id:Option<i64>,db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
- reports_period_with_connection(&c,&start_date,&end_date)
+ reports_period_filtered_with_connection(&c,&start_date,&end_date,contact_id)
 }
 fn reports_period_with_connection(c:&Connection,start:&str,end:&str)->Result<Value,String>{
- let sum=|sql:&str|->Result<i64,String>{c.query_row(sql,params![start,end],|r|r.get(0)).map_err(|e|e.to_string())};
+ reports_period_filtered_with_connection(c,start,end,None)
+}
+fn reports_period_filtered_with_connection(c:&Connection,start:&str,end:&str,contact_id:Option<i64>)->Result<Value,String>{
+ if !valid_iso_date(start)||!valid_iso_date(end){return Err("تاریخ شروع و پایان باید تاریخ میلادی معتبر با قالب YYYY-MM-DD باشند.".into())}
+ if start>end{return Err("تاریخ شروع باید قبل از تاریخ پایان باشد.".into())}
+ let span:i64=c.query_row("SELECT CAST(julianday(?2)-julianday(?1) AS INTEGER)",params![start,end],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if span>365{return Err("بازهٔ گزارش حداکثر می‌تواند ۳۶۶ روز باشد.".into())}
+ if let Some(id)=contact_id{
+  if id<=0{return Err("طرف‌حساب انتخاب‌شده معتبر نیست.".into())}
+  let exists:i64=c.query_row("SELECT COUNT(*) FROM contacts WHERE id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if exists==0{return Err("طرف‌حساب انتخاب‌شده پیدا نشد.".into())}
+ }
+ let sum=|sql:&str|->Result<i64,String>{c.query_row(sql,params![start,end,contact_id],|r|r.get(0)).map_err(|e|e.to_string())};
+ let sales_total=sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR contact_id=?3)")?;
+ let purchases_total=sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='purchase' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR contact_id=?3)")?;
+ let receipts_total=sum("SELECT COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.kind='receipt' AND p.payment_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR p.contact_id=?3)),0)-COALESCE((SELECT SUM(r.amount) FROM sales_refunds r JOIN invoices i ON i.id=r.invoice_id WHERE r.refund_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3)),0)-COALESCE((SELECT SUM(v.cash_refund) FROM invoice_voids v JOIN invoices i ON i.id=v.invoice_id WHERE v.kind='sale' AND v.void_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3)),0)")?;
+ let payments_total=sum("SELECT COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.kind='payment' AND p.payment_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR p.contact_id=?3)),0)-COALESCE((SELECT SUM(r.amount) FROM purchase_refunds r JOIN invoices i ON i.id=r.invoice_id WHERE r.refund_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3)),0)")?;
+ let sales_returns_total=sum("SELECT COALESCE(SUM(r.amount),0) FROM sales_returns r JOIN invoices i ON i.id=r.invoice_id WHERE r.return_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3)")?;
+ let purchase_returns_total=sum("SELECT COALESCE(SUM(r.amount),0) FROM purchase_returns r JOIN invoices i ON i.id=r.invoice_id WHERE r.return_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3)")?;
+ let sales_count=sum("SELECT COUNT(*) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR contact_id=?3)")?;
+ let purchases_count=sum("SELECT COUNT(*) FROM invoices WHERE kind='purchase' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR contact_id=?3)")?;
+ let cost_of_goods_sold=sum("SELECT COALESCE(SUM(ii.unit_cost * (ii.quantity-COALESCE((SELECT SUM(sri.quantity) FROM sales_return_items sri WHERE sri.invoice_item_id=ii.id),0))),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NOT NULL AND i.invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3)")?;
+ let uncosted_sales=sum("SELECT COALESCE(SUM(ii.line_total-COALESCE((SELECT SUM(sri.amount) FROM sales_return_items sri WHERE sri.invoice_item_id=ii.id),0)),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NULL AND ii.item_name NOT LIKE 'خدمت:%' AND i.invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3)")?;
+ let expenses_total=sum("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date BETWEEN ?1 AND ?2")?;
+ let inventory_value=sum("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products WHERE is_service=0")?;
+ let customer_balance=sum("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0 AND (?3 IS NULL OR contact_id=?3)),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both') AND (?3 IS NULL OR id=?3)),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both') AND (?3 IS NULL OR id=?3)),0)")?;
+ let supplier_balance=sum("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='purchase' AND voided=0 AND (?3 IS NULL OR contact_id=?3)),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('supplier','both') AND (?3 IS NULL OR id=?3)),0)-COALESCE((SELECT SUM(supplier_credit_balance) FROM contacts WHERE kind IN ('supplier','both') AND (?3 IS NULL OR id=?3)),0)")?;
+ let low_stock_count=sum("SELECT COUNT(*) FROM products WHERE is_active=1 AND is_service=0 AND quantity<=min_quantity")?;
+ let gross_profit=sales_total.checked_sub(cost_of_goods_sold).ok_or("محاسبه سود ناخالص از ظرفیت عددی خارج شد")?;
+ let net_profit=gross_profit.checked_sub(expenses_total).ok_or("محاسبه سود خالص از ظرفیت عددی خارج شد")?;
+ let daily_sales={
+  let mut st=c.prepare("WITH RECURSIVE days(d) AS (SELECT date(?1) UNION ALL SELECT date(d,'+1 day') FROM days WHERE d<date(?2)) SELECT days.d,COALESCE(SUM(i.total),0) FROM days LEFT JOIN invoices i ON i.invoice_date=days.d AND i.kind='sale' AND i.voided=0 AND (?3 IS NULL OR i.contact_id=?3) GROUP BY days.d ORDER BY days.d").map_err(|e|e.to_string())?;
+  let rows=st.query_map(params![start,end,contact_id],|r|Ok(json!({"date":r.get::<_,String>(0)?,"total":r.get::<_,i64>(1)?}))).map_err(|e|e.to_string())?;
+  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+ };
+ let top_products={
+  let mut st=c.prepare("SELECT ii.item_name,COALESCE(p.code,''),SUM(ii.quantity-COALESCE((SELECT SUM(sri.quantity) FROM sales_return_items sri WHERE sri.invoice_item_id=ii.id),0)) AS sold_quantity FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id LEFT JOIN products p ON p.id=ii.product_id WHERE i.kind='sale' AND i.voided=0 AND i.invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3) GROUP BY ii.item_name,p.code HAVING sold_quantity>0 ORDER BY sold_quantity DESC,ii.item_name COLLATE NOCASE LIMIT 10").map_err(|e|e.to_string())?;
+  let rows=st.query_map(params![start,end,contact_id],|r|Ok(json!({"name":r.get::<_,String>(0)?,"code":r.get::<_,String>(1)?,"quantity":r.get::<_,i64>(2)?}))).map_err(|e|e.to_string())?;
+  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+ };
  Ok(json!({
-  "start_date":start,
-  "end_date":end,
-  "sales_total":sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2")?,
-  "purchases_total":sum("SELECT COALESCE(SUM(total),0) FROM invoices WHERE kind='purchase' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2")?,
-  "receipts_total":sum("SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE kind='receipt' AND payment_date BETWEEN ?1 AND ?2),0)-COALESCE((SELECT SUM(amount) FROM sales_refunds WHERE refund_date BETWEEN ?1 AND ?2),0)-COALESCE((SELECT SUM(cash_refund) FROM invoice_voids WHERE kind='sale' AND void_date BETWEEN ?1 AND ?2),0)")?,
-  "payments_total":sum("SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE kind='payment' AND payment_date BETWEEN ?1 AND ?2),0)-COALESCE((SELECT SUM(amount) FROM purchase_refunds WHERE refund_date BETWEEN ?1 AND ?2),0)")?,
-  "sales_count":sum("SELECT COUNT(*) FROM invoices WHERE kind='sale' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2")?,
-  "purchases_count":sum("SELECT COUNT(*) FROM invoices WHERE kind='purchase' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2")?
+  "start_date":start,"end_date":end,"contact_id":contact_id,
+  "sales_total":sales_total,"purchases_total":purchases_total,
+  "receipts_total":receipts_total,"payments_total":payments_total,
+  "sales_returns_total":sales_returns_total,"purchase_returns_total":purchase_returns_total,
+  "sales_count":sales_count,"purchases_count":purchases_count,
+  "cost_of_goods_sold":cost_of_goods_sold,"gross_profit":gross_profit,
+  "expenses_total":expenses_total,"net_profit":net_profit,"uncosted_sales":uncosted_sales,
+  "inventory_value":inventory_value,"customer_balance":customer_balance,
+  "supplier_balance":supplier_balance,"low_stock_count":low_stock_count,
+  "daily_sales":daily_sales,"top_products":top_products,
+  "expenses_are_store_wide":true
  }))
 }
 
@@ -1039,6 +1115,41 @@ mod accounting_tests {
   let report=reports_period_with_connection(&c,"2026-10-29","2026-10-31").unwrap();
   assert_eq!(report["sales_total"].as_i64(),Some(20));
   assert_eq!(report["sales_count"].as_i64(),Some(1));
+  assert_eq!(report["daily_sales"].as_array().unwrap().len(),3);
+ }
+
+ #[test]
+ fn reports_filter_by_contact_and_reconcile_returns_costs_and_expenses() {
+  let mut c=database();
+  let invoice_id=save_invoice_with_connection(json!({"kind":"sale","customer":"Ali","payment_status":"credit","items":[{"item":"Pen","qty":2,"price":20}],"discount":0,"date":"2026-10-28"}),&mut c).unwrap();
+  c.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('Sara','customer',0)",[]).unwrap();
+  save_invoice_with_connection(json!({"kind":"sale","customer":"Sara","payment_status":"credit","items":[{"item":"Pen","qty":1,"price":20}],"discount":0,"date":"2026-10-28"}),&mut c).unwrap();
+  let ali_id=scalar(&c,"SELECT id FROM contacts WHERE name='Ali'");
+  let item_id=scalar(&c,&format!("SELECT id FROM invoice_items WHERE invoice_id={invoice_id}"));
+  return_sale_items(&mut c,invoice_id,&[ReturnLineInput{invoice_item_id:Some(item_id),product_lookup:String::new(),quantity:1}],"cash").unwrap();
+  c.execute("UPDATE sales_returns SET return_date='2026-10-29' WHERE invoice_id=?1",[invoice_id]).unwrap();
+  create_expense(&c,&ExpenseInput{category:"اجاره".into(),description:"هزینه آزمایشی".into(),amount:5,date:"2026-10-29".into()}).unwrap();
+  let report=reports_period_filtered_with_connection(&c,"2026-10-28","2026-10-30",Some(ali_id)).unwrap();
+  assert_eq!(report["sales_total"].as_i64(),Some(20));
+  assert_eq!(report["sales_count"].as_i64(),Some(1));
+  assert_eq!(report["sales_returns_total"].as_i64(),Some(20));
+  assert_eq!(report["cost_of_goods_sold"].as_i64(),Some(10));
+  assert_eq!(report["gross_profit"].as_i64(),Some(10));
+  assert_eq!(report["expenses_total"].as_i64(),Some(5));
+  assert_eq!(report["net_profit"].as_i64(),Some(5));
+  assert_eq!(report["top_products"][0]["quantity"].as_i64(),Some(1));
+  let all=reports_period_with_connection(&c,"2026-10-28","2026-10-30").unwrap();
+  assert_eq!(all["sales_total"].as_i64(),Some(40));
+  assert_eq!(all["cost_of_goods_sold"].as_i64(),Some(20));
+  assert_eq!(all["gross_profit"].as_i64(),Some(20));
+ }
+
+ #[test]
+ fn reports_reject_invalid_dates_and_ranges_over_one_year() {
+  let c=database();
+  assert!(reports_period_with_connection(&c,"2026-02-30","2026-03-01").is_err());
+  assert!(reports_period_with_connection(&c,"2025-01-01","2026-01-02").is_err());
+  assert!(reports_period_with_connection(&c,"2026-11-02","2026-11-01").is_err());
  }
 
  #[test]
