@@ -1483,7 +1483,11 @@ mod tests {
     #[test]
     fn shared_return_service_line_refunds_without_touching_inventory() {
         let mut connection = database();
-        let stock_before: i64 = connection.query_row("SELECT quantity FROM products WHERE code='PEN'", [], |r| r.get(0)).unwrap();
+        let stock_product = create_product(&connection, &ProductInput {
+            name: "کالای آزمایشی".into(), code: "SERVICE-RETURN-STOCK".into(), barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 7, min_quantity: 0,
+        }).unwrap();
+        let stock_before: i64 = connection.query_row("SELECT quantity FROM products WHERE id=?1", [stock_product], |r| r.get(0)).unwrap();
         let invoice_id = create_invoice(&mut connection, &InvoiceInput {
             kind: "sale".into(), contact_name: String::new(), date: "2026-11-18".into(),
             discount: 20, paid: 180, method: "cash".into(), notes: String::new(),
@@ -1514,10 +1518,10 @@ mod tests {
             invoice_item_id: Some(item_id), product_lookup: String::new(), quantity: 1,
         }], "cash").is_err());
         let (stock_after, return_rows, refund_total):(i64,i64,i64) = connection.query_row(
-            "SELECT (SELECT quantity FROM products WHERE code='PEN'),
+            "SELECT (SELECT quantity FROM products WHERE id=?3),
              (SELECT COUNT(*) FROM sales_return_items WHERE invoice_item_id=?1),
              (SELECT COALESCE(SUM(amount),0) FROM sales_refunds WHERE invoice_id=?2)",
-            params![item_id,invoice_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+            params![item_id,invoice_id,stock_product], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
         ).unwrap();
         assert_eq!(stock_after,stock_before);
         assert_eq!((return_rows,refund_total),(2,180));
