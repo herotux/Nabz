@@ -1159,6 +1159,64 @@ pub fn record_payment(connection: &mut Connection, input: &PaymentInput) -> Resu
 }
 
 
+/// Record a receipt/payment explicitly against one invoice (not FIFO). This
+/// is used by the invoice detail workflow so the user can settle a chosen document.
+pub fn record_invoice_payment(
+    connection: &mut Connection,
+    invoice_id: i64,
+    input: &PaymentInput,
+) -> Result<i64, String> {
+    if invoice_id <= 0 || input.amount <= 0 || !["receipt", "payment"].contains(&input.kind.as_str()) {
+        return Err("فاکتور معتبر و مبلغ مثبت الزامی است".into());
+    }
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let invoice: Option<(String, Option<i64>, String, i64, i64, i64)> = tx.query_row(
+        "SELECT kind,contact_id,contact_name,total,paid,voided FROM invoices WHERE id=?1",
+        [invoice_id],
+        |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)),
+    ).optional().map_err(|e| e.to_string())?;
+    let (invoice_kind, contact_id, contact_name, total, paid, voided) =
+        invoice.ok_or("فاکتور پیدا نشد")?;
+    if voided != 0 { return Err("برای فاکتور باطل‌شده نمی‌توان دریافت/پرداخت ثبت کرد".into()); }
+    let expected_kind = if invoice_kind == "sale" { "receipt" } else { "payment" };
+    if input.kind != expected_kind { return Err("نوع دریافت/پرداخت با نوع فاکتور سازگار نیست".into()); }
+    if !input.contact_name.trim().is_empty()
+        && !input.contact_name.trim().eq_ignore_ascii_case(&contact_name)
+    {
+        return Err("طرف‌حساب با فاکتور انتخاب‌شده یکسان نیست".into());
+    }
+    let contact_id = contact_id.ok_or("فاکتور گذری طرف‌حساب ثبت‌شده ندارد؛ دریافت آن فقط از مسیر فروش نقدی ثبت می‌شود")?;
+    let role: String = tx.query_row("SELECT kind FROM contacts WHERE id=?1",[contact_id],|r|r.get(0))
+        .map_err(|e|e.to_string())?;
+    if invoice_kind == "sale" && !["customer","both"].contains(&role.as_str()) {
+        return Err("طرف‌حساب فاکتور نقش مشتری معتبر ندارد".into());
+    }
+    if invoice_kind == "purchase" && !["supplier","both"].contains(&role.as_str()) {
+        return Err("طرف‌حساب فاکتور نقش تأمین‌کننده معتبر ندارد".into());
+    }
+    let outstanding = total.checked_sub(paid).ok_or("مانده فاکتور نامعتبر است")?;
+    if outstanding <= 0 { return Err("این فاکتور قبلاً تسویه شده است".into()); }
+    if input.amount > outstanding {
+        return Err(format!("مبلغ از مانده فاکتور بیشتر است؛ حداکثر قابل ثبت: {outstanding}"));
+    }
+    tx.execute(
+        "INSERT INTO payments(kind,contact_id,contact_name,amount,method,payment_date,notes)
+         VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),'cash'),COALESCE(NULLIF(?6,''),date('now','localtime')),?7)",
+        params![input.kind,contact_id,contact_name,input.amount,input.method.trim(),input.date.trim(),
+            if input.notes.trim().is_empty() { format!("تسویه فاکتور #{invoice_id}") } else { input.notes.trim().to_owned() }],
+    ).map_err(|e|e.to_string())?;
+    let payment_id=tx.last_insert_rowid();
+    tx.execute("UPDATE invoices SET paid=paid+?1 WHERE id=?2 AND voided=0 AND paid+?1<=total",
+        params![input.amount,invoice_id]).map_err(|e|e.to_string())?;
+    tx.execute(
+        "INSERT INTO payment_allocations(payment_id,invoice_id,contact_id,allocation_type,amount)
+         VALUES(?1,?2,?3,'invoice',?4)",
+        params![payment_id,invoice_id,contact_id,input.amount],
+    ).map_err(|e|e.to_string())?;
+    tx.commit().map_err(|e|e.to_string())?;
+    Ok(payment_id)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExpenseInput {
     pub category: String,
