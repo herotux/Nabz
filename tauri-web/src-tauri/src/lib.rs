@@ -336,13 +336,17 @@ fn export_data(db:State<'_,Db>)->Result<Value,String>{
   "category":r.get::<_,String>(9)?,"unit":r.get::<_,String>(10)?,"wholesale_price":r.get::<_,i64>(11)?,
   "is_service":r.get::<_,i64>(12)?,"is_active":r.get::<_,i64>(13)?
 })))?;
- let invoices=collect_json_rows(&c,"SELECT id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes,voided,credit_applied FROM invoices",|r|Ok(json!({
+ let invoices=collect_json_rows(&c,"SELECT id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes,voided,credit_applied,idempotency_key FROM invoices",|r|Ok(json!({
   "id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,
   "contact_id":r.get::<_,Option<i64>>(3)?,"contact_name":r.get::<_,String>(4)?,"invoice_date":r.get::<_,String>(5)?,
   "subtotal":r.get::<_,i64>(6)?,"discount":r.get::<_,i64>(7)?,"total":r.get::<_,i64>(8)?,
   "paid":r.get::<_,i64>(9)?,"notes":r.get::<_,String>(10)?,"voided":r.get::<_,i64>(11)?,
   "credit_applied":r.get::<_,i64>(12)?
 })))?;
+ let invoice_drafts=collect_json_rows(&c,"SELECT id,kind,title,payload_json,created_at,updated_at FROM invoice_drafts",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"kind":r.get::<_,String>(1)?,"title":r.get::<_,String>(2)?,
+  "payload_json":r.get::<_,String>(3)?,"created_at":r.get::<_,String>(4)?,"updated_at":r.get::<_,String>(5)?
+ })))?;
  let invoice_items=collect_json_rows(&c,"SELECT id,invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before,buy_price_before FROM invoice_items",|r|Ok(json!({
   "id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"product_id":r.get::<_,Option<i64>>(2)?,
   "item_name":r.get::<_,String>(3)?,"quantity":r.get::<_,i64>(4)?,"unit_price":r.get::<_,i64>(5)?,
@@ -406,7 +410,7 @@ fn export_data(db:State<'_,Db>)->Result<Value,String>{
   "payment_allocations":payment_allocations,"settings":settings,
   "sales_returns":sales_returns,"sales_return_items":sales_return_items,"sales_refunds":sales_refunds,
   "purchase_returns":purchase_returns,"purchase_return_items":purchase_return_items,"purchase_refunds":purchase_refunds,
-  "inventory_adjustments":inventory_adjustments,"expenses":expenses
+  "inventory_adjustments":inventory_adjustments,"expenses":expenses,"invoice_drafts":invoice_drafts
  }))
 }
 fn backup_has_int(x:&Value,key:&str)->bool{x.get(key).and_then(Value::as_i64).is_some()}
@@ -419,7 +423,7 @@ fn validate_backup(data:&Value)->Result<(),String>{
  for key in ["contacts","products","invoices","invoice_items","payments","settings"]{
   if !data.get(key).and_then(Value::as_array).is_some(){return Err(format!("ساختار پشتیبان ناقص است: {key}"))}
  }
- let optional_keys=["sales_returns","sales_return_items","sales_refunds","purchase_returns","purchase_return_items","purchase_refunds","inventory_adjustments","expenses","invoice_voids","payment_allocations"];
+ let optional_keys=["sales_returns","sales_return_items","sales_refunds","purchase_returns","purchase_return_items","purchase_refunds","inventory_adjustments","expenses","invoice_voids","payment_allocations","invoice_drafts"];
  for key in optional_keys{
   if data.get(key).is_some()&&!data[key].is_array(){return Err(format!("ساختار بخش {key} در پشتیبان معتبر نیست"))}
  }
@@ -449,7 +453,8 @@ fn validate_backup(data:&Value)->Result<(),String>{
       &&x["total"].as_i64().unwrap_or(-1)>=0&&x["paid"].as_i64().unwrap_or(-1)>=0
       &&x["paid"].as_i64().unwrap_or(i64::MAX)<=x["total"].as_i64().unwrap_or(-1)
       &&(x.get("voided").is_none()||[0,1].contains(&x["voided"].as_i64().unwrap_or(-1)))
-      &&(x.get("credit_applied").is_none()||(x["credit_applied"].as_i64().unwrap_or(-1)>=0&&x["credit_applied"].as_i64().unwrap_or(i64::MAX)<=x["paid"].as_i64().unwrap_or(-1)))),
+      &&(x.get("credit_applied").is_none()||(x["credit_applied"].as_i64().unwrap_or(-1)>=0&&x["credit_applied"].as_i64().unwrap_or(i64::MAX)<=x["paid"].as_i64().unwrap_or(-1)))
+      &&(x.get("idempotency_key").is_none()||x["idempotency_key"].is_null()||x["idempotency_key"].as_str().is_some_and(|v|v.len()<=128))),
     "invoice_items"=>!(backup_has_int(x,"id")&&backup_has_int(x,"invoice_id")&&backup_has_optional_int(x,"product_id")
       &&backup_has_string(x,"item_name")&&!x["item_name"].as_str().unwrap_or("").trim().is_empty()
       &&backup_has_int(x,"quantity")&&x["quantity"].as_i64().unwrap_or(0)>0&&backup_has_int(x,"unit_price")
@@ -568,6 +573,18 @@ fn validate_backup(data:&Value)->Result<(),String>{
    ||row.get("category").and_then(Value::as_str).unwrap_or("").trim().is_empty()
    ||row.get("description").and_then(Value::as_str).unwrap_or("").trim().is_empty(){return Err("رکورد هزینه در پشتیبان معتبر نیست".into())}
  }
+ let mut draft_ids=HashSet::new();
+ for row in backup_optional_array(data,"invoice_drafts"){
+  let id=row.get("id").and_then(Value::as_i64).unwrap_or(0);
+  let kind=row.get("kind").and_then(Value::as_str).unwrap_or("");
+  let raw=row.get("payload_json").and_then(Value::as_str).unwrap_or("");
+  let parsed=serde_json::from_str::<Value>(raw);
+  if id<=0||!draft_ids.insert(id)||!["sale","purchase"].contains(&kind)||raw.len()>1_000_000
+   ||!row.get("title").and_then(Value::as_str).is_some()
+   ||parsed.as_ref().ok().and_then(Value::as_object).is_none(){
+   return Err("پیش‌نویس فاکتور در فایل پشتیبان معتبر نیست".into())
+  }
+ }
  Ok(())
 }
 fn create_restore_safety_backup(c:&Connection)->Result<PathBuf,String>{
@@ -621,13 +638,19 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
     x.get("is_service").and_then(Value::as_i64).unwrap_or(0),x.get("is_active").and_then(Value::as_i64).unwrap_or(1)]).map_err(|e|e.to_string())?;
  }
  for x in data["invoices"].as_array().unwrap(){
-  tx.execute("INSERT INTO invoices(id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes,voided,credit_applied)
-   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+  tx.execute("INSERT INTO invoices(id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes,voided,credit_applied,idempotency_key)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
    params![x["id"].as_i64(),x["number"].as_i64(),x["kind"].as_str().unwrap_or("sale"),x["contact_id"].as_i64(),
     x["contact_name"].as_str().unwrap_or(""),x["invoice_date"].as_str().unwrap_or(""),x["subtotal"].as_i64().unwrap_or(0),
     x["discount"].as_i64().unwrap_or(0),x["total"].as_i64().unwrap_or(0),x["paid"].as_i64().unwrap_or(0),
     x["notes"].as_str().unwrap_or(""),x.get("voided").and_then(Value::as_i64).unwrap_or(0),
-    x.get("credit_applied").and_then(Value::as_i64).unwrap_or(0)]).map_err(|e|e.to_string())?;
+    x.get("credit_applied").and_then(Value::as_i64).unwrap_or(0),x.get("idempotency_key").and_then(Value::as_str)]).map_err(|e|e.to_string())?;
+ }
+ for x in backup_optional_array(&data,"invoice_drafts"){
+  tx.execute("INSERT INTO invoice_drafts(id,kind,title,payload_json,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6)",
+   params![x["id"].as_i64(),x["kind"].as_str().unwrap_or("sale"),x["title"].as_str().unwrap_or(""),
+    x["payload_json"].as_str().unwrap_or("{}"),x["created_at"].as_str().unwrap_or(""),x["updated_at"].as_str().unwrap_or("")])
+   .map_err(|e|e.to_string())?;
  }
  for x in data["invoice_items"].as_array().unwrap(){
   tx.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before,buy_price_before)
