@@ -701,6 +701,21 @@ fn adjust_inventory_command(product_id:i64,new_quantity:i64,reason:String,db:Sta
  let result=adjust_inventory(&mut c,product_id,new_quantity,&reason)?;
  Ok(json!({"product_id":result.product_id,"previous_quantity":result.previous_quantity,"new_quantity":result.new_quantity,"delta":result.delta,"reason":result.reason,"created_at":result.created_at}))
 }
+fn set_product_active_with_connection(c:&Connection,product_id:i64,active:bool)->Result<(),String>{
+ if !active {
+  let quantity:Option<i64>=c.query_row("SELECT quantity FROM products WHERE id=?1",[product_id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+  let quantity=quantity.ok_or("کالا پیدا نشد")?;
+  if quantity!=0{return Err("برای غیرفعال‌سازی، ابتدا موجودی کالا را به صفر برسانید؛ سابقه فاکتورها حفظ می‌شود.".into())}
+ }
+ let changed=c.execute("UPDATE products SET is_active=?1 WHERE id=?2",rusqlite::params![active as i64,product_id]).map_err(|e|e.to_string())?;
+ if changed==0{return Err("کالا پیدا نشد".into())}
+ Ok(())
+}
+#[tauri::command]
+fn set_product_active(product_id:i64,active:bool,db:State<'_,Db>)->Result<(),String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ set_product_active_with_connection(&c,product_id,active)
+}
 #[tauri::command]
 fn inventory_movements_command(db:State<'_,Db>)->Result<Vec<Value>,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
@@ -1236,6 +1251,20 @@ mod accounting_tests {
   assert!(average>10);
  }
 
+ #[test]
+ fn product_soft_deactivation_requires_zero_stock_and_can_be_reversed() {
+  let c=database();
+  let id=save_product_with_connection(json!({"name":"Soft item","code":"SOFT-1","barcode":"SOFT-1-B","qty":3,"buy":10,"sell":20,"min":1,"unit":"عدد"}),&c).unwrap();
+  assert!(set_product_active_with_connection(&c,id,false).is_err());
+  c.execute("UPDATE products SET quantity=0 WHERE id=?1",[id]).unwrap();
+  set_product_active_with_connection(&c,id,false).unwrap();
+  let active:i64=c.query_row("SELECT is_active FROM products WHERE id=?1",[id],|r|r.get(0)).unwrap();
+  assert_eq!(active,0);
+  set_product_active_with_connection(&c,id,true).unwrap();
+  let active:i64=c.query_row("SELECT is_active FROM products WHERE id=?1",[id],|r|r.get(0)).unwrap();
+  assert_eq!(active,1);
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM products WHERE code='SOFT-1'"),1);
+ }
  #[test]
  fn service_product_is_excluded_from_stock_and_duplicate_barcodes_are_rejected() {
   let c=database();
