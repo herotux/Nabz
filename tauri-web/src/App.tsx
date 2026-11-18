@@ -301,7 +301,7 @@ function ProductsPage({products,query,setQuery,busy,onAdd,onEdit,onDelete,onAdju
   const headers=['نام کالا','کد کالا','بارکد','دسته‌بندی','واحد','موجودی','حداقل موجودی','آخرین قیمت خرید','میانگین بهای تمام‌شده','قیمت فروش','قیمت عمده','نوع'];
   const cell=(v:unknown)=>{let value=String(v??'');if(/^[=+@-]/.test(value))value="'"+value;return '"'+value.replace(/"/g,'""')+'"';};
   const rows=sorted.map(p=>[p.name,p.code,p.barcode,p.category,p.unit,p.is_service?'':p.quantity,p.is_service?'':p.min_quantity,p.buy_price,p.average_cost,p.sell_price,p.wholesale_price,p.is_service?'خدمت':'کالا']);
-  const csv='\\uFEFF'+[headers,...rows].map(row=>row.map(cell).join(',')).join('\\r\\n');
+  const csv='\uFEFF'+[headers,...rows].map(row=>row.map(cell).join(',')).join('\r\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='nabz-inventory-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(url);
  };
 
