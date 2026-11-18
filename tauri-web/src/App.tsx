@@ -462,7 +462,7 @@ function downloadReportCsv(report:ReportData){
   ['کالای پرفروش','نام کالا','کد','تعداد خالص'],
   ...report.top_products.map(p=>['کالای پرفروش',p.name,p.code,p.quantity])
  ];
- const csv='\\uFEFF'+rows.map(row=>row.map(reportCsvCell).join(',')).join('\\r\\n');
+ const csv='\uFEFF'+rows.map(row=>row.map(reportCsvCell).join(',')).join('\r\n');
  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
  const anchor=document.createElement('a');anchor.href=url;anchor.download='nabz-report-'+report.start_date+'-'+report.end_date+'.csv';anchor.click();URL.revokeObjectURL(url);
 }
