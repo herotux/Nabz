@@ -1508,7 +1508,7 @@ mod tests {
         create_product(&connection,&ProductInput{name:"کالای خرید".into(),code:"BUY-RET".into(),barcode:String::new(),buy_price:10,sell_price:20,quantity:0,min_quantity:0}).unwrap();
         let invoice_id=create_invoice(&mut connection,&InvoiceInput{kind:"purchase".into(),contact_name:"تأمین‌کننده مرجوعی".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"BUY-RET".into(),quantity:5,unit_price:20}]}).unwrap();
         record_payment(&mut connection,&PaymentInput{kind:"payment".into(),contact_name:"تأمین‌کننده مرجوعی".into(),amount:100,method:"cash".into(),date:String::new(),notes:String::new()}).unwrap();
-        let result=return_purchase_items(&mut connection,invoice_id,&[ReturnLineInput{product_lookup:"BUY-RET".into(),quantity:2}],"cash").unwrap();
+        let result=return_purchase_items(&mut connection,invoice_id,&[ReturnLineInput{invoice_item_id:None,product_lookup:"BUY-RET".into(),quantity:2}],"cash").unwrap();
         assert_eq!(result,(40,40));
         let (stock,total,paid,returned):(i64,i64,i64,i64)=connection.query_row("SELECT p.quantity,i.total,i.paid,(SELECT SUM(quantity) FROM purchase_return_items pri JOIN purchase_returns pr ON pr.id=pri.return_id WHERE pr.invoice_id=i.id) FROM products p JOIN invoices i ON i.id=?1 WHERE p.code='BUY-RET'",[invoice_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
         assert_eq!((stock,total,paid,returned),(3,60,60,2));
@@ -1521,7 +1521,7 @@ mod tests {
         create_contact(&connection,&ContactInput{name:"تأمین‌کننده دوم".into(),kind:"supplier".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
         create_product(&connection,&ProductInput{name:"قلم خرید".into(),code:"BUY-OVER".into(),barcode:String::new(),buy_price:10,sell_price:20,quantity:0,min_quantity:0}).unwrap();
         let invoice_id=create_invoice(&mut connection,&InvoiceInput{kind:"purchase".into(),contact_name:"تأمین‌کننده دوم".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"BUY-OVER".into(),quantity:2,unit_price:20}]}).unwrap();
-        assert!(return_purchase_items(&mut connection,invoice_id,&[ReturnLineInput{product_lookup:"BUY-OVER".into(),quantity:3}],"cash").is_err());
+        assert!(return_purchase_items(&mut connection,invoice_id,&[ReturnLineInput{invoice_item_id:None,product_lookup:"BUY-OVER".into(),quantity:3}],"cash").is_err());
         let (stock,total,returns):(i64,i64,i64)=connection.query_row("SELECT p.quantity,i.total,(SELECT COUNT(*) FROM purchase_returns WHERE invoice_id=i.id) FROM products p JOIN invoices i ON i.id=?1 WHERE p.code='BUY-OVER'",[invoice_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
         assert_eq!((stock,total,returns),(2,40,0));
     }
@@ -1766,7 +1766,7 @@ mod tests {
         create_invoice(&mut c,&InvoiceInput{kind:"purchase".into(),contact_name:"تامین‌کننده برگشت".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"AVG-RET".into(),quantity:1,unit_price:30}]}).unwrap();
         let sale=create_invoice(&mut c,&InvoiceInput{kind:"sale".into(),contact_name:"مشتری برگشت هزینه".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"AVG-RET".into(),quantity:1,unit_price:50}]}).unwrap();
         create_invoice(&mut c,&InvoiceInput{kind:"purchase".into(),contact_name:"تامین‌کننده برگشت".into(),date:String::new(),discount:0,paid:0,method:"cash".into(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"AVG-RET".into(),quantity:1,unit_price:40}]}).unwrap();
-        return_sale_items(&mut c,sale,&[ReturnLineInput{product_lookup:"AVG-RET".into(),quantity:1}],"cash").unwrap();
+        return_sale_items(&mut c,sale,&[ReturnLineInput{invoice_item_id:None,product_lookup:"AVG-RET".into(),quantity:1}],"cash").unwrap();
         let result:(i64,i64)=c.query_row("SELECT quantity,average_cost FROM products WHERE id=?1",[pid],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
         assert_eq!(result,(3,27));
     }
