@@ -17,7 +17,7 @@ struct Summary {
  sales_today:i64, receipts_today:i64, customer_balance:i64, supplier_balance:i64,
  inventory_value:i64, contacts:i64, products:i64, invoices:i64,
  sales_month:i64, purchases_month:i64, gross_profit_month:i64, net_profit_month:i64,
- low_stock_count:i64,
+ uncosted_sales_month:i64, low_stock_count:i64,
 }
 #[derive(Serialize)]
 struct Record { id:i64, name:String, detail:String, amount:i64, status:String, date:String }
@@ -49,6 +49,7 @@ fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{
   invoices:q("SELECT COUNT(*) FROM invoices")?,
   sales_month:value("sales_total"), purchases_month:value("purchases_total"),
   gross_profit_month:value("gross_profit"), net_profit_month:value("net_profit"),
+  uncosted_sales_month:value("uncosted_sales"),
   low_stock_count:q("SELECT COUNT(*) FROM products WHERE is_active=1 AND is_service=0 AND quantity<=min_quantity")?,
  })
 }
@@ -1158,6 +1159,18 @@ mod accounting_tests {
   assert!(days.iter().all(|day|day["total"].as_i64()==Some(0)));
   assert!(report["top_products"].as_array().unwrap().is_empty());
  }
+
+ #[test]
+ fn reports_flag_legacy_sales_without_historical_cost_snapshot() {
+  let c=database();
+  c.execute("INSERT INTO invoices(number,kind,contact_name,invoice_date,subtotal,discount,total,paid) VALUES(9001,'sale','مشتری گذری','2026-11-10',100,0,100,100)",[]).unwrap();
+  let invoice_id=scalar(&c,"SELECT id FROM invoices WHERE number=9001");
+  c.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost) VALUES(?1,1,'Pen',1,100,100,NULL)",[invoice_id]).unwrap();
+  let report=reports_period_with_connection(&c,"2026-11-10","2026-11-10").unwrap();
+  assert_eq!(report["sales_total"].as_i64(),Some(100));
+  assert_eq!(report["uncosted_sales"].as_i64(),Some(100));
+  assert_eq!(report["cost_of_goods_sold"].as_i64(),Some(0));
+ } 
 
  #[test]
  fn reports_reject_invalid_dates_and_ranges_over_one_year() {
