@@ -11,14 +11,16 @@
 - فاز صفر: معماری، شناسهٔ پایدار برنامه، مسیر دیتابیس و بسته‌بندی Arch مستند شده‌اند.
 - فاز یک: هستهٔ حسابداری شامل میانگین موزون، snapshot بهای تمام‌شده، برگشت و ابطال امن، اعتبار طرف‌حساب، FIFO، پشتیبان JSON v2 و مهاجرت امن پیاده شده است.
 - فاز دو: دفتر گردش، کنترل موجودی، کالا/خدمت، غیرفعال‌سازی نرم، گزارش‌ها، فیلترها، اسکن بارکد و چاپ برچسب پیاده شده‌اند.
-- آخرین head ثبت‌شده در این گزارش: `7e7acbbc529b655fefe1fb5b304aab2ba599d3d8`. CI همان head در حال اجراست؛ موفقیت CI یا ساخت بسته تا پایان workflow ادعا نمی‌شود.
+- آخرین head تأییدشده: `82643cae7b7f764d34fad02f2e20e97a86e291e1`.
+- اجرای Phase 1 روی همین head موفق شد: ۵۹ تست هسته و تست‌های یکپارچگی Tauri موفق شدند ([run](https://github.com/herotux/Nabz/actions/runs/44244917062)).
+- اجرای Tauri/Arch روی همین head موفق شد: TypeScript، Rust/SQLite، باینری Tauri و ساخت/اعتبارسنجی بستهٔ Arch همگی موفق شدند ([run](https://github.com/herotux/Nabz/actions/runs/44244917092)).
+- artifact ساخته‌شده: `nabz-manjaro-arch-x86_64` با حجم ۳٬۹۹۰٬۶۳۸ بایت.
 
 ## CI و بسته‌بندی
 
 - اجرای Phase 1 روی commit `c73489537a524b73273d2c87476afe9eceda6923` تست‌های هسته را با موفقیت گذراند.
 - یک اجرای قبلی به‌دلیل fixture تست قدیمی که عمداً دو کالای فعال با بارکد یکسان می‌ساخت شکست خورد؛ fixture اصلاح شده است.
-- برای head `7e7acbbc`: [Tauri / Arch CI](https://github.com/herotux/Nabz/actions/runs/44244791781) و [Phase 1 CI](https://github.com/herotux/Nabz/actions/runs/44244793388) در صف/اجرا هستند.
-- پس از پایان باید build frontend/type-check، تست‌های Rust/Tauri، ساخت بستهٔ Arch و اعتبارسنجی محتوای بسته همگی موفق باشند.
+- برای head `82643cae`: [Tauri / Arch CI](https://github.com/herotux/Nabz/actions/runs/44244917092) و [Phase 1 CI](https://github.com/herotux/Nabz/actions/runs/44244917062) هر دو موفق‌اند.
 
 ## دیتابیس و مهاجرت
 
