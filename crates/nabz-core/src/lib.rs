@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 
 /// Normalize Persian and English contact roles consistently across application instances.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -785,6 +785,22 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         tx.commit().map_err(|e| e.to_string())?;
     }
 
+    if version < 12 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "products", "is_active")? {
+            tx.execute_batch("ALTER TABLE products ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1));")
+                .map_err(|e| format!("افزودن وضعیت فعال کالا ناموفق بود: {e}"))?;
+        }
+        tx.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_active_barcode
+               ON products(barcode) WHERE barcode<>'' AND is_active=1;
+             CREATE INDEX IF NOT EXISTS idx_products_active_name
+               ON products(is_active,name COLLATE NOCASE);"
+        ).map_err(|e| format!("ایجاد شاخص‌های وضعیت کالا ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 12).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -792,6 +808,21 @@ fn migrate(connection: &Connection) -> Result<(), String> {
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn schema_v12_adds_soft_deactivation_and_active_barcode_uniqueness() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 12);
+        let active: i64 = connection.query_row("SELECT is_active FROM products LIMIT 1", [], |r| r.get(0)).unwrap_or(1);
+        assert_eq!(active, 1);
+        let index_count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_products_active_barcode'",
+            [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(index_count, 1);
+    }
 
     #[test]
     fn schema_v11_adds_product_catalog_metadata_and_stock_indexes() {
