@@ -2070,4 +2070,29 @@ mod tests {
         assert_eq!((stock,invoices),(8,1));
     }
 
+
+    #[test]
+    fn partial_returns_target_exact_invoice_rows_when_same_product_is_repeated() {
+        let mut c=database();
+        create_contact(&c,&ContactInput{name:"Customer".into(),kind:"customer".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        let product=create_product(&c,&ProductInput{name:"Repeated cable".into(),code:"DUP-ROW".into(),barcode:String::new(),buy_price:10,sell_price:50,quantity:10,min_quantity:0}).unwrap();
+        let invoice=create_invoice(&mut c,&InvoiceInput{kind:"sale".into(),contact_name:"Customer".into(),date:"2026-11-18".into(),discount:0,paid:0,method:String::new(),notes:String::new(),lines:vec![
+            InvoiceLineInput{product_lookup:"DUP-ROW".into(),quantity:2,unit_price:50},
+            InvoiceLineInput{product_lookup:"DUP-ROW".into(),quantity:3,unit_price:50},
+        ]}).unwrap();
+        let item_ids:Vec<i64>={
+            let mut st=c.prepare("SELECT id FROM invoice_items WHERE invoice_id=?1 ORDER BY id").unwrap();
+            st.query_map([invoice],|r|r.get(0)).unwrap().collect::<Result<Vec<_>,_>>().unwrap()
+        };
+        let result=return_sale_items(&mut c,invoice,&[
+            ReturnLineInput{invoice_item_id:Some(item_ids[0]),product_lookup:"DUP-ROW".into(),quantity:1},
+            ReturnLineInput{invoice_item_id:Some(item_ids[1]),product_lookup:"DUP-ROW".into(),quantity:1},
+        ],"cash").unwrap();
+        let stock:i64=c.query_row("SELECT quantity FROM products WHERE id=?1",[product],|r|r.get(0)).unwrap();
+        let total:i64=c.query_row("SELECT total FROM invoices WHERE id=?1",[invoice],|r|r.get(0)).unwrap();
+        let rows:i64=c.query_row("SELECT COUNT(*) FROM sales_return_items WHERE invoice_item_id IN (?1,?2)",rusqlite::params![item_ids[0],item_ids[1]],|r|r.get(0)).unwrap();
+        assert_eq!(result,(100,0));
+        assert_eq!((stock,total,rows),(7,150,2));
+    }
+
 }
