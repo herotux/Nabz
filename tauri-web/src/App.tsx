@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import JsBarcode from 'jsbarcode';
+import { formatJalaliDate, gregorianToJalali, jalaliMonths, jalaliParts, jalaliToGregorian, jalaliWeekdays, latinDigits } from './utils/jalali';
 import {
   Activity, ArrowDownLeft, ArrowUpRight, BarChart3, Bell, Boxes, CalendarDays,
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Command, CreditCard,
@@ -317,39 +318,6 @@ function App(){
 }
 
 
-function latinDigits(value:string){return value.replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));}
-function jalaliParts(iso:string){
- if(!iso)return {year:1405,month:1,day:1};
- const d=new Date(iso+'T12:00:00');
- const p=new Intl.DateTimeFormat('en-u-ca-persian',{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(d);
- return {year:Number(p.find(x=>x.type==='year')?.value),month:Number(p.find(x=>x.type==='month')?.value),day:Number(p.find(x=>x.type==='day')?.value)};
-}
-function formatJalaliDate(iso:string){
- const day=iso?.slice(0,10)||'';
- if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return iso||'—';
- const p=gregorianToJalali(day).split('/');
- return p.map((v,i)=>new Intl.NumberFormat('fa-IR',{useGrouping:false,minimumIntegerDigits:i===0?4:2}).format(Number(v))).join('/');
-}
-function gregorianToJalali(iso:string){
- if(!iso)return '';
- const p=jalaliParts(iso);
- return p.year+'/'+String(p.month).padStart(2,'0')+'/'+String(p.day).padStart(2,'0');
-}
-function jalaliToGregorian(raw:string):string|null{
- const m=latinDigits(raw).trim().match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
- if(!m)return null;
- const y=Number(m[1]),mo=Number(m[2]),day=Number(m[3]);
- if(mo<1||mo>12||day<1||day>31)return null;
- const start=Date.UTC(y+621,0,1);
- for(let i=0;i<460;i++){
-  const d=new Date(start+i*86400000);
-  const p=jalaliParts(d.toISOString().slice(0,10));
-  if(p.year===y&&p.month===mo&&p.day===day)return d.toISOString().slice(0,10);
- }
- return null;
-}
-const jalaliMonths=['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
-const jalaliWeekdays=['ش','ی','د','س','چ','پ','ج'];
 function JalaliDateField({value,onChange,label}:{value:string;onChange:(v:string)=>void;label:string}){
  const selected=jalaliParts(value);
  const [text,setText]=useState(gregorianToJalali(value));
