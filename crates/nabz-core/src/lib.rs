@@ -792,11 +792,21 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                 .map_err(|e| format!("افزودن وضعیت فعال کالا ناموفق بود: {e}"))?;
         }
         tx.execute_batch(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_active_barcode
-               ON products(barcode) WHERE barcode<>'' AND is_active=1;
-             CREATE INDEX IF NOT EXISTS idx_products_active_name
-               ON products(is_active,name COLLATE NOCASE);"
-        ).map_err(|e| format!("ایجاد شاخص‌های وضعیت کالا ناموفق بود: {e}"))?;
+            "CREATE INDEX IF NOT EXISTS idx_products_active_name
+               ON products(is_active,name COLLATE NOCASE);
+             CREATE TRIGGER IF NOT EXISTS trg_products_active_barcode_unique_insert
+               BEFORE INSERT ON products
+               WHEN NEW.is_active=1 AND NEW.barcode<>'' AND EXISTS(
+                 SELECT 1 FROM products WHERE barcode=NEW.barcode AND is_active=1
+               )
+               BEGIN SELECT RAISE(ABORT,'بارکد کالای فعال تکراری است'); END;
+             CREATE TRIGGER IF NOT EXISTS trg_products_active_barcode_unique_update
+               BEFORE UPDATE OF barcode,is_active ON products
+               WHEN NEW.is_active=1 AND NEW.barcode<>'' AND EXISTS(
+                 SELECT 1 FROM products WHERE barcode=NEW.barcode AND is_active=1 AND id<>NEW.id
+               )
+               BEGIN SELECT RAISE(ABORT,'بارکد کالای فعال تکراری است'); END;"
+        ).map_err(|e| format!("ایجاد شاخص‌ها و کنترل بارکد کالا ناموفق بود: {e}"))?;
         tx.pragma_update(None, "user_version", 12).map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
     }
@@ -822,10 +832,10 @@ mod tests {
         let active_count: i64 = connection.query_row("SELECT COUNT(*) FROM products WHERE barcode='BAR-12' AND is_active=1", [], |r| r.get(0)).unwrap();
         assert_eq!(active_count, 1);
         let index_count: i64 = connection.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_products_active_barcode'",
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('trg_products_active_barcode_unique_insert','trg_products_active_barcode_unique_update')",
             [], |r| r.get(0)
         ).unwrap();
-        assert_eq!(index_count, 1);
+        assert_eq!(index_count, 2);
     }
 
     #[test]
