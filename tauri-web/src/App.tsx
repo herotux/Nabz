@@ -13,7 +13,7 @@ import {
 type Page = 'dashboard'|'contacts'|'invoices'|'payments'|'products'|'reports'|'printing'|'settings';
 type Entry = 'contact'|'product'|'sale'|'purchase'|'receipt'|'payment';
 type RecordRow = {id:number;name:string;detail:string;amount:number;status:string;date:string};
-type Product = {id:number;name:string;code:string;barcode:string;quantity:number;buy_price:number;sell_price:number;min_quantity:number;category:string;unit:string;wholesale_price:number;is_service:boolean};
+type Product = {id:number;name:string;code:string;barcode:string;quantity:number;buy_price:number;average_cost:number;sell_price:number;min_quantity:number;category:string;unit:string;wholesale_price:number;is_service:boolean};
 type Summary = {sales_today:number;receipts_today:number;customer_balance:number;inventory_value:number;contacts:number;products:number;invoices:number};
 type Trend = {date:string;total:number};
 type InvoicePrint = {invoice:{id:number;number:number;kind:string;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string};items:{item_name:string;quantity:number;unit_price:number;line_total:number}[];shop:Record<string,string>};
@@ -298,9 +298,9 @@ function ProductsPage({products,query,setQuery,busy,onAdd,onEdit,onDelete,onAdju
  const sorted=[...filtered].sort((a,b)=>sortBy==='quantity'?b.quantity-a.quantity:sortBy==='buy'?b.buy_price-a.buy_price:sortBy==='sell'?b.sell_price-a.sell_price:a.name.localeCompare(b.name,'fa'));
  const pages=Math.max(1,Math.ceil(sorted.length/pageSize));const visible=sorted.slice((page-1)*pageSize,page*pageSize);
  const exportCsv=()=>{
-  const headers=['نام کالا','کد کالا','بارکد','دسته‌بندی','واحد','موجودی','حداقل موجودی','قیمت خرید فعلی','قیمت فروش','قیمت عمده','نوع'];
+  const headers=['نام کالا','کد کالا','بارکد','دسته‌بندی','واحد','موجودی','حداقل موجودی','آخرین قیمت خرید','میانگین بهای تمام‌شده','قیمت فروش','قیمت عمده','نوع'];
   const cell=(v:unknown)=>{let value=String(v??'');if(/^[=+@-]/.test(value))value="'"+value;return '"'+value.replace(/"/g,'""')+'"';};
-  const rows=sorted.map(p=>[p.name,p.code,p.barcode,p.category,p.unit,p.is_service?'':p.quantity,p.is_service?'':p.min_quantity,p.buy_price,p.sell_price,p.wholesale_price,p.is_service?'خدمت':'کالا']);
+  const rows=sorted.map(p=>[p.name,p.code,p.barcode,p.category,p.unit,p.is_service?'':p.quantity,p.is_service?'':p.min_quantity,p.buy_price,p.average_cost,p.sell_price,p.wholesale_price,p.is_service?'خدمت':'کالا']);
   const csv='\\uFEFF'+[headers,...rows].map(row=>row.map(cell).join(',')).join('\\r\\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='nabz-inventory-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(url);
  };
