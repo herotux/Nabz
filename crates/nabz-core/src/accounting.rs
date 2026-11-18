@@ -428,13 +428,12 @@ pub fn create_invoice_with_payment_split(
     }
 
     for (line_index, (lookup, quantity, unit_price, line_total, is_service)) in normalized.into_iter().enumerate() {
-        let catalog_service: Option<String> = if is_service { None } else {
-            tx.query_row(
-                "SELECT name FROM products WHERE is_active=1 AND is_service=1
-                 AND (name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1) LIMIT 1",
-                [&lookup], |row| row.get(0)
-            ).optional().map_err(|e| e.to_string())?
-        };
+        let service_lookup = lookup.strip_prefix("خدمت:").unwrap_or(&lookup).trim();
+        let catalog_service: Option<String> = tx.query_row(
+            "SELECT name FROM products WHERE is_active=1 AND is_service=1
+             AND (name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1) LIMIT 1",
+            [service_lookup], |row| row.get(0)
+        ).optional().map_err(|e| e.to_string())?;
         if is_service || catalog_service.is_some() {
             if input.kind == "purchase" {
                 return Err("ثبت خدمت در فاکتور خرید مجاز نیست؛ خدمات را در فاکتور فروش ثبت کنید".into());
