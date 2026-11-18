@@ -1465,6 +1465,7 @@ mod tests {
         assert_eq!(result, (93, 0));
         assert_eq!((stock, total, returned), (8, 187, 1));
         let over_return = return_sale_items(&mut connection, invoice_id, &[ReturnLineInput {
+            invoice_item_id: None,
             product_lookup: "RET-1".into(), quantity: 3,
         }], "cash");
         assert!(over_return.is_err());
@@ -1671,9 +1672,11 @@ mod tests {
             }],
         }).unwrap();
         return_sale_items(&mut connection, sale_id, &[ReturnLineInput {
+            invoice_item_id: None,
             product_lookup: "LEDGER-1".into(), quantity: 1,
         }], "cash").unwrap();
         return_purchase_items(&mut connection, purchase_id, &[ReturnLineInput {
+            invoice_item_id: None,
             product_lookup: "LEDGER-1".into(), quantity: 1,
         }], "cash").unwrap();
         adjust_inventory(&mut connection, product_id, 11, "انبارگردانی دوره‌ای").unwrap();
