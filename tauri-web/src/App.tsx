@@ -170,7 +170,7 @@ function App(){
       const id=paymentInvoice.invoice.id;setPaymentInvoice(null);await load();await viewInvoice(id);
     }catch(e){notify('ثبت پرداخت فاکتور ناموفق بود: '+String(e))}
   };
-  const submitInvoiceReturn=async(method:string,returnLines:{item:string;qty:number}[])=>{
+  const submitInvoiceReturn=async(method:string,returnLines:{invoice_item_id:number;item:string;qty:number}[])=>{
     if(!returnInvoice)return;
     const invoice=returnInvoice.invoice;
     try{
@@ -500,15 +500,22 @@ function InvoiceDetailModal({detail,onClose,onPrint,onReturn,onPay,onVoid}:{deta
   <div className="modal-actions invoice-detail-actions"><button className="secondary-btn" onClick={onClose}>بستن</button><button className="secondary-btn" onClick={onPrint}><Printer size={15}/> چاپ</button>{!inv.voided&&outstanding>0&&inv.contact_id!==null&&<button className="secondary-btn" onClick={onPay}><Wallet size={15}/> ثبت تسویه</button>}{!inv.voided&&returnable&&<button className="secondary-btn" onClick={onReturn}>ثبت برگشت</button>}{!inv.voided&&<button className="danger-btn" onClick={onVoid}>ابطال فاکتور</button>}</div>
  </section></div>;
 }
-function InvoiceReturnModal({detail,onClose,onSubmit}:{detail:InvoiceDetail;onClose:()=>void;onSubmit:(method:string,lines:{item:string;qty:number}[])=>Promise<void>}){
+function InvoiceReturnModal({detail,onClose,onSubmit}:{detail:InvoiceDetail;onClose:()=>void;onSubmit:(method:string,lines:{invoice_item_id:number;item:string;qty:number}[])=>Promise<void>}){
  const [quantities,setQuantities]=useState<Record<number,string>>({});
  const [method,setMethod]=useState('cash');
  const [busy,setBusy]=useState(false);
  const inv=detail.invoice;
  const rows=detail.items.filter(x=>x.product_id!==null&&x.quantity-(inv.kind==='sale'?x.sales_returned:x.purchase_returned)>0);
  const submit=async()=>{
-  const selected=rows.map(x=>({item:x.code||x.barcode||x.item_name,qty:Number(latinDigits(quantities[x.id]||'0'))})).filter(x=>Number.isSafeInteger(x.qty)&&x.qty>0);
-  if(!selected.length){window.alert('حداقل تعداد برگشتی یک ردیف را وارد کن.');return}
+  const entered=rows.filter(x=>(quantities[x.id]||'').trim()!=='').map(x=>({
+   invoice_item_id:x.id,item:x.code||x.barcode||x.item_name,
+   qty:Number(latinDigits(quantities[x.id]||'0')),
+   remaining:x.quantity-(inv.kind==='sale'?x.sales_returned:x.purchase_returned)
+  }));
+  if(!entered.length){window.alert('حداقل تعداد برگشتی یک ردیف را وارد کن.');return}
+  if(entered.some(x=>!Number.isSafeInteger(x.qty)||x.qty<=0)){window.alert('تعداد برگشتی باید عدد صحیح مثبت باشد.');return}
+  if(entered.some(x=>x.qty>x.remaining)){window.alert('تعداد برگشتی از مقدار باقی‌ماندهٔ ردیف بیشتر است.');return}
+  const selected=entered.map(({remaining,...line})=>line);
   setBusy(true);try{await onSubmit(method,selected)}finally{setBusy(false)}
  };
  return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)onClose()}}><section className="entry-modal invoice-action-modal"><div className="modal-heading"><div><span className="eyebrow">{inv.kind==='sale'?'برگشت از فروش':'مرجوعی خرید'}</span><h2>فاکتور شماره {money(inv.number)}</h2></div><button className="icon-btn" disabled={busy} onClick={onClose}><X size={20}/></button></div><p className="invoice-payment-hint">فقط کالاهای دارای موجودی قابل برگشت نمایش داده می‌شوند. تعداد برگشتی از مقدار باقی‌ماندهٔ همان ردیف بیشتر نمی‌تواند باشد.</p><div className="return-line-list">{rows.map(x=>{const returned=inv.kind==='sale'?x.sales_returned:x.purchase_returned;const remaining=x.quantity-returned;return <label className="return-line" key={x.id}><span><b>{x.item_name}</b><small>خرید/فروش اولیه {money(x.quantity)} · قبلاً برگشته {money(returned)} · قابل برگشت {money(remaining)}</small></span><input aria-label={'تعداد برگشتی '+x.item_name} type="number" min="0" max={remaining} value={quantities[x.id]||''} placeholder="۰" onChange={e=>setQuantities(old=>({...old,[x.id]:e.target.value}))}/></label>})}{!rows.length&&<p className="empty-cell">ردیف قابل برگشتی برای این فاکتور باقی نمانده است.</p>}</div><label className="field-label">روش بازپرداخت نقدی<select value={method} onChange={e=>setMethod(e.target.value)}><option value="cash">نقدی</option><option value="card">کارت‌خوان</option><option value="transfer">انتقال بانکی</option></select></label><div className="modal-actions"><button className="secondary-btn" disabled={busy} onClick={onClose}>انصراف</button><button className="primary-btn" disabled={busy||!rows.length} onClick={submit}>ثبت برگشت</button></div></section></div>;
