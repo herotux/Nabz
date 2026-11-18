@@ -829,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn v8_to_v10_migration_preserves_existing_accounting_rows() {
+    fn v8_to_v11_migration_preserves_existing_accounting_rows() {
         let mut connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
         connection.execute_batch("DROP TABLE payment_allocations; DROP TABLE invoice_voids; PRAGMA user_version=8;").unwrap();
@@ -841,7 +841,7 @@ mod tests {
             "SELECT c.opening_balance,p.quantity,p.average_cost FROM contacts c CROSS JOIN products p WHERE c.name='مشتری قدیمی' AND p.code='OLD-8'",
             [],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))
         ).unwrap();
-        assert_eq!((version,balance,stock,cost),(10,125,3,45));
+        assert_eq!((version,balance,stock,cost),(SCHEMA_VERSION,125,3,45));
         assert!(connection.query_row("SELECT COUNT(*) FROM payment_allocations",[],|r|r.get::<_,i64>(0)).is_ok());
         assert!(connection.query_row("SELECT COUNT(*) FROM invoice_voids",[],|r|r.get::<_,i64>(0)).is_ok());
     }
@@ -1232,7 +1232,7 @@ mod tests {
              FROM products p JOIN invoice_items ii ON ii.product_id=p.id WHERE p.id=1",
             [], |r| Ok((r.get(0)?,r.get(1)?))
         ).unwrap();
-        assert_eq!((version, average_cost, historical_cost), (10, 42, 17));
+        assert_eq!((version, average_cost, historical_cost), (SCHEMA_VERSION, 42, 17));
     }
 
 
@@ -1290,7 +1290,7 @@ mod tests {
              JOIN invoice_items ii ON ii.id=1 WHERE c.id=1",
             [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
         ).unwrap();
-        assert_eq!((version,credit,quantity,average,voided,unit_cost),(10,75,7,42,0,None));
+        assert_eq!((version,credit,quantity,average,voided,unit_cost),(SCHEMA_VERSION,75,7,42,0,None));
     }
 
 
