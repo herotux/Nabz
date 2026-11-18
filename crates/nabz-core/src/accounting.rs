@@ -1541,7 +1541,7 @@ mod tests {
             buy_price: 50, sell_price: 80, quantity: 12, min_quantity: 2,
         };
         let id = create_product(&connection, &input).unwrap();
-        let second = ProductInput { name: "کالای دوم".into(), code: "SKU-2".into(), ..input.clone() };
+        let second = ProductInput { name: "کالای دوم".into(), code: "SKU-2".into(), barcode: "124".into(), ..input.clone() };
         create_product(&connection, &second).unwrap();
         let edited = ProductInput { name: "کالای ویرایش‌شده".into(), code: "SKU-1".into(),
             barcode: "456".into(), buy_price: 60, sell_price: 90, quantity: 0, min_quantity: 3 };
