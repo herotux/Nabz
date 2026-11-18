@@ -802,7 +802,7 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                BEGIN SELECT RAISE(ABORT,'بارکد کالای فعال تکراری است'); END;
              CREATE TRIGGER IF NOT EXISTS trg_products_active_barcode_unique_update
                BEFORE UPDATE OF barcode,is_active ON products
-               WHEN NEW.is_active=1 AND NEW.barcode<>'' AND EXISTS(
+               WHEN NEW.is_active=1 AND NEW.barcode<>'' AND (NEW.barcode<>OLD.barcode OR NEW.is_active<>OLD.is_active) AND EXISTS(
                  SELECT 1 FROM products WHERE barcode=NEW.barcode AND is_active=1 AND id<>NEW.id
                )
                BEGIN SELECT RAISE(ABORT,'بارکد کالای فعال تکراری است'); END;"
@@ -854,6 +854,8 @@ mod tests {
         let duplicates:i64=connection.query_row("SELECT COUNT(*) FROM products WHERE barcode='DUP-OLD' AND is_active=1",[],|r|r.get(0)).unwrap();
         assert_eq!(version,12);
         assert_eq!(duplicates,2);
+        connection.execute("UPDATE products SET name='ویرایش قدیمی' WHERE code='OLD-BAR-1'",[]).unwrap();
+        assert!(connection.execute("UPDATE products SET barcode='DUP-OLD' WHERE code='OLD-BAR-1'",[]).is_ok());
         assert!(connection.execute("INSERT INTO products(name,code,barcode) VALUES('جدید','NEW-BAR','DUP-OLD')",[]).is_err());
     }
 
