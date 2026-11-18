@@ -591,14 +591,14 @@ pub fn return_sale_items(
         let matches = {
             let mut statement = tx.prepare(
                 "SELECT ii.id,ii.product_id,ii.quantity,ii.unit_price,ii.item_name,ii.unit_cost
-                 FROM invoice_items ii JOIN products p ON p.id=ii.product_id
+                 FROM invoice_items ii LEFT JOIN products p ON p.id=ii.product_id
                  WHERE ii.invoice_id=?1 AND
                  ((?2 IS NOT NULL AND ii.id=?2) OR
                   (?2 IS NULL AND (ii.item_name=?3 COLLATE NOCASE OR p.code=?3 OR p.barcode=?3)))
                  ORDER BY ii.id"
             ).map_err(|e| e.to_string())?;
             let rows = statement.query_map(params![invoice_id, line.invoice_item_id, lookup], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?,
                     r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?,
                     r.get::<_, Option<i64>>(5)?))
             }).map_err(|e| e.to_string())?;
@@ -609,9 +609,11 @@ pub fn return_sale_items(
         }
         let (item_id, product_id, original_qty, unit_price, item_name, historical_cost) =
             matches.into_iter().next().expect("one match");
-        let historical_cost = historical_cost.ok_or_else(|| format!("بهای تمام‌شدهٔ تاریخی «{item_name}» موجود نیست؛ برگشت امن ممکن نیست"))?;
-        if product_id <= 0 {
-            return Err(format!("کالای «{item_name}» شناسهٔ انبار ندارد؛ برگشت ممکن نیست"));
+        if product_id.is_none() && !item_name.starts_with("خدمت:") {
+            return Err(format!("ردیف «{item_name}» نه کالای انبار است و نه خدمت معتبر؛ برگشت متوقف شد"));
+        }
+        if product_id.is_some() && historical_cost.is_none() {
+            return Err(format!("بهای تمام‌شدهٔ تاریخی «{item_name}» موجود نیست؛ برگشت امن ممکن نیست"));
         }
         let already: i64 = tx.query_row(
             "SELECT COALESCE(SUM(quantity),0) FROM sales_return_items WHERE invoice_item_id=?1",
@@ -661,10 +663,13 @@ pub fn return_sale_items(
         ).map_err(|e| e.to_string())?;
     }
     for (item_id, product_id, quantity, unit_price, item_name, amount, historical_cost) in normalized {
-        let (stock,average_cost):(i64,i64)=tx.query_row("SELECT quantity,average_cost FROM products WHERE id=?1",[product_id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;
-        let next_quantity=stock.checked_add(quantity).ok_or("موجودی پس از برگشت بیش از ظرفیت عددی است")?;
-        let next_average=weighted_average_cost(stock,average_cost,quantity,historical_cost)?;
-        tx.execute("UPDATE products SET quantity=?1,average_cost=?2 WHERE id=?3",params![next_quantity,next_average,product_id]).map_err(|e|e.to_string())?;
+        if let Some(product_id) = product_id {
+            let historical_cost = historical_cost.ok_or_else(|| format!("بهای تمام‌شدهٔ تاریخی «{item_name}» موجود نیست؛ برگشت امن ممکن نیست"))?;
+            let (stock,average_cost):(i64,i64)=tx.query_row("SELECT quantity,average_cost FROM products WHERE id=?1",[product_id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;
+            let next_quantity=stock.checked_add(quantity).ok_or("موجودی پس از برگشت بیش از ظرفیت عددی است")?;
+            let next_average=weighted_average_cost(stock,average_cost,quantity,historical_cost)?;
+            tx.execute("UPDATE products SET quantity=?1,average_cost=?2 WHERE id=?3",params![next_quantity,next_average,product_id]).map_err(|e|e.to_string())?;
+        }
         tx.execute(
             "INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
              VALUES(?1,?2,?3,?4,?5,?6,?7)",
@@ -1473,6 +1478,49 @@ mod tests {
             "SELECT quantity FROM products WHERE id=?1", [product_id], |r| r.get(0)
         ).unwrap();
         assert_eq!(stock_after, 8);
+    }
+
+    #[test]
+    fn shared_return_service_line_refunds_without_touching_inventory() {
+        let mut connection = database();
+        let stock_before: i64 = connection.query_row("SELECT quantity FROM products WHERE code='PEN'", [], |r| r.get(0)).unwrap();
+        let invoice_id = create_invoice(&mut connection, &InvoiceInput {
+            kind: "sale".into(), contact_name: String::new(), date: "2026-11-18".into(),
+            discount: 20, paid: 180, method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "خدمت:نصب و راه‌اندازی".into(), quantity: 2, unit_price: 100 }],
+        }).unwrap();
+        let item_id: i64 = connection.query_row(
+            "SELECT id FROM invoice_items WHERE invoice_id=?1 AND product_id IS NULL",
+            [invoice_id], |r| r.get(0)
+        ).unwrap();
+        let first = return_sale_items(&mut connection, invoice_id, &[ReturnLineInput {
+            invoice_item_id: Some(item_id), product_lookup: String::new(), quantity: 1,
+        }], "transfer").unwrap();
+        assert_eq!(first, (90, 90));
+        let (subtotal, discount, total, paid, returned, return_product):(i64,i64,i64,i64,i64,Option<i64>) =
+            connection.query_row(
+                "SELECT i.subtotal,i.discount,i.total,i.paid,
+                 (SELECT COALESCE(SUM(quantity),0) FROM sales_return_items WHERE invoice_item_id=?2),
+                 (SELECT product_id FROM sales_return_items WHERE invoice_item_id=?2)
+                 FROM invoices i WHERE i.id=?1",
+                params![invoice_id,item_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
+            ).unwrap();
+        assert_eq!((subtotal,discount,total,paid,returned,return_product),(100,10,90,90,1,None));
+        let second = return_sale_items(&mut connection, invoice_id, &[ReturnLineInput {
+            invoice_item_id: Some(item_id), product_lookup: String::new(), quantity: 1,
+        }], "cash").unwrap();
+        assert_eq!(second, (90, 90));
+        assert!(return_sale_items(&mut connection, invoice_id, &[ReturnLineInput {
+            invoice_item_id: Some(item_id), product_lookup: String::new(), quantity: 1,
+        }], "cash").is_err());
+        let (stock_after, return_rows, refund_total):(i64,i64,i64) = connection.query_row(
+            "SELECT (SELECT quantity FROM products WHERE code='PEN'),
+             (SELECT COUNT(*) FROM sales_return_items WHERE invoice_item_id=?1),
+             (SELECT COALESCE(SUM(amount),0) FROM sales_refunds WHERE invoice_id=?2)",
+            params![item_id,invoice_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+        ).unwrap();
+        assert_eq!(stock_after,stock_before);
+        assert_eq!((return_rows,refund_total),(2,180));
     }
 
     #[test]

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 14;
 
 /// Normalize Persian and English contact roles consistently across application instances.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -835,6 +835,33 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         tx.commit().map_err(|e| e.to_string())?;
     }
 
+    if version < 14 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "ALTER TABLE sales_return_items RENAME TO sales_return_items_v13;
+             CREATE TABLE sales_return_items(
+               id INTEGER PRIMARY KEY,
+               return_id INTEGER NOT NULL REFERENCES sales_returns(id),
+               invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),
+               product_id INTEGER REFERENCES products(id),
+               item_name TEXT NOT NULL,
+               quantity INTEGER NOT NULL CHECK(quantity>0),
+               unit_price INTEGER NOT NULL,
+               amount INTEGER NOT NULL CHECK(amount>0)
+             );
+             INSERT INTO sales_return_items(id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
+               SELECT id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount
+               FROM sales_return_items_v13;
+             DROP TABLE sales_return_items_v13;
+             CREATE INDEX IF NOT EXISTS idx_sales_return_items_invoice_item
+               ON sales_return_items(invoice_item_id);
+             CREATE INDEX IF NOT EXISTS idx_sales_return_items_return
+               ON sales_return_items(return_id);"
+        ).map_err(|e| format!("فعال‌سازی برگشت ردیف‌های خدمت ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 14).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -860,6 +887,39 @@ mod tests {
         connection.execute("UPDATE invoices SET idempotency_key='request-1' WHERE number=1001",[]).unwrap();
         connection.execute("INSERT INTO invoices(number,kind,contact_name,subtotal,total) VALUES(1002,'sale','Test 2',10,10)",[]).unwrap();
         assert!(connection.execute("UPDATE invoices SET idempotency_key='request-1' WHERE number=1002",[]).is_err());
+    }
+
+    #[test]
+    fn schema_v14_allows_service_return_rows_and_preserves_product_return_history() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute("INSERT INTO products(id,name,code) VALUES(1,'کالای قدیمی','OLD-RETURN')", []).unwrap();
+        connection.execute("INSERT INTO invoices(id,number,kind,contact_name,subtotal,total) VALUES(1,1001,'sale','مشتری',100,100)", []).unwrap();
+        connection.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(1,1,1,'کالای قدیمی',1,100,100)", []).unwrap();
+        connection.execute("INSERT INTO sales_returns(id,invoice_id,amount) VALUES(1,1,100)", []).unwrap();
+        connection.execute("INSERT INTO sales_return_items(id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(1,1,1,1,'کالای قدیمی',1,100,100)", []).unwrap();
+        connection.execute_batch(
+            "DROP TABLE sales_return_items;
+             CREATE TABLE sales_return_items(
+               id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),
+               invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),
+               product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,
+               quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,
+               amount INTEGER NOT NULL CHECK(amount>0)
+             );
+             INSERT INTO sales_return_items(id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
+               VALUES(1,1,1,1,'کالای قدیمی',1,100,100);
+             PRAGMA user_version=13;"
+        ).unwrap();
+        initialize(&connection).unwrap();
+        let preserved: i64 = connection.query_row("SELECT COUNT(*) FROM sales_return_items WHERE id=1 AND product_id=1", [], |r| r.get(0)).unwrap();
+        connection.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(2,1,NULL,'خدمت:مشاوره',1,50,50)", []).unwrap();
+        connection.execute("INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(1,2,NULL,'خدمت:مشاوره',1,50,50)", []).unwrap();
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let service_rows: i64 = connection.query_row("SELECT COUNT(*) FROM sales_return_items WHERE invoice_item_id=2 AND product_id IS NULL", [], |r| r.get(0)).unwrap();
+        let foreign_key_errors: i64 = connection.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();
+        assert_eq!(preserved,1);
+        assert_eq!((version,service_rows,foreign_key_errors),(SCHEMA_VERSION,1,0));
     }
 
     #[test]
