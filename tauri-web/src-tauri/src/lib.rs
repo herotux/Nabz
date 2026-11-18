@@ -17,7 +17,7 @@ struct Summary { sales_today:i64, receipts_today:i64, customer_balance:i64, inve
 #[derive(Serialize)]
 struct Record { id:i64, name:String, detail:String, amount:i64, status:String, date:String }
 #[derive(Serialize)]
-struct ProductRecord { id:i64, name:String, code:String, barcode:String, quantity:i64, buy_price:i64, sell_price:i64, min_quantity:i64, category:String, unit:String, wholesale_price:i64, is_service:bool }
+struct ProductRecord { id:i64, name:String, code:String, barcode:String, quantity:i64, buy_price:i64, average_cost:i64, sell_price:i64, min_quantity:i64, category:String, unit:String, wholesale_price:i64, is_service:bool }
 
 fn text(v:&Value,k:&str)->String { v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned() }
 fn num(v:&Value,k:&str)->i64 { v.get(k).and_then(|x|x.as_i64().or_else(||x.as_str().and_then(|s|s.replace(',',"").replace('٬',"").parse().ok()))).unwrap_or(0) }
@@ -29,8 +29,8 @@ fn init(c:&Connection)->Result<(),String>{ nabz_core::initialize(c) }
 #[tauri::command] fn list_records(kind:String,db:State<'_,Db>)->Result<Vec<Record>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let sql=match kind.as_str(){"contacts"=>"SELECT id,name,phone,opening_balance,kind,datetime(created_at) FROM contacts ORDER BY id DESC","products"=>"SELECT id,name,code,quantity,sell_price,'موجود', '' FROM products ORDER BY id DESC","invoices"=>"SELECT id,'فاکتور #'||number||' · '||contact_name,kind,total,CASE WHEN voided=1 THEN 'باطل‌شده' WHEN paid>=total THEN 'تسویه' ELSE 'بدهکار' END,invoice_date FROM invoices ORDER BY id DESC","payments"=>"SELECT id,contact_name,kind,amount,method,payment_date FROM payments ORDER BY id DESC",_=>return Err("فهرست نامعتبر است".into())};let mut s=c.prepare(sql).map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Record{id:r.get(0)?,name:r.get(1)?,detail:r.get(2)?,amount:r.get(3)?,status:r.get(4)?,date:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 #[tauri::command] fn list_products(db:State<'_,Db>)->Result<Vec<ProductRecord>,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
- let mut s=c.prepare("SELECT id,name,code,barcode,quantity,buy_price,sell_price,min_quantity,category,unit,wholesale_price,is_service FROM products ORDER BY name COLLATE NOCASE,id DESC").map_err(|e|e.to_string())?;
- let rows=s.query_map([],|r|Ok(ProductRecord{id:r.get(0)?,name:r.get(1)?,code:r.get(2)?,barcode:r.get(3)?,quantity:r.get(4)?,buy_price:r.get(5)?,sell_price:r.get(6)?,min_quantity:r.get(7)?,category:r.get(8)?,unit:r.get(9)?,wholesale_price:r.get(10)?,is_service:r.get::<_,i64>(11)?!=0})).map_err(|e|e.to_string())?;
+ let mut s=c.prepare("SELECT id,name,code,barcode,quantity,buy_price,average_cost,sell_price,min_quantity,category,unit,wholesale_price,is_service FROM products ORDER BY name COLLATE NOCASE,id DESC").map_err(|e|e.to_string())?;
+ let rows=s.query_map([],|r|Ok(ProductRecord{id:r.get(0)?,name:r.get(1)?,code:r.get(2)?,barcode:r.get(3)?,quantity:r.get(4)?,buy_price:r.get(5)?,average_cost:r.get(6)?,sell_price:r.get(7)?,min_quantity:r.get(8)?,category:r.get(9)?,unit:r.get(10)?,wholesale_price:r.get(11)?,is_service:r.get::<_,i64>(12)?!=0})).map_err(|e|e.to_string())?;
  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
 }
 #[tauri::command]
