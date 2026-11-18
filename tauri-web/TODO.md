@@ -11,8 +11,8 @@
 - [x] روند روزانه و ۱۰ کالای پرفروش پس از برگشت.
 - [x] خروجی CSV فارسی و ایمن در برابر Formula Injection.
 - [x] اعتبارسنجی تاریخ واقعی و محدودیت بازهٔ ۳۶۶ روز؛ تست فیلتر، برگشت، COGS، هزینه و تاریخ نامعتبر.
-- [x] ۶۵ تست هسته و ۳۱ تست یکپارچگی Tauri موفق؛ TypeScript، build frontend، Rust/SQLite، باینری optimized و ساخت/اعتبارسنجی بستهٔ Arch موفق.
-- [x] Artifact: [nabz-manjaro-arch-x86_64](https://github.com/herotux/Nabz/actions/runs/44271885310/artifacts/14412657716) (۴٬۰۳۲٬۶۱۲ بایت).
+- [x] ۶۵ تست هسته و ۳۲ تست یکپارچگی Tauri موفق؛ TypeScript، build frontend، Rust/SQLite، باینری optimized و ساخت/اعتبارسنجی بستهٔ Arch موفق.
+- [x] Artifact: [nabz-manjaro-arch-x86_64](https://github.com/herotux/Nabz/actions/runs/44272946126/artifacts/14413383087) (۴٬۰۲۷٬۴۷۸ بایت).
 - جزئیات و قواعد محاسبه: [PHASE_FOUR.md](../docs/architecture/PHASE_FOUR.md).
 
 ## فاز سه — فاکتور و فروش سریع (پیاده‌سازی تکمیل شد)
@@ -28,7 +28,7 @@
 - [x] ابطال امن فاکتور بدون حذف سابقه.
 - [x] idempotency سمت backend و قفل ارسال تکراری در رابط.
 - [x] جست‌وجو و فیلتر فاکتور بر اساس نوع، وضعیت و بازهٔ تاریخ شمسی.
-- [x] ۶۵ تست هسته، تست یکپارچگی Tauri، TypeScript، باینری و بستهٔ Arch/Manjaro موفق شدند.
+- [x] ۶۵ تست هسته و ۳۲ تست یکپارچگی Tauri، TypeScript، باینری و بستهٔ Arch/Manjaro موفق شدند.
 - [ ] آزمون پذیرش دستی نصب/ارتقا روی Manjaro و آزمون چاپگر/بارکدخوان فیزیکی.
 - [x] برگشت جزئی ردیف خدماتی فروش بدون تغییر موجودی، همراه با ثبت ردیف برگشت و بازپرداخت؛ migration نسخهٔ ۱۴ داده‌های قبلی را حفظ می‌کند.
 - جزئیات: [PHASE_THREE.md](../docs/architecture/PHASE_THREE.md).

@@ -11,10 +11,10 @@
 - فاز صفر: معماری، شناسهٔ پایدار برنامه، مسیر دیتابیس و بسته‌بندی Arch مستند شده‌اند.
 - فاز یک: هستهٔ حسابداری شامل میانگین موزون، snapshot بهای تمام‌شده، برگشت و ابطال امن، اعتبار طرف‌حساب، FIFO، پشتیبان JSON v2 و مهاجرت امن پیاده شده است.
 - فاز دو: دفتر گردش، کنترل موجودی، کالا/خدمت، غیرفعال‌سازی نرم، گزارش‌ها، فیلترها، اسکن بارکد و چاپ برچسب پیاده شده‌اند.
-- آخرین head کد فاز چهار که CI کامل را گذراند: `c3b8942fe9bea7dbb9338127c16bccf32d1e303a`.
-- Phase 1 CI: ۶۵ تست هسته و ۳۱ تست یکپارچگی Tauri موفق ([run](https://github.com/herotux/Nabz/actions/runs/44271897031)).
-- Tauri/Arch CI: TypeScript، build فرانت‌اند، Rust/SQLite، باینری optimized و ساخت/اعتبارسنجی بستهٔ Arch موفق ([run](https://github.com/herotux/Nabz/actions/runs/44271885310)).
-- artifact فاز چهار: [nabz-manjaro-arch-x86_64](https://github.com/herotux/Nabz/actions/runs/44271885310/artifacts/14412657716)، حجم ۴٬۰۳۲٬۶۱۲ بایت.
+- آخرین head کد فاز چهار که CI کامل را گذراند: `b987dc3e858eab6a49d11ed807a1541dd9e55ce8`.
+- Phase 1 CI: ۶۵ تست هسته و ۳۲ تست یکپارچگی Tauri موفق ([run](https://github.com/herotux/Nabz/actions/runs/44272939175)).
+- Tauri/Arch CI: TypeScript، build فرانت‌اند، Rust/SQLite، باینری optimized و ساخت/اعتبارسنجی بستهٔ Arch موفق ([run](https://github.com/herotux/Nabz/actions/runs/44272946126)).
+- artifact فاز چهار: [nabz-manjaro-arch-x86_64](https://github.com/herotux/Nabz/actions/runs/44272946126/artifacts/14413383087)، حجم ۴٬۰۲۷٬۴۷۸ بایت.
 
 ## CI و بسته‌بندی
 
@@ -69,7 +69,7 @@
 - داشبورد از SQLite: فروش/دریافت روزانه، ماندهٔ مشتری/تأمین‌کننده، ارزش موجودی، سود ناخالص ماه و شاخص‌های ماه جاری؛ در صورت وجود فروش فاقد snapshot بهای تاریخی، سود ماه با هشدار ناقص‌بودن نمایش داده می‌شود.
 - گزارش‌ها: فروش، خرید، دریافت/پرداخت، برگشت‌ها، COGS، سود ناخالص/خالص، هزینه‌ها، بدهی‌ها، ارزش موجودی و کم‌موجودی.
 - فیلتر بازهٔ شمسی، فیلتر طرف‌حساب، نمودار روزانه، کالاهای پرفروش و خروجی CSV فارسی.
-- ۶۵ تست هسته و ۳۱ تست Tauri موفق؛ build frontend، Rust/SQLite، باینری Tauri و بستهٔ Arch موفق.
+- ۶۵ تست هسته و ۳۲ تست Tauri موفق؛ build frontend، Rust/SQLite، باینری Tauri و بستهٔ Arch موفق.
 - Artifact: [بستهٔ Arch/Manjaro](https://github.com/herotux/Nabz/actions/runs/44271885310/artifacts/14412657716).
 - قواعد محاسبه و محدودیت‌ها: [PHASE_FOUR.md](../docs/architecture/PHASE_FOUR.md).
 
