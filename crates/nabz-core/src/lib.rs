@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 13;
 
 /// Normalize Persian and English contact roles consistently across application instances.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -811,6 +811,30 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         tx.commit().map_err(|e| e.to_string())?;
     }
 
+    if version < 13 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "invoices", "idempotency_key")? {
+            tx.execute_batch("ALTER TABLE invoices ADD COLUMN idempotency_key TEXT;")
+                .map_err(|e| format!("افزودن کلید جلوگیری از ثبت تکراری فاکتور ناموفق بود: {e}"))?;
+        }
+        tx.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_idempotency_key
+               ON invoices(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key<>'';
+             CREATE TABLE IF NOT EXISTS invoice_drafts(
+               id INTEGER PRIMARY KEY,
+               kind TEXT NOT NULL CHECK(kind IN ('sale','purchase')),
+               title TEXT NOT NULL DEFAULT '',
+               payload_json TEXT NOT NULL,
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')),
+               updated_at TEXT NOT NULL DEFAULT(datetime('now','localtime'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_invoice_drafts_updated
+               ON invoice_drafts(updated_at DESC,id DESC);"
+        ).map_err(|e| format!("ایجاد پیش‌نویس‌های فاکتور ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 13).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -818,6 +842,24 @@ fn migrate(connection: &Connection) -> Result<(), String> {
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn schema_v13_adds_invoice_drafts_and_idempotency_without_losing_invoices() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO invoices(number,kind,contact_name,subtotal,total) VALUES(1001,'sale','Test',10,10)",
+            [],
+        ).unwrap();
+        connection.execute_batch("PRAGMA user_version=12;").unwrap();
+        initialize(&connection).unwrap();
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let preserved:i64=connection.query_row("SELECT COUNT(*) FROM invoices WHERE number=1001",[],|r|r.get(0)).unwrap();
+        let drafts:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='invoice_drafts'",[],|r|r.get(0)).unwrap();
+        assert_eq!((version,preserved,drafts),(SCHEMA_VERSION,1,1));
+        connection.execute("UPDATE invoices SET idempotency_key='request-1' WHERE number=1001",[]).unwrap();
+        assert!(connection.execute("UPDATE invoices SET idempotency_key='request-1' WHERE number=1002",[]).is_err());
+    }
 
     #[test]
     fn schema_v12_adds_soft_deactivation_and_active_barcode_uniqueness() {
