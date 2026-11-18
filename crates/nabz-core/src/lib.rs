@@ -858,6 +858,7 @@ mod tests {
         let drafts:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='invoice_drafts'",[],|r|r.get(0)).unwrap();
         assert_eq!((version,preserved,drafts),(SCHEMA_VERSION,1,1));
         connection.execute("UPDATE invoices SET idempotency_key='request-1' WHERE number=1001",[]).unwrap();
+        connection.execute("INSERT INTO invoices(number,kind,contact_name,subtotal,total) VALUES(1002,'sale','Test 2',10,10)",[]).unwrap();
         assert!(connection.execute("UPDATE invoices SET idempotency_key='request-1' WHERE number=1002",[]).is_err());
     }
 
