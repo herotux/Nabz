@@ -359,11 +359,11 @@ fn reports_period_filtered_with_connection(c:&Connection,start:&str,end:&str,con
  let purchases_count=sum("SELECT COUNT(*) FROM invoices WHERE kind='purchase' AND voided=0 AND invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR contact_id=?3)")?;
  let cost_of_goods_sold=sum("SELECT COALESCE(SUM(ii.unit_cost * (ii.quantity-COALESCE((SELECT SUM(sri.quantity) FROM sales_return_items sri WHERE sri.invoice_item_id=ii.id),0))),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NOT NULL AND i.invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3)")?;
  let uncosted_sales=sum("SELECT COALESCE(SUM(ii.line_total-COALESCE((SELECT SUM(sri.amount) FROM sales_return_items sri WHERE sri.invoice_item_id=ii.id),0)),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NULL AND ii.item_name NOT LIKE 'خدمت:%' AND i.invoice_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR i.contact_id=?3)")?;
- let expenses_total=sum("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date BETWEEN ?1 AND ?2")?;
- let inventory_value=sum("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products WHERE is_service=0")?;
+ let expenses_total=sum("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date BETWEEN ?1 AND ?2 AND (?3 IS NULL OR 1=1)")?;
+ let inventory_value=sum("SELECT COALESCE(SUM(quantity*average_cost),0) FROM products WHERE is_service=0 AND (?3 IS NULL OR 1=1)")?;
  let customer_balance=sum("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='sale' AND voided=0 AND (?3 IS NULL OR contact_id=?3)),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('customer','both') AND (?3 IS NULL OR id=?3)),0)-COALESCE((SELECT SUM(customer_credit_balance) FROM contacts WHERE kind IN ('customer','both') AND (?3 IS NULL OR id=?3)),0)")?;
  let supplier_balance=sum("SELECT COALESCE((SELECT SUM(total-paid) FROM invoices WHERE kind='purchase' AND voided=0 AND (?3 IS NULL OR contact_id=?3)),0)+COALESCE((SELECT SUM(opening_balance) FROM contacts WHERE kind IN ('supplier','both') AND (?3 IS NULL OR id=?3)),0)-COALESCE((SELECT SUM(supplier_credit_balance) FROM contacts WHERE kind IN ('supplier','both') AND (?3 IS NULL OR id=?3)),0)")?;
- let low_stock_count=sum("SELECT COUNT(*) FROM products WHERE is_active=1 AND is_service=0 AND quantity<=min_quantity")?;
+ let low_stock_count=sum("SELECT COUNT(*) FROM products WHERE is_active=1 AND is_service=0 AND quantity<=min_quantity AND (?3 IS NULL OR 1=1)")?;
  let gross_profit=sales_total.checked_sub(cost_of_goods_sold).ok_or("محاسبه سود ناخالص از ظرفیت عددی خارج شد")?;
  let net_profit=gross_profit.checked_sub(expenses_total).ok_or("محاسبه سود خالص از ظرفیت عددی خارج شد")?;
  let daily_sales={
