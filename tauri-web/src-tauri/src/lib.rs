@@ -1145,6 +1145,21 @@ mod accounting_tests {
  }
 
  #[test]
+ fn reports_return_zeroes_and_complete_daily_series_for_an_empty_period() {
+  let c=database();
+  let report=reports_period_with_connection(&c,"2026-11-01","2026-11-03").unwrap();
+  assert_eq!(report["sales_total"].as_i64(),Some(0));
+  assert_eq!(report["purchases_total"].as_i64(),Some(0));
+  assert_eq!(report["cost_of_goods_sold"].as_i64(),Some(0));
+  assert_eq!(report["gross_profit"].as_i64(),Some(0));
+  assert_eq!(report["net_profit"].as_i64(),Some(0));
+  let days=report["daily_sales"].as_array().unwrap();
+  assert_eq!(days.len(),3);
+  assert!(days.iter().all(|day|day["total"].as_i64()==Some(0)));
+  assert!(report["top_products"].as_array().unwrap().is_empty());
+ }
+
+ #[test]
  fn reports_reject_invalid_dates_and_ranges_over_one_year() {
   let c=database();
   assert!(reports_period_with_connection(&c,"2026-02-30","2026-03-01").is_err());

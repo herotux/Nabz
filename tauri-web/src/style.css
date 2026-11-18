@@ -150,3 +150,5 @@
 @media(max-width:1150px){.report-grid-expanded{grid-template-columns:repeat(3,minmax(0,1fr))}.dashboard-month-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:820px){.report-analysis-grid{grid-template-columns:1fr}.report-filter-expanded{grid-template-columns:1fr 1fr}.report-presets,.report-range-info{grid-column:1/-1}.report-range-info{text-align:right}}
 @media(max-width:520px){.stat-grid{grid-template-columns:1fr 1fr}.dashboard-month-stats{grid-template-columns:1fr 1fr}.report-grid-expanded{grid-template-columns:1fr 1fr}.report-filter-expanded{grid-template-columns:1fr}.report-presets,.report-range-info{grid-column:auto}.report-analysis-card{padding:13px}.report-warning{padding:11px}}
+
+@media(max-width:1150px){.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

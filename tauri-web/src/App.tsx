@@ -439,7 +439,7 @@ function ProductsPage({products,movements,query,setQuery,busy,onAdd,onEdit,onTog
 function MiniStat({label,value,icon:Icon}:{label:string;value:number;icon:typeof Boxes}){return <div className="mini-stat"><i><Icon size={18}/></i><span>{label}</span><b>{money(value)}</b></div>}
 function reportCsvCell(value:string|number){
  const raw=String(value??'');
- const safe=/^[=+@-]/.test(raw)?"'"+raw:raw;
+ const safe=/^[=+@\t\r\n-]/.test(raw)?"'"+raw:raw;
  return '"'+safe.replace(/"/g,'""')+'"';
 }
 function downloadReportCsv(report:ReportData){
