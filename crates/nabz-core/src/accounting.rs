@@ -1454,6 +1454,7 @@ mod tests {
             lines: vec![InvoiceLineInput { product_lookup: "RET-1".into(), quantity: 3, unit_price: 100 }],
         }).unwrap();
         let result = return_sale_items(&mut connection, invoice_id, &[ReturnLineInput {
+            invoice_item_id: None,
             product_lookup: "RET123".into(), quantity: 1,
         }], "cash").unwrap();
         let (stock, total, returned): (i64, i64, i64) = connection.query_row(
