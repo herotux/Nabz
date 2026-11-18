@@ -2032,4 +2032,36 @@ mod tests {
         assert_eq!(after_void, (10,10,10));
     }
 
+
+    #[test]
+    fn invoice_payment_is_allocated_to_the_selected_invoice_and_cannot_overpay() {
+        let mut c=database();
+        let contact=create_contact(&c,&ContactInput{name:"Customer".into(),kind:"customer".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        create_product(&c,&ProductInput{name:"Cable".into(),code:"CABLE-PAY".into(),barcode:String::new(),buy_price:10,sell_price:50,quantity:10,min_quantity:0}).unwrap();
+        let invoice=create_invoice(&mut c,&InvoiceInput{kind:"sale".into(),contact_name:"Customer".into(),date:"2026-11-18".into(),discount:0,paid:0,method:String::new(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"CABLE-PAY".into(),quantity:2,unit_price:50}]}).unwrap();
+        let input=PaymentInput{kind:"receipt".into(),contact_name:"Customer".into(),amount:60,method:"card".into(),date:"2026-11-18".into(),notes:String::new()};
+        let payment=record_invoice_payment(&mut c,invoice,&input).unwrap();
+        let paid:i64=c.query_row("SELECT paid FROM invoices WHERE id=?1",[invoice],|r|r.get(0)).unwrap();
+        let allocation:(i64,i64)=c.query_row("SELECT payment_id,amount FROM payment_allocations WHERE invoice_id=?1 AND allocation_type='invoice'",[invoice],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(paid,60);
+        assert_eq!(allocation,(payment,60));
+        assert!(record_invoice_payment(&mut c,invoice,&PaymentInput{amount:50,..input}).unwrap_err().contains("مانده"));
+        assert_eq!(c.query_row("SELECT COUNT(*) FROM payments",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        assert_eq!(c.query_row("SELECT kind FROM contacts WHERE id=?1",[contact],|r|r.get::<_,String>(0)).unwrap(),"customer");
+    }
+
+    #[test]
+    fn invoice_creation_request_key_prevents_duplicate_stock_and_ledger_mutation() {
+        let mut c=database();
+        create_contact(&c,&ContactInput{name:"Customer".into(),kind:"customer".into(),phone:String::new(),opening_balance:0,notes:String::new()}).unwrap();
+        create_product(&c,&ProductInput{name:"Cable".into(),code:"CABLE-IDEMP".into(),barcode:String::new(),buy_price:10,sell_price:50,quantity:10,min_quantity:0}).unwrap();
+        let input=InvoiceInput{kind:"sale".into(),contact_name:"Customer".into(),date:"2026-11-18".into(),discount:0,paid:0,method:String::new(),notes:String::new(),lines:vec![InvoiceLineInput{product_lookup:"CABLE-IDEMP".into(),quantity:2,unit_price:50}]};
+        let first=create_invoice_with_payment_split_idempotent(&mut c,&input,0,0,Some("submit-once")).unwrap();
+        let replay=create_invoice_with_payment_split_idempotent(&mut c,&input,0,0,Some("submit-once")).unwrap();
+        let stock:i64=c.query_row("SELECT quantity FROM products WHERE code='CABLE-IDEMP'",[],|r|r.get(0)).unwrap();
+        let invoices:i64=c.query_row("SELECT COUNT(*) FROM invoices",[],|r|r.get(0)).unwrap();
+        assert_eq!(first,replay);
+        assert_eq!((stock,invoices),(8,1));
+    }
+
 }
