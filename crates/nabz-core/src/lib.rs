@@ -815,8 +815,12 @@ mod tests {
         initialize(&connection).unwrap();
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, 12);
-        let active: i64 = connection.query_row("SELECT is_active FROM products LIMIT 1", [], |r| r.get(0)).unwrap_or(1);
-        assert_eq!(active, 1);
+        connection.execute("INSERT INTO products(name,code,barcode) VALUES('اول','ACT-1','BAR-12')", []).unwrap();
+        connection.execute("UPDATE products SET is_active=0 WHERE code='ACT-1'", []).unwrap();
+        connection.execute("INSERT INTO products(name,code,barcode) VALUES('دوم','ACT-2','BAR-12')", []).unwrap();
+        assert!(connection.execute("INSERT INTO products(name,code,barcode) VALUES('سوم','ACT-3','BAR-12')", []).is_err());
+        let active_count: i64 = connection.query_row("SELECT COUNT(*) FROM products WHERE barcode='BAR-12' AND is_active=1", [], |r| r.get(0)).unwrap();
+        assert_eq!(active_count, 1);
         let index_count: i64 = connection.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_products_active_barcode'",
             [], |r| r.get(0)
@@ -852,7 +856,7 @@ mod tests {
              WHERE name IN ('category','unit','wholesale_price','is_service')",
             [], |r| r.get(0)
         ).unwrap();
-        assert_eq!(version, 11);
+        assert_eq!(version, SCHEMA_VERSION);
         assert_eq!(columns, 4);
         assert_eq!(credit, 2);
         assert_eq!((void_table,allocation_table),(1,1));
@@ -860,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn v8_to_v11_migration_preserves_existing_accounting_rows() {
+    fn v8_to_v12_migration_preserves_existing_accounting_rows() {
         let mut connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
         connection.execute_batch("DROP TABLE payment_allocations; DROP TABLE invoice_voids; PRAGMA user_version=8;").unwrap();
