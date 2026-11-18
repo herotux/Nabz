@@ -320,6 +320,30 @@ pub fn create_invoice_with_payment_split(
     cash_paid: i64,
     credit_used: i64,
 ) -> Result<i64, String> {
+    create_invoice_with_payment_split_idempotent(connection, input, cash_paid, credit_used, None)
+}
+
+/// Create an invoice with an optional client-generated request key. Replaying the same
+/// request key returns the original invoice instead of applying stock/accounting twice.
+pub fn create_invoice_with_payment_split_idempotent(
+    connection: &mut Connection,
+    input: &InvoiceInput,
+    cash_paid: i64,
+    credit_used: i64,
+    idempotency_key: Option<&str>,
+) -> Result<i64, String> {
+    if let Some(key) = idempotency_key {
+        let key = key.trim();
+        if key.is_empty() || key.len() > 128 {
+            return Err("کلید درخواست فاکتور نامعتبر است".into());
+        }
+        let existing: Option<i64> = connection.query_row(
+            "SELECT id FROM invoices WHERE idempotency_key=?1",
+            [key],
+            |row| row.get(0),
+        ).optional().map_err(|e| e.to_string())?;
+        if let Some(id) = existing { return Ok(id); }
+    }
     if !["sale", "purchase"].contains(&input.kind.as_str()) {
         return Err("نوع فاکتور معتبر نیست".into());
     }
@@ -412,10 +436,10 @@ pub fn create_invoice_with_payment_split(
         .map_err(|e| e.to_string())?;
     let contact_label = if contact.is_empty() { "مشتری گذری" } else { contact };
     tx.execute(
-        "INSERT INTO invoices(number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes,credit_applied)
-         VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),date('now','localtime')),?6,?7,?8,?9,?10,?11)",
+        "INSERT INTO invoices(number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes,credit_applied,idempotency_key)
+         VALUES(?1,?2,?3,?4,COALESCE(NULLIF(?5,''),date('now','localtime')),?6,?7,?8,?9,?10,?11,?12)",
         params![number, input.kind, contact_id, contact_label, input.date.trim(), subtotal,
-            input.discount, total, paid, input.notes.trim(), credit_used],
+            input.discount, total, paid, input.notes.trim(), credit_used, idempotency_key.map(str::trim)],
     ).map_err(|e| e.to_string())?;
     let invoice_id = tx.last_insert_rowid();
     if credit_used > 0 {
