@@ -867,7 +867,7 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(version, 12);
+        assert_eq!(version, SCHEMA_VERSION);
         connection.execute("INSERT INTO products(name,code,barcode) VALUES('اول','ACT-1','BAR-12')", []).unwrap();
         connection.execute("UPDATE products SET is_active=0 WHERE code='ACT-1'", []).unwrap();
         connection.execute("INSERT INTO products(name,code,barcode) VALUES('دوم','ACT-2','BAR-12')", []).unwrap();
@@ -882,7 +882,7 @@ mod tests {
     }
 
     #[test]
-    fn v11_to_v12_migration_keeps_legacy_duplicate_barcodes_without_blocking_database() {
+    fn v11_to_current_migration_keeps_legacy_duplicate_barcodes_without_blocking_database() {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
         connection.execute_batch(
@@ -895,7 +895,7 @@ mod tests {
         migrate(&connection).unwrap();
         let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
         let duplicates:i64=connection.query_row("SELECT COUNT(*) FROM products WHERE barcode='DUP-OLD' AND is_active=1",[],|r|r.get(0)).unwrap();
-        assert_eq!(version,12);
+        assert_eq!(version,SCHEMA_VERSION);
         assert_eq!(duplicates,2);
         connection.execute("UPDATE products SET name='ویرایش قدیمی' WHERE code='OLD-BAR-1'",[]).unwrap();
         assert!(connection.execute("UPDATE products SET barcode='DUP-OLD' WHERE code='OLD-BAR-1'",[]).is_ok());
