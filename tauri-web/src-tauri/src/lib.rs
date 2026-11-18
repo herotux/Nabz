@@ -86,10 +86,28 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
  let unit=text(&payload,"unit");
  let unit=if unit.is_empty(){"عدد".to_string()}else{unit};
  let wholesale=num(&payload,"wholesale");
+ let is_service=payload.get("is_service").and_then(Value::as_bool).unwrap_or(false);
  if wholesale<0{return Err("قیمت عمده نمی‌تواند منفی باشد".into())}
+ if !["عدد","متر","کیلوگرم","گرم","لیتر","بسته","حلقه","شاخه","جعبه","دستگاه","سرویس"].contains(&unit.as_str()) {
+  return Err("واحد شمارش را از واحدهای معتبر انتخاب کنید".into())
+ }
+ if is_service && input.quantity!=0 {
+  return Err("خدمت موجودی انبار ندارد؛ موجودی آن باید صفر باشد".into())
+ }
+ if !input.barcode.is_empty() {
+  let duplicate:i64=c.query_row("SELECT COUNT(*) FROM products WHERE barcode=?1 AND (?2 IS NULL OR id<>?2)",rusqlite::params![input.barcode,payload.get("id").and_then(Value::as_i64)],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if duplicate>0{return Err("این بارکد قبلاً برای کالای دیگری ثبت شده است".into())}
+ }
+ if let Some(id)=payload.get("id").and_then(Value::as_i64) {
+  let old_service:i64=c.query_row("SELECT is_service FROM products WHERE id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if (old_service!=0)!=is_service {
+   let history:i64=c.query_row("SELECT COUNT(*) FROM invoice_items WHERE product_id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+   if history>0{return Err("نوع کالا/خدمت پس از ثبت سابقه فاکتور قابل تغییر نیست".into())}
+  }
+ }
  let id=core_save_product(c,payload.get("id").and_then(Value::as_i64),&input)?;
- c.execute("UPDATE products SET category=?1,unit=?2,wholesale_price=?3 WHERE id=?4",
-  rusqlite::params![category,unit,wholesale,id]).map_err(|e|e.to_string())?;
+ c.execute("UPDATE products SET category=?1,unit=?2,wholesale_price=?3,is_service=?4,quantity=CASE WHEN ?4=1 THEN 0 ELSE quantity END,average_cost=CASE WHEN ?4=1 THEN 0 ELSE average_cost END WHERE id=?5",
+  rusqlite::params![category,unit,wholesale,is_service as i64,id]).map_err(|e|e.to_string())?;
  Ok(id)
 }
 #[tauri::command]
@@ -670,6 +688,12 @@ fn adjust_inventory_command(product_id:i64,new_quantity:i64,reason:String,db:Sta
  Ok(json!({"product_id":result.product_id,"previous_quantity":result.previous_quantity,"new_quantity":result.new_quantity,"delta":result.delta,"reason":result.reason,"created_at":result.created_at}))
 }
 #[tauri::command]
+fn inventory_movements_command(db:State<'_,Db>)->Result<Vec<Value>,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let rows=nabz_core::accounting::inventory_movements(&c)?;
+ Ok(rows.into_iter().map(|x|json!({"product_id":x.product_id,"product_name":x.product_name,"movement_date":x.movement_date,"movement_type":x.movement_type,"reference":x.reference,"quantity_delta":x.quantity_delta,"balance_after":x.balance_after})).collect())
+}
+#[tauri::command]
 fn inventory_valuation_command(db:State<'_,Db>)->Result<Vec<Value>,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
  let rows=inventory_valuation(&c)?;
@@ -812,7 +836,7 @@ fn get_invoice_print(id:i64,db:State<'_,Db>)->Result<Value,String>{
 }
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,adjust_inventory_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,adjust_inventory_command,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
