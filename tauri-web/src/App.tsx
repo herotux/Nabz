@@ -19,6 +19,9 @@ type Summary = {sales_today:number;receipts_today:number;customer_balance:number
 type Trend = {date:string;total:number};
 type InvoicePrint = {invoice:{id:number;number:number;kind:string;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string};items:{item_name:string;quantity:number;unit_price:number;line_total:number}[];shop:Record<string,string>};
 type ContactLedger = {contact:{id:number;name:string;kind:string;phone:string;opening_balance:number;customer_credit_balance:number;supplier_credit_balance:number};entries:{id:number;number?:number;entry_type:string;kind:string;date:string;amount:number;paid?:number;method?:string;notes:string}[]};
+type InvoiceDraft = {id:number;kind:'sale'|'purchase';title:string;updated_at:string};
+type InvoiceItemDetail = {id:number;product_id:number|null;item_name:string;quantity:number;unit_price:number;line_total:number;unit_cost:number|null;sales_returned:number;purchase_returned:number;code:string;barcode:string};
+type InvoiceDetail = {invoice:{id:number;number:number;kind:'sale'|'purchase';contact_id:number|null;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string;voided:boolean;credit_applied:number};items:InvoiceItemDetail[];payments:{id:number;amount:number;method:string;date:string;notes:string;allocated:number}[];returns:{id:number;date:string;amount:number;credit_refund:number;notes:string;kind:string}[];refunds:{id:number;date:string;amount:number;method:string;notes:string;kind:string}[];void:{id:number;date:string;cash_refund:number;credit_refund:number;notes:string}|null};
 
 const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string}[] = [
   {id:'dashboard',label:'نمای کلی',icon:LayoutDashboard,group:'مدیریت'},
@@ -51,11 +54,19 @@ function App(){
   const [entry,setEntry]=useState<Entry|null>(null);
   const [editingId,setEditingId]=useState<number|null>(null);
   const [ledger,setLedger]=useState<ContactLedger|null>(null);
+  const [invoiceDrafts,setInvoiceDrafts]=useState<InvoiceDraft[]>([]);
+  const [invoiceDetail,setInvoiceDetail]=useState<InvoiceDetail|null>(null);
+  const [returnInvoice,setReturnInvoice]=useState<InvoiceDetail|null>(null);
+  const [paymentInvoice,setPaymentInvoice]=useState<InvoiceDetail|null>(null);
+  const [invoiceKindFilter,setInvoiceKindFilter]=useState('all');
+  const [invoiceStatusFilter,setInvoiceStatusFilter]=useState('all');
+  const [draftId,setDraftId]=useState<number|null>(null);
   const [form,setForm]=useState<Record<string,string>>({});
   const [lines,setLines]=useState([{item:'',qty:'1',price:'0'}]);
   const [settings,setSettings]=useState<Record<string,string>>({});
   const [mobileOpen,setMobileOpen]=useState(false);
   const invoiceSubmitLock=useRef(false);
+  const invoiceRequestKey=useRef('');
 
   const notify=useCallback((message:string)=>{setToast(message);window.setTimeout(()=>setToast(''),3200)},[]);
   const load=useCallback(async()=>{
@@ -70,8 +81,14 @@ function App(){
         ]);
         setSummary(s);setTrend(t);
         setRecords([...inv,...pay].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5));
-      }else if(page==='contacts'||page==='invoices'||page==='payments'){
-        const kind=page==='contacts'?'contacts':page==='invoices'?'invoices':'payments';
+      }else if(page==='invoices'){
+        const [rows,drafts]=await Promise.all([
+          invoke<RecordRow[]>('list_records',{kind:'invoices'}),
+          invoke<InvoiceDraft[]>('list_invoice_drafts')
+        ]);
+        setRecords(rows);setInvoiceDrafts(drafts);
+      }else if(page==='contacts'||page==='payments'){
+        const kind=page==='contacts'?'contacts':'payments';
         setRecords(await invoke<RecordRow[]>('list_records',{kind}));
       }else if(page==='products'){
         const [items,ledger]=await Promise.all([invoke<Product[]>('list_products'),invoke<InventoryMovement[]>('inventory_movements_command')]);
@@ -90,9 +107,10 @@ function App(){
   useEffect(()=>{void load()},[load]);
 
   const filteredRecords=useMemo(()=>records.filter(r=>(r.name+' '+r.detail+' '+r.status).toLocaleLowerCase().includes(query.toLocaleLowerCase())),[records,query]);
+  const filteredInvoices=useMemo(()=>filteredRecords.filter(r=>(invoiceKindFilter==='all'||r.detail===invoiceKindFilter)&&(invoiceStatusFilter==='all'||(invoiceStatusFilter==='void'&&r.status.includes('باطل'))||(invoiceStatusFilter==='settled'&&r.status==='تسویه')||(invoiceStatusFilter==='partial'&&r.status==='پرداخت جزئی')||(invoiceStatusFilter==='unpaid'&&r.status==='پرداخت‌نشده'))),[filteredRecords,invoiceKindFilter,invoiceStatusFilter]);
   const filteredProducts=useMemo(()=>products.filter(p=>(p.name+' '+p.code+' '+p.barcode+' '+p.category).toLocaleLowerCase().includes(query.toLocaleLowerCase())),[products,query]);
   const openEntry=(kind:Entry)=>{
-    setEditingId(null);setEntry(kind);setQuery('');
+    setEditingId(null);setDraftId(null);invoiceRequestKey.current=(kind==='sale'||kind==='purchase')?crypto.randomUUID():'';setEntry(kind);setQuery('');
     setForm({name:'',kind:kind==='payment'?'supplier':kind==='receipt'?'customer':'',phone:'',balance:'0',notes:'',code:'',barcode:'',qty:'0',buy:'0',sell:'0',min:'0',customer:'',amount:'',method:'cash',date:isoToday,item:'',price:'0',discount:'0',status:'paid',paid:'',paper:'A4'});
     setLines([{item:'',qty:'1',price:'0'}]);
     if(kind==='sale'||kind==='purchase'){void invoke<Product[]>('list_products').then(setProducts).catch(e=>notify('بارگذاری فهرست کالاها ناموفق بود: '+String(e)))}
@@ -105,6 +123,60 @@ function App(){
   const viewContactLedger=async(id:number)=>{
     try{setLedger(await invoke<ContactLedger>('get_contact_ledger',{id}))}
     catch(e){notify('دریافت گردش حساب ناموفق بود: '+String(e))}
+  };
+  const viewInvoice=async(id:number)=>{
+    try{setInvoiceDetail(await invoke<InvoiceDetail>('get_invoice_detail',{id}))}
+    catch(e){notify('دریافت جزئیات فاکتور ناموفق بود: '+String(e))}
+  };
+  const saveInvoiceDraft=async()=>{
+    if(entry!=='sale'&&entry!=='purchase')return;
+    const payload={kind:entry==='purchase'?'purchase':'sale',customer:form.customer||'',date:form.date||isoToday,
+      discount:Number(form.discount||0),notes:form.notes||'',payment_status:form.status||'paid',
+      paid_amount:Number(form.paid||0),method:form.method||'cash',items:lines};
+    try{
+      const id=await invoke<number>('save_invoice_draft',{payload,draftId});
+      setDraftId(id);
+      setInvoiceDrafts(await invoke<InvoiceDraft[]>('list_invoice_drafts'));
+      notify('پیش‌نویس فاکتور ذخیره شد؛ می‌توانی بعداً ادامه بدهی.');
+    }catch(e){notify('ذخیره پیش‌نویس ناموفق بود: '+String(e))}
+  };
+  const resumeInvoiceDraft=async(id:number)=>{
+    try{
+      const payload=await invoke<Record<string,unknown>>('get_invoice_draft',{id});
+      const kind=payload.kind==='purchase'?'purchase':'sale';
+      setDraftId(id);invoiceRequestKey.current=crypto.randomUUID();setEditingId(null);setEntry(kind);
+      setForm({name:'',kind:'',phone:'',balance:'0',notes:String(payload.notes||''),code:'',barcode:'',qty:'0',buy:'0',sell:'0',min:'0',
+        customer:String(payload.customer||''),amount:'',method:String(payload.method||'cash'),date:String(payload.date||isoToday),
+        item:'',price:'0',discount:String(payload.discount??0),status:String(payload.payment_status||'paid'),paid:String(payload.paid_amount??''),paper:'A4'});
+      const saved=Array.isArray(payload.items)?payload.items as {item:string;qty:string|number;price:string|number}[]:[{item:'',qty:'1',price:'0'}];
+      setLines(saved.map(x=>({item:String(x.item||''),qty:String(x.qty??1),price:String(x.price??0)})));
+      setQuery('');
+      void invoke<Product[]>('list_products').then(setProducts).catch(e=>notify('بارگذاری کالاها ناموفق بود: '+String(e)));
+    }catch(e){notify('بازکردن پیش‌نویس ناموفق بود: '+String(e))}
+  };
+  const deleteInvoiceDraft=async(id:number)=>{
+    if(!window.confirm('این پیش‌نویس حذف شود؟'))return;
+    try{await invoke('delete_invoice_draft',{id});setInvoiceDrafts(await invoke<InvoiceDraft[]>('list_invoice_drafts'));notify('پیش‌نویس حذف شد.')}
+    catch(e){notify('حذف پیش‌نویس ناموفق بود: '+String(e))}
+  };
+  const submitInvoicePayment=async(payload:{amount:number;method:string;date:string;notes:string})=>{
+    if(!paymentInvoice)return;
+    try{
+      await invoke('save_invoice_payment',{invoiceId:paymentInvoice.invoice.id,payload:{kind:paymentInvoice.invoice.kind==='sale'?'receipt':'payment',
+        customer:paymentInvoice.invoice.contact_name,amount:payload.amount,method:payload.method,date:payload.date,notes:payload.notes}});
+      notify('پرداخت به همین فاکتور تخصیص داده شد.');
+      const id=paymentInvoice.invoice.id;setPaymentInvoice(null);await load();await viewInvoice(id);
+    }catch(e){notify('ثبت پرداخت فاکتور ناموفق بود: '+String(e))}
+  };
+  const submitInvoiceReturn=async(method:string,returnLines:{item:string;qty:number}[])=>{
+    if(!returnInvoice)return;
+    const invoice=returnInvoice.invoice;
+    try{
+      const result=await invoke<{credit:number;cash_refund:number}>(invoice.kind==='sale'?'return_sale_invoice':'return_purchase_invoice',
+        {invoiceId:invoice.id,lines:returnLines,method});
+      notify('برگشت ثبت شد · مبلغ سند: '+money(result.credit)+' تومان · بازپرداخت نقدی: '+money(result.cash_refund)+' تومان');
+      const id=invoice.id;setReturnInvoice(null);await load();await viewInvoice(id);
+    }catch(e){notify('ثبت برگشت ناموفق بود: '+String(e))}
   };
 
   const openProductEdit=(p:Product)=>{
@@ -133,11 +205,12 @@ function App(){
         id=await invoke<number>('save_product',{payload:{...(editingId?{id:editingId}:{}),name:form.name,code:form.code,barcode:form.barcode,qty:Number(form.qty||0),buy:Number(form.buy||0),sell:Number(form.sell||0),min:Number(form.min||0),category:form.category||'',unit:form.unit||'عدد',wholesale:Number(form.wholesale||0),is_service:form.is_service==='true'}});
       }else if(entry==='sale'||entry==='purchase'){
         const items=lines.filter(x=>x.item.trim()).map(x=>({item:x.item.trim(),qty:Number(x.qty),price:Number(x.price)}));
-        id=await invoke<number>('save_invoice',{payload:{kind:entry==='purchase'?'purchase':'sale',customer:form.customer,payment_status:form.status,paid_amount:Number(form.paid||0),method:form.method,items,discount:Number(form.discount||0),date:form.date,notes:form.notes}});
+        id=await invoke<number>('save_invoice',{payload:{kind:entry==='purchase'?'purchase':'sale',customer:form.customer,payment_status:form.status,paid_amount:Number(form.paid||0),method:form.method,items,discount:Number(form.discount||0),date:form.date,notes:form.notes,idempotency_key:invoiceRequestKey.current}});
       }else{
         id=await invoke<number>('save_payment',{payload:{kind:entry==='payment'?'payment':'receipt',customer:form.customer,amount:Number(form.amount||0),method:form.method,date:form.date,notes:form.notes}});
       }
       notify('اطلاعات با موفقیت ثبت شد'+(id?' · شناسه '+id:''));
+      if((entry==='sale'||entry==='purchase')&&draftId!==null){try{await invoke('delete_invoice_draft',{id:draftId});setDraftId(null)}catch(e){notify('فاکتور ثبت شد اما پاک‌کردن پیش‌نویس ناموفق بود: '+String(e))}}
       closeEntry();await load();
     }catch(e){notify('ثبت انجام نشد: '+String(e))}
     finally{invoiceSubmitLock.current=false;setBusy(false)}
