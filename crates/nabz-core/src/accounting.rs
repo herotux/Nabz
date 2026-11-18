@@ -428,8 +428,19 @@ pub fn create_invoice_with_payment_split(
     }
 
     for (line_index, (lookup, quantity, unit_price, line_total, is_service)) in normalized.into_iter().enumerate() {
-        if is_service {
-            let service_name = lookup.strip_prefix("خدمت:").unwrap_or("").trim();
+        let catalog_service: Option<String> = if is_service { None } else {
+            tx.query_row(
+                "SELECT name FROM products WHERE is_active=1 AND is_service=1
+                 AND (name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1) LIMIT 1",
+                [&lookup], |row| row.get(0)
+            ).optional().map_err(|e| e.to_string())?
+        };
+        if is_service || catalog_service.is_some() {
+            if input.kind == "purchase" {
+                return Err("ثبت خدمت در فاکتور خرید مجاز نیست؛ خدمات را در فاکتور فروش ثبت کنید".into());
+            }
+            let service_name = catalog_service.unwrap_or_else(|| lookup.strip_prefix("خدمت:").unwrap_or("").trim().to_owned());
+            if service_name.is_empty() { return Err(format!("ردیف {}: عنوان خدمت خالی است", line_index + 1)); }
             tx.execute(
                 "INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost,quantity_before,average_cost_before,buy_price_before)
                  VALUES(?1,NULL,?2,?3,?4,?5,NULL,NULL,NULL,NULL)",
@@ -448,7 +459,7 @@ pub fn create_invoice_with_payment_split(
 
         let product: Option<(i64, i64, String, i64, i64)> = tx.query_row(
             "SELECT id,quantity,name,average_cost,buy_price FROM products
-             WHERE is_active=1 AND (name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1) LIMIT 1",
+             WHERE is_active=1 AND is_service=0 AND (name=?1 COLLATE NOCASE OR code=?1 OR barcode=?1) LIMIT 1",
             [&lookup], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         ).optional().map_err(|e| e.to_string())?;
 
@@ -1714,6 +1725,31 @@ mod tests {
         assert!(create_invoice(&mut c, &input).is_err());
         assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=?1",[id],|r|r.get::<_,i64>(0)).unwrap(),5);
         assert_eq!(c.query_row("SELECT is_active FROM products WHERE id=?1",[id],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+
+    #[test]
+    fn catalog_service_selected_by_code_is_saved_without_stock_or_cogs() {
+        let mut c = database();
+        let product = ProductInput {
+            name: "Installation".into(), code: "SERVICE-CODE".into(), barcode: "SERVICE-BAR".into(),
+            buy_price: 0, sell_price: 300, quantity: 0, min_quantity: 0,
+        };
+        let id = create_product(&c, &product).unwrap();
+        c.execute("UPDATE products SET is_service=1 WHERE id=?1",[id]).unwrap();
+        let input = InvoiceInput {
+            kind: "sale".into(), contact_name: String::new(), date: "2026-11-18".into(),
+            discount: 0, paid: 300, method: "cash".into(), notes: String::new(),
+            lines: vec![InvoiceLineInput { product_lookup: "SERVICE-CODE".into(), quantity: 1, unit_price: 300 }],
+        };
+        let invoice_id = create_invoice(&mut c, &input).unwrap();
+        let (product_id,item_name,unit_cost):(Option<i64>,String,Option<i64>)=c.query_row(
+            "SELECT product_id,item_name,unit_cost FROM invoice_items WHERE invoice_id=?1",[invoice_id],
+            |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+        ).unwrap();
+        assert_eq!(product_id,None);
+        assert_eq!(item_name,"خدمت: Installation");
+        assert_eq!(unit_cost,None);
+        assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=?1",[id],|r|r.get::<_,i64>(0)).unwrap(),0);
     }
 
     #[test]
