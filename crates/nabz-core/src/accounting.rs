@@ -884,10 +884,11 @@ pub fn adjust_inventory(
         return Err("کالا، موجودی جدید نامنفی و علت حداقل سه‌حرفی الزامی است".into());
     }
     let tx = connection.transaction().map_err(|e| e.to_string())?;
-    let (name, previous): (String, i64) = tx.query_row(
-        "SELECT name,quantity FROM products WHERE id=?1",
-        [product_id], |r| Ok((r.get(0)?,r.get(1)?))
+    let (name, previous, is_service): (String, i64, i64) = tx.query_row(
+        "SELECT name,quantity,is_service FROM products WHERE id=?1",
+        [product_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
     ).optional().map_err(|e| e.to_string())?.ok_or("کالای انتخاب‌شده پیدا نشد")?;
+    if is_service != 0 { return Err("خدمت موجودی انبار ندارد و قابل اصلاح موجودی نیست".into()); }
     let delta = new_quantity.checked_sub(previous).ok_or("اختلاف موجودی بیش از حد بزرگ است")?;
     if delta == 0 { return Err("موجودی جدید با موجودی فعلی برابر است؛ تغییری برای ثبت وجود ندارد".into()); }
     let changed = tx.execute("UPDATE products SET quantity=?1,average_cost=CASE WHEN ?1=0 THEN 0 WHEN quantity=0 THEN buy_price ELSE average_cost END WHERE id=?2 AND quantity=?3",
@@ -1750,6 +1751,20 @@ mod tests {
         assert_eq!(item_name,"خدمت: Installation");
         assert_eq!(unit_cost,None);
         assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=?1",[id],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+
+    #[test]
+    fn inventory_adjustment_rejects_service_items() {
+        let mut c = database();
+        let product = ProductInput {
+            name: "Service adjustment".into(), code: "SERVICE-ADJ".into(), barcode: String::new(),
+            buy_price: 0, sell_price: 100, quantity: 0, min_quantity: 0,
+        };
+        let id = create_product(&c, &product).unwrap();
+        c.execute("UPDATE products SET is_service=1 WHERE id=?1",[id]).unwrap();
+        assert!(adjust_inventory(&mut c,id,1,"تست خدمت").is_err());
+        assert_eq!(c.query_row("SELECT quantity FROM products WHERE id=?1",[id],|r|r.get::<_,i64>(0)).unwrap(),0);
+        assert_eq!(c.query_row("SELECT COUNT(*) FROM inventory_adjustments WHERE product_id=?1",[id],|r|r.get::<_,i64>(0)).unwrap(),0);
     }
 
     #[test]
