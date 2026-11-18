@@ -48,7 +48,7 @@ sudo pacman -U ./nabz-tauri-0.1.0-1-x86_64.pkg.tar.zst
 
 این بسته هنوز تا زمان نصب و آزمون روی دستگاه واقعی Manjaro، نسخهٔ پایدار محسوب نمی‌شود.
 
-**مسیرهای AppImage، Flatpak و deb دیگر روش انتشار نبض نیستند.** گردش‌کارهای قدیمی مربوط به برنامهٔ egui و prototype از شاخهٔ مرجع حذف شده‌اند. ساخت Raspberry Pi با Tauri در مرحلهٔ بعدی اضافه خواهد شد.
+**مسیرهای AppImage، Flatpak و deb دیگر روش انتشار نبض نیستند.** گردش‌کارهای قدیمی Slint، AppImage، Pages مربوط به prototype و Debian lifecycle از شاخهٔ مرجع حذف شده‌اند. CI فعال به دو گردش‌کار محدود است: [تست هستهٔ حسابداری](.github/workflows/phase1-core.yml) و [ساخت Tauri و بستهٔ Arch/Manjaro](.github/workflows/tauri-web-ci.yml). ساخت Raspberry Pi با Tauri در مرحلهٔ بعدی اضافه خواهد شد.
 
 ## حفظ داده و نسخهٔ قدیمی
 
