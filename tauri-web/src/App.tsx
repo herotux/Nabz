@@ -111,6 +111,8 @@ function App(){
       }else if(page==='reports'){
         const r=await invoke<Summary & Record<string,number>>('reports_summary');
         setSummary({...emptySummary,...r,customer_balance:r.customer_debt??r.customer_balance??0});
+      }else if(page==='printing'){
+        setProducts(await invoke<Product[]>('list_products'));
       }else if(page==='settings'){
         setSettings(await invoke<Record<string,string>>('get_settings'));
       }
@@ -355,7 +357,7 @@ function App(){
         {page==='payments'&&<RecordsPage title="دریافت و پرداخت" subtitle="ثبت و پیگیری دریافت وجه و پرداخت به تأمین‌کنندگان" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('receipt')} columns={['طرف‌حساب','نوع عملیات','مبلغ','روش','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('payment')}><ArrowUpRight size={15}/> ثبت پرداخت</button></>} />}
         {page==='products'&&<ProductsPage products={filteredProducts} movements={movements} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('product')} onEdit={openProductEdit} onToggleActive={toggleProductActive} onAdjust={adjustProductStock} onPrintLabel={printProductLabel}/> }
         {page==='reports'&&<ReportsPage/>}
-        {page==='printing'&&<PrintingPage notify={notify}/>}
+        {page==='printing'&&<PrintingPage notify={notify} products={filteredProducts}/>}
         {page==='settings'&&<SettingsPage settings={settings} setSettings={setSettings} onSave={saveSettings} onBackup={backup} onRestore={restore} autoBackups={autoBackups} onNativeBackup={()=>createNativeBackup(true)} onRestoreNative={restoreNative}/>}
         <footer className="page-footer"><span>نبض · مدیریت مالی هوشمند فروشگاه</span><span>نسخه آزمایشی رابط React</span></footer>
       </section>
@@ -370,25 +372,38 @@ function App(){
 }
 
 
-function PrintingPage({notify}:{notify:(s:string)=>void}){
+function PrintingPage({notify,products}:{notify:(s:string)=>void;products:Product[]}){
  const [barcode,setBarcode]=useState('626000001');
  const [format,setFormat]=useState<'CODE128'|'EAN13'>('CODE128');
  const [barcodeError,setBarcodeError]=useState('');
  const barcodeRef=useRef<SVGSVGElement>(null);
  const [printValue,setPrintValue]=useState('');
+ const [selectedIds,setSelectedIds]=useState<number[]>([]);
+ const printable=products.filter(p=>p.is_active&&!p.is_service&&(p.barcode||p.code)).slice(0,200);
  useEffect(()=>{
   if(!barcodeRef.current)return;
   let value=barcode.trim();
   if(format==='EAN13'){
-   if(/^\d{12}$/.test(value)){const sum=value.split('').reduce((n,d,i)=>n+Number(d)*(i%2?3:1),0);value+=String((10-sum%10)%10);}
-   if(!/^\d{13}$/.test(value)){setBarcodeError('EAN-13 باید ۱۲ یا ۱۳ رقم داشته باشد.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
+   if(/^\\d{12}$/.test(value)){const sum=value.split('').reduce((n,d,i)=>n+Number(d)*(i%2?3:1),0);value+=String((10-sum%10)%10);}
+   if(!/^\\d{13}$/.test(value)){setBarcodeError('EAN-13 باید ۱۲ یا ۱۳ رقم داشته باشد.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
    const digits=value.split('').map(Number),sum=digits.slice(0,12).reduce((n,d,i)=>n+d*(i%2?3:1),0),check=(10-sum%10)%10;
    if(digits[12]!==check){setBarcodeError('رقم کنترلی EAN-13 معتبر نیست.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
   }
   try{JsBarcode(barcodeRef.current,value,{format,displayValue:true,lineColor:'#1d2c24',width:2,height:76,margin:10,font:'Tahoma',fontSize:13});setBarcodeError('');setPrintValue(value)}
   catch{setBarcodeError('کد بارکد خالی یا نامعتبر است.');setPrintValue('')}
  },[barcode,format]);
- return <><PageHeading title="چاپ و بارکد" subtitle="تولید بارکد استاندارد و چاپ برچسب کالا"/><div className="surface print-panel"><div><h2>بارکد کالا</h2><p>می‌توانی کد را تایپ کنی یا با اسکنر USB/HID در همین کادر اسکن کنی.</p><label className="field-label">نوع بارکد<select value={format} onChange={e=>setFormat(e.target.value as 'CODE128'|'EAN13')}><option value="CODE128">Code 128 (SKU/کد داخلی)</option><option value="EAN13">EAN-13 (کد تجاری)</option></select></label><label className="field-label">کد یا بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr" autoFocus/></label>{barcodeError&&<p className="barcode-error">{barcodeError}</p>}<button className="primary-btn" disabled={!printValue||!!barcodeError} onClick={()=>{window.print();notify('پنجره چاپ برچسب باز شد.')}}><Printer size={16}/> چاپ برچسب</button></div><div className="barcode-preview"><svg ref={barcodeRef} role="img" aria-label="پیش‌نمایش بارکد تولیدشده"/></div></div></>;
+ const printSelected=()=>{
+  const chosen=printable.filter(p=>selectedIds.includes(p.id));
+  if(!chosen.length){notify('حداقل یک کالا را برای چاپ گروهی انتخاب کن.');return}
+  const w=window.open('','_blank','width=900,height=700');
+  if(!w){notify('پنجره چاپ مسدود است؛ اجازه بازشدن پنجره را فعال کن.');return}
+  const cards=chosen.map((p,i)=>'<article class="label"><b>'+escapeHtml(p.name)+'</b><svg id="batch-code-'+i+'"></svg><small>'+escapeHtml(p.barcode||p.code)+'</small></article>').join('');
+  w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>@page{size:A4;margin:8mm}*{box-sizing:border-box}body{font-family:Tahoma,sans-serif;margin:0;color:#18251e}.labels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5mm}.label{height:42mm;border:1px dashed #9aa79f;padding:3mm;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2mm;break-inside:avoid;overflow:hidden}.label b{font-size:10pt;text-align:center;max-height:10mm;overflow:hidden}.label svg{width:100%;height:20mm}.label small{font:9pt monospace;direction:ltr}@media print{.label{break-inside:avoid}}</style><main class="labels">'+cards+'</main></html>');
+  w.document.close();
+  try{chosen.forEach((p,i)=>{const node=w.document.getElementById('batch-code-'+i) as unknown as SVGSVGElement;JsBarcode(node,p.barcode||p.code,{format:'CODE128',displayValue:false,lineColor:'#1d2c24',width:1.5,height:48,margin:2});});w.focus();w.print();notify('برگه برچسب‌های انتخاب‌شده آماده چاپ یا ذخیره PDF است.')}catch(e){w.close();notify('ساخت برچسب گروهی ناموفق بود: '+String(e))}
+ };
+ return <><PageHeading title="چاپ و بارکد" subtitle="تولید بارکد استاندارد، چاپ تکی و گروهی برچسب کالا"/><div className="surface print-panel"><div><h2>بارکد کالا</h2><p>می‌توانی کد را تایپ کنی یا با اسکنر USB/HID در همین کادر اسکن کنی.</p><label className="field-label">نوع بارکد<select value={format} onChange={e=>setFormat(e.target.value as 'CODE128'|'EAN13')}><option value="CODE128">Code 128 (SKU/کد داخلی)</option><option value="EAN13">EAN-13 (کد تجاری)</option></select></label><label className="field-label">کد یا بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr" autoFocus/></label>{barcodeError&&<p className="barcode-error">{barcodeError}</p>}<button className="primary-btn" disabled={!printValue||!!barcodeError} onClick={()=>{window.print();notify('پنجره چاپ یا ذخیره PDF باز شد.')}}><Printer size={16}/> چاپ / ذخیره PDF</button></div><div className="barcode-preview"><svg ref={barcodeRef} role="img" aria-label="پیش‌نمایش بارکد تولیدشده"/></div></div>
+ <section className="surface settings-card batch-label-panel"><div className="surface-heading"><div><h2>چاپ گروهی برچسب کالا</h2><p>چند کالا را انتخاب کن تا برچسب‌های Code128 در یک برگه A4 چیده شوند.</p></div><span>{selectedIds.length} انتخاب</span></div><div className="backup-actions"><button className="secondary-btn" onClick={()=>setSelectedIds(printable.map(p=>p.id))}>انتخاب همه نتایج</button><button className="secondary-btn" onClick={()=>setSelectedIds([])}>پاک‌کردن انتخاب</button><button className="primary-btn" disabled={!selectedIds.some(id=>printable.some(p=>p.id===id))} onClick={printSelected}><Printer size={16}/> چاپ برچسب‌های انتخاب‌شده</button></div><div className="batch-product-list">{printable.map(p=><label key={p.id} className="batch-product-row"><input type="checkbox" checked={selectedIds.includes(p.id)} onChange={e=>setSelectedIds(old=>e.target.checked?[...old,p.id]:old.filter(id=>id!==p.id))}/><span>{p.name}<small>{p.barcode||p.code}</small></span></label>)}{!printable.length&&<p>کالای فعال دارای کد یا بارکد برای چاپ وجود ندارد.</p>}</div>{products.length>200&&<small>برای جلوگیری از کندشدن رابط، حداکثر ۲۰۰ نتیجه نخست نمایش داده می‌شود؛ از جست‌وجوی بالای برنامه برای محدودکردن فهرست استفاده کن.</small>}</section></>;
 }
 function SettingsPage({settings,setSettings,onSave,onBackup,onRestore,autoBackups,onNativeBackup,onRestoreNative}:{settings:Record<string,string>;setSettings:(v:Record<string,string>)=>void;onSave:()=>void;onBackup:()=>void;onRestore:(f?:File)=>void;autoBackups:{name:string;size:number;modified:number}[];onNativeBackup:()=>void;onRestoreNative:(name:string)=>void}){
   const update=(k:string,v:string)=>setSettings({...settings,[k]:v});
