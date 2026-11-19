@@ -301,7 +301,7 @@ function App(){
         td,th{border:1px solid #ddd;padding:${compact?'4px':'8px'};text-align:right;font-size:inherit}
         footer{margin-top:12px;font-weight:bold;line-height:2}.shop-info{line-height:1.8;font-size:inherit}
         @media print{body{print-color-adjust:exact}}
-      </style><h1>${shopName}</h1><div class="shop-info">${shopPhone?('تماس: '+shopPhone+'<br>'):''}${shopAddress?('نشانی: '+shopAddress):''}</div><h2>فاکتور ${data.invoice.kind==='sale'?'فروش':'خرید'} شماره ${money(data.invoice.number)}</h2><p>طرف حساب: ${escapeHtml(data.invoice.contact_name)}　 تاریخ: ${escapeHtml(formatJalaliDate(data.invoice.invoice_date))}</p><table><thead><tr><th>شرح</th><th>تعداد</th><th>فی</th><th>مبلغ</th></tr></thead><tbody>${rows}</tbody></table><footer>جمع کل: ${money(data.invoice.total)} تومان<br>تخفیف: ${money(data.invoice.discount)} تومان<br>پرداخت‌شده: ${money(data.invoice.paid)} تومان</footer><script>window.onload=()=>window.print()<\\/script></html>`);
+      </style><h1>${shopName}</h1><div class="shop-info">${shopPhone?('تماس: '+shopPhone+'<br>'):''}${shopAddress?('نشانی: '+shopAddress):''}</div><h2>فاکتور ${data.invoice.kind==='sale'?'فروش':'خرید'} شماره ${money(data.invoice.number)}</h2><p>طرف حساب: ${escapeHtml(data.invoice.contact_name)}　 تاریخ: ${escapeHtml(formatJalaliDate(data.invoice.invoice_date))}</p><table><thead><tr><th>شرح</th><th>تعداد</th><th>فی</th><th>مبلغ</th></tr></thead><tbody>${rows}</tbody></table><footer>جمع کل: ${money(data.invoice.total)} تومان<br>تخفیف: ${money(data.invoice.discount)} تومان<br>پرداخت‌شده: ${money(data.invoice.paid)} تومان</footer><script>window.onload=()=>window.print()</script></html>`);
       w.document.close();
     }catch(e){notify('آماده‌سازی چاپ ناموفق بود: '+String(e))}
   };
