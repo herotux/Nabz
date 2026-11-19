@@ -146,7 +146,7 @@ jobs:
         id: release-build
         run: |
           started=$(date +%s)
-          cargo build --release --manifest-path src-tauri/Cargo.toml --bin nabz-tauri
+          cargo build --release --manifest-path src-tauri/Cargo.toml --bin nabz-tauri --features custom-protocol
           finished=$(date +%s)
           echo "seconds=$((finished-started))" >> "$GITHUB_OUTPUT"
 
