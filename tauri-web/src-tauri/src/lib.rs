@@ -1131,8 +1131,9 @@ fn restore_auto_backup(name:String,app:tauri::AppHandle,db:State<'_,Db>)->Result
  let safety_path=create_restore_safety_backup(&current)?;
  let source=Connection::open(&canonical_file).map_err(|e|format!("بازکردن پشتیبان ناموفق بود: {e}"))?;
  let restore_result=(||->Result<(),String>{
-  let mut backup=rusqlite::backup::Backup::new(&source,&mut current).map_err(|e|e.to_string())?;
+  let backup=rusqlite::backup::Backup::new(&source,&mut current).map_err(|e|e.to_string())?;
   backup.run_to_completion(5,std::time::Duration::from_millis(100),None).map_err(|e|e.to_string())?;
+  drop(backup);
   let integrity:String=current.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
   if integrity!="ok"{return Err(format!("سلامت دیتابیس پس از بازیابی تأیید نشد: {integrity}"))}
   let fk:i64=current.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
@@ -1142,7 +1143,7 @@ fn restore_auto_backup(name:String,app:tauri::AppHandle,db:State<'_,Db>)->Result
  if let Err(error)=restore_result{
   let safety=Connection::open(&safety_path).map_err(|e|format!("{error}؛ بازکردن پشتیبان ایمنی ناموفق بود: {e}"))?;
   let rollback=rusqlite::backup::Backup::new(&safety,&mut current)
-   .and_then(|mut b|b.run_to_completion(5,std::time::Duration::from_millis(100),None));
+   .and_then(|b|{let result=b.run_to_completion(5,std::time::Duration::from_millis(100),None);drop(b);result});
   return match rollback{Ok(())=>Err(format!("{error}؛ اطلاعات قبل از بازیابی از پشتیبان ایمنی برگردانده شد.")),Err(e)=>Err(format!("{error}؛ بازیابی پشتیبان ایمنی نیز ناموفق بود: {e}؛ فایل ایمنی: {}",safety_path.display()))}
  }
  Ok(())
@@ -1649,27 +1650,26 @@ mod accounting_tests {
   let duplicate=json!({"name":"Duplicate","code":"SERVICE-02","barcode":"SRV-001","qty":0,"buy":0,"sell":100,"min":0,"unit":"عدد","is_service":false});
   assert!(save_product_with_connection(duplicate,&c).is_err());
   assert_eq!(scalar(&c,"SELECT COUNT(*) FROM products WHERE barcode='SRV-001'"),1);
-  #[test]
-  fn sqlite_backup_is_verified_before_it_is_listed_as_successful() {
-   let c=database();
-   let unique=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-   let path=std::env::temp_dir().join(format!("nabz-backup-test-{unique}.sqlite3"));
-   nabz_core::backup_database_to(&c,&path).unwrap();
-   verify_sqlite_backup(&path).unwrap();
-   let count:i64=Connection::open(&path).unwrap().query_row("SELECT COUNT(*) FROM products",[],|r|r.get(0)).unwrap();
-   assert_eq!(count,1);
-   fs::remove_file(path).unwrap();
-  }
-
-  #[test]
-  fn corrupted_sqlite_backup_is_rejected() {
-   let unique=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-   let path=std::env::temp_dir().join(format!("nabz-backup-corrupt-{unique}.sqlite3"));
-   fs::write(&path,b"not a sqlite database").unwrap();
-   assert!(verify_sqlite_backup(&path).is_err());
-   fs::remove_file(path).unwrap();
-  }
-
  }
 
+ #[test]
+ fn sqlite_backup_is_verified_before_it_is_listed_as_successful() {
+  let c=database();
+  let unique=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+  let path=std::env::temp_dir().join(format!("nabz-backup-test-{unique}.sqlite3"));
+  nabz_core::backup_database_to(&c,&path).unwrap();
+  verify_sqlite_backup(&path).unwrap();
+  let count:i64=Connection::open(&path).unwrap().query_row("SELECT COUNT(*) FROM products",[],|r|r.get(0)).unwrap();
+  assert_eq!(count,1);
+  fs::remove_file(path).unwrap();
+ }
+
+ #[test]
+ fn corrupted_sqlite_backup_is_rejected() {
+  let unique=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+  let path=std::env::temp_dir().join(format!("nabz-backup-corrupt-{unique}.sqlite3"));
+  fs::write(&path,b"not a sqlite database").unwrap();
+  assert!(verify_sqlite_backup(&path).is_err());
+  fs::remove_file(path).unwrap();
+ }
 }
