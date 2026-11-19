@@ -202,6 +202,7 @@ jobs:
           set -eux
           # Docker's makepkg step changes the mounted output directory owner.
           # Restore write access before generating the checksum on the host runner.
+          sudo chown -R "$(id -u):$(id -g)" packaging/arch
           chmod -R u+rwX packaging/arch
           package="$(find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print -quit)"
           test -n "$package"
