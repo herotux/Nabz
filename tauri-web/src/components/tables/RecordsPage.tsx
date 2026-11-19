@@ -6,7 +6,7 @@ import type { RecordRow } from '../../types';
 const money=(n:number)=>new Intl.NumberFormat('fa-IR').format(Number.isFinite(n)?n:0);
 function Pagination({page,pages,onChange}:{page:number;pages:number;onChange:(p:number)=>void}){
  if(pages<=1)return null;
- return <div className="pagination"><span>صفحه {money(page)} از {money(pages)}</span><div><button className="secondary-btn" disabled={page<=1} onClick={()=>onChange(page-1)}>قبلی</button><button className="secondary-btn" disabled={page>=pages} onClick={()=>onChange(page+1)}>بعدی</button></div></div>;
+ return <div className="pagination"><span>صفحه {money(page)} از {money(pages)}</span><div><button className="secondary-btn" aria-label="صفحه قبلی" disabled={page<=1} onClick={()=>onChange(page-1)}>قبلی</button><button className="secondary-btn" aria-label="صفحه بعدی" disabled={page>=pages} onClick={()=>onChange(page+1)}>بعدی</button></div></div>;
 }
 export function RecordsPage({title,subtitle,records,query,setQuery,busy,onAdd,onDelete,onPrint,onEdit,onView,columns,extra}:{title:string;subtitle:string;records:RecordRow[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onDelete?:(id:number)=>void;onPrint?:(id:number)=>void;onEdit?:(r:RecordRow)=>void;onView?:(id:number)=>void;columns:string[];extra?:ReactNode}){
  const [page,setPage]=useState(1);const pageSize=10;const pages=Math.max(1,Math.ceil(records.length/pageSize));
