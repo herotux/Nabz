@@ -27,10 +27,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: tauri-web/package-lock.json
       - name: Install dependencies
-        run: npm ci
+        run: npm install
       - name: Build the shared React interface for GitHub Pages
         run: npm run build
       - name: Upload Pages artifact
