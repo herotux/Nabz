@@ -1,6 +1,6 @@
 pkgname=nabz-tauri
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Persian RTL shop accounting application'
 arch=('x86_64')
 url='https://github.com/herotux/Nabz'
