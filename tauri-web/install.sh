@@ -7,9 +7,13 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 die() { printf 'خطا: %s\n' "$*" >&2; exit 1; }
-for cmd in curl python3 sha256sum pacman sudo; do
+for cmd in curl sha256sum pacman sudo; do
   command -v "$cmd" >/dev/null 2>&1 || die "ابزار $cmd نصب نیست."
 done
+if ! command -v python3 >/dev/null 2>&1; then
+  sudo pacman -S --needed python || die 'نصب Python از مخازن رسمی ناموفق بود.'
+fi
+command -v python3 >/dev/null 2>&1 || die 'Python 3 در دسترس نیست.'
 
 [[ "$(uname -m)" == "x86_64" ]] || die "این بسته فعلاً فقط برای x86_64 ساخته می‌شود."
 [[ -n "${HOME:-}" ]] || die 'HOME تنظیم نشده است.'
