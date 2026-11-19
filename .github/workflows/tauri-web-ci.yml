@@ -99,11 +99,18 @@ jobs:
       - name: Validate installer shell syntax
         run: bash -n install.sh
 
+      - name: Fetch bundled Persian font
+        run: |
+          cd ..
+          bash scripts/fetch-font.sh
+          test -s assets/Vazirmatn.ttf
+
       - name: Build frontend and type-check
         env:
           TAURI_ENV_PLATFORM: linux
         run: |
           npm run build
+          test -n "$(find dist/assets -maxdepth 1 -type f -name '*.ttf' -size +100k -print -quit)"
           # A desktop build must load assets from the Tauri origin root, never
           # from the GitHub Pages /Nabz/ subpath.
           if grep -Eo '(/Nabz/)?assets/[^" ]+' dist/index.html | grep -q '^/Nabz/'; then
