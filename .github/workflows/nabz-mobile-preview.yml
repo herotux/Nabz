@@ -36,6 +36,8 @@ jobs:
         run: npm install
       - name: Build web preview
         working-directory: tauri-web
+        env:
+          GITHUB_PAGES: "true"
         run: npm run build
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5

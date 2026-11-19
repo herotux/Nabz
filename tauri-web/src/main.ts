@@ -4,7 +4,45 @@ import { invoke } from '@tauri-apps/api/core';
 type Page = 'داشبورد'|'طرف‌حساب‌ها'|'فاکتورها'|'دریافت و پرداخت'|'کالا و انبار'|'گزارش‌ها'|'چاپ و بارکد'|'تنظیمات';
 const nav: [string,Page][] = [['▦','داشبورد'],['♙','طرف‌حساب‌ها'],['▤','فاکتورها'],['↔','دریافت و پرداخت'],['▧','کالا و انبار'],['▥','گزارش‌ها'],['▤','چاپ و بارکد'],['⚙','تنظیمات']];
 const app = document.querySelector<HTMLDivElement>('#app')!;
-const today = new Intl.DateTimeFormat('fa-IR-u-ca-persian',{day:'numeric',month:'long',year:'numeric'}).format(new Date());
+function showStartupError(title: string, detail: string) {
+  const host = document.querySelector<HTMLDivElement>('#app');
+  if (!host) return;
+  const panel = document.createElement('section');
+  panel.dir = 'rtl';
+  panel.style.cssText = 'max-width:900px;margin:48px auto;padding:28px;background:#fff;border:1px solid #e5b8b8;border-radius:14px;color:#263247;font:14px/2 Tahoma,sans-serif;box-shadow:0 8px 32px #17203312';
+  const heading = document.createElement('h1');
+  heading.textContent = title;
+  heading.style.cssText = 'font-size:20px;color:#b42318;margin:0 0 12px';
+  const explanation = document.createElement('p');
+  explanation.textContent = 'رابط کاربری هنگام شروع با خطا روبه‌رو شد. متن زیر را برای عیب‌یابی نگه دار.';
+  const pre = document.createElement('pre');
+  pre.textContent = detail || 'جزئیات خطا از WebView دریافت نشد.';
+  pre.dir = 'ltr';
+  pre.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f7f9;padding:14px;border-radius:8px;font:12px/1.6 monospace';
+  panel.append(heading, explanation, pre);
+  host.replaceChildren(panel);
+}
+window.addEventListener('error', (event) => {
+  const error = event.error as Error | undefined;
+  const detail = error?.stack || error?.message || event.message || 'Unknown JavaScript error';
+  console.error('[Nabz startup error]', detail);
+  showStartupError('خطای اجرای نبض', detail);
+});
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  const detail = reason instanceof Error ? (reason.stack || reason.message) : String(reason ?? 'Unknown rejected promise');
+  console.error('[Nabz unhandled rejection]', detail);
+  if (!document.querySelector('.layout')) showStartupError('خطای شروع برنامهٔ نبض', detail);
+});
+const today = (() => {
+  try {
+    return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
+  } catch (error) {
+    console.error('[Nabz date format fallback]', error);
+    try { return new Date().toLocaleDateString('fa-IR'); }
+    catch { return new Date().toISOString().slice(0, 10); }
+  }
+})();
 let current: Page = 'داشبورد';
 let filter = '';
 let toastTimer = 0;
