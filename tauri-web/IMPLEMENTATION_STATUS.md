@@ -1,13 +1,14 @@
-> **ممیزی وضعیت — 2026-11-19:** فایل [TODO.md](TODO.md) سند مادر فازها و کارهای باز است. فاز ۶ از ۱۲ (UI/UX) در حال ماژول‌بندی؛ زیرفاز ۹ از ۱۰ (Reports) پیاده‌سازی شده، زیرفاز ۱۰/۱۰ برای CI نهایی و تثبیت باقی است. در شمارش کاربر، فاز صفر آماده‌سازی است و فازهای ۱ تا ۱۲ اجرایی‌اند (فاز ۱۲ توسعه آینده). اجرای CI برای head جدید در حال انجام است.
+> **ممیزی وضعیت — 2026-11-19:** سند مادر فازها [TODO.md](TODO.md) است. head فعلی شاخه `328d9d60b2bffcc8a95a7fae243759dc3a318765` بوده و CI کامل Tauri/Arch و Core برای آن موفق شده است.
 >
-> - شاخه مرجع: `ui/react-tauri-redesign`؛ PR #8 باز، Draft و ادغام‌نشده.
-> - آخرین commit کد: `6b0db0c79ab849a126ebfcc2be716237eaa14fd2`؛ CI برای آن در حال اجرا/صف.
-> - schema جاری: **v14**؛ اشاره‌های v8/v10/v11/v12 در متن تاریخی‌اند.
-> - workflowهای فعال: `.github/workflows/phase1-core.yml` و `.github/workflows/tauri-web-ci.yml`.
-> - CI قبلی extraction کامپوننت به دلیل export و props ناقص شکست خورد؛ این دو خطا اصلاح شدند. آخرین head `374db4c` شامل extraction RecordsPage/RecordsTable/Pagination و برچسب دسترس‌پذیر search است؛ CI آن در حال اجرا/صف است.
-> - نصب/ارتقا Manjaro واقعی، import دیتابیس egui واقعی، چاپگر و بارکدخوان فیزیکی هنوز تأیید عملی نشده‌اند.
-> - `main` در این مرحله تغییر نکرده است.
-
+> - شاخه مرجع: `ui/react-tauri-redesign`؛ [PR #8](https://github.com/herotux/Nabz/pull/8) باز، Draft و ادغام‌نشده.
+> - [Tauri / Arch CI](https://github.com/herotux/Nabz/actions/runs/44475540761): TypeScript، frontend build، تست Rust/SQLite، Release binary و ساخت/اعتبارسنجی بسته Arch موفق.
+> - [Core CI](https://github.com/herotux/Nabz/actions/runs/44475540736): تست‌های هسته و یکپارچگی Tauri موفق.
+> - Artifact بسته Arch: [nabz-manjaro-arch-x86_64](https://github.com/herotux/Nabz/actions/runs/44475540761/artifacts/14506571835)، حجم 4,063,008 بایت.
+> - فاز ۷: چاپ فاکتور و لیبل تکی/گروهی، Code128 و EAN-13 در کد وجود دارند؛ آزمون چاپگر/اسکنر واقعی باز است.
+> - فاز ۸: backup/restore اعتبارسنجی‌شده، safety backup، permissionهای Unix و تست‌های خودکار در CI موفق‌اند؛ آزمون دیتابیس پرحجم و audit log کامل باز است.
+> - فاز ۹: lazy loading، deferred search، شاخص‌های SQLite و optimized release build وجود دارند؛ benchmark RAM/CPU/cold-start روی دستگاه واقعی انجام نشده است.
+> - نصب و ارتقای واقعی Manjaro و تطبیق دیتابیس egui واقعی هنوز تأیید نشده‌اند.
+> - `main` تغییر نکرده است.
 
 # وضعیت پیاده‌سازی نبض — React/Tauri
 
