@@ -30,6 +30,8 @@ type InvoiceDraft = {id:number;kind:'sale'|'purchase';title:string;updated_at:st
 type InvoiceItemDetail = {id:number;product_id:number|null;item_name:string;quantity:number;unit_price:number;line_total:number;unit_cost:number|null;sales_returned:number;purchase_returned:number;code:string;barcode:string};
 type InvoiceDetail = {invoice:{id:number;number:number;kind:'sale'|'purchase';contact_id:number|null;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string;voided:boolean;credit_applied:number};items:InvoiceItemDetail[];payments:{id:number;amount:number;method:string;date:string;notes:string;allocated:number}[];returns:{id:number;date:string;amount:number;credit_refund:number;notes:string;kind:string}[];refunds:{id:number;date:string;amount:number;method:string;notes:string;kind:string}[];void:{id:number;date:string;cash_refund:number;credit_refund:number;notes:string}|null};
 
+const escapeHtml=(value:string)=>value.replace(/[&<>\"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[ch]||ch));
+
 const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string}[] = [
   {id:'dashboard',label:'نمای کلی',icon:LayoutDashboard,group:'مدیریت'},
   {id:'contacts',label:'طرف‌حساب‌ها',icon:Users,group:'مدیریت'},
@@ -279,11 +281,7 @@ function App(){
     try{
       const data=JSON.parse(await file.text()) as Record<string,unknown>;
       const counts=['contacts','products','invoices','invoice_items','payments','expenses','invoice_drafts'].map(k=>k+': '+(Array.isArray(data[k])?data[k].length:0)).join(' · ');
-      if(!window.confirm('این پشتیبان جایگزین اطلاعات فعلی می‌شود.
-
-'+counts+'
-
-قبل از جایگزینی، backend پشتیبان ایمنی ایجاد می‌کند. ادامه؟'))return;
+      if(!window.confirm('این پشتیبان جایگزین اطلاعات فعلی می‌شود.\n\n'+counts+'\n\nقبل از جایگزینی، backend پشتیبان ایمنی ایجاد می‌کند. ادامه؟'))return;
       await invoke('restore_data',{data});notify('بازیابی انجام شد.');await load();
     }catch(e){notify('بازیابی انجام نشد: '+String(e))}
   };
