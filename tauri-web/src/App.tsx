@@ -363,8 +363,8 @@ function PrintingPage({notify}:{notify:(s:string)=>void}){
   if(!barcodeRef.current)return;
   let value=barcode.trim();
   if(format==='EAN13'){
-   if(/^\\d{12}$/.test(value)){const sum=value.split('').reduce((n,d,i)=>n+Number(d)*(i%2?3:1),0);value+=String((10-sum%10)%10);}
-   if(!/^\\d{13}$/.test(value)){setBarcodeError('EAN-13 باید ۱۲ یا ۱۳ رقم داشته باشد.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
+   if(/^\d{12}$/.test(value)){const sum=value.split('').reduce((n,d,i)=>n+Number(d)*(i%2?3:1),0);value+=String((10-sum%10)%10);}
+   if(!/^\d{13}$/.test(value)){setBarcodeError('EAN-13 باید ۱۲ یا ۱۳ رقم داشته باشد.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
    const digits=value.split('').map(Number),sum=digits.slice(0,12).reduce((n,d,i)=>n+d*(i%2?3:1),0),check=(10-sum%10)%10;
    if(digits[12]!==check){setBarcodeError('رقم کنترلی EAN-13 معتبر نیست.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
   }
