@@ -5,7 +5,7 @@
 - آخرین ممیزی: **2026-11-19**
 - شاخه مرجع: `ui/react-tauri-redesign`
 - PR مرجع: [#8](https://github.com/herotux/Nabz/pull/8) — باز، Draft و ادغام‌نشده
-- آخرین commit شاخه در این به‌روزرسانی: `70887ae49ca33e6d719469aab5981b411d3dae8e`؛ refactor رابط از این commit ادامه دارد.
+- آخرین commit شاخه در این به‌روزرسانی: `a405315a7ca50eb58d7c13926018080b58ae9c10`؛ refactor رابط از این commit ادامه دارد.
 - وضعیت `main`: در این ممیزی هیچ تغییری روی `main` انجام نشده است.
 - معماری قطعی: React + TypeScript + Vite + Tauri 2 + Rust + SQLite
 - رابط Slint مسیر محصول نیست. egui فقط منبع قدیمی برای مهاجرت داده/بررسی سابقه است.
@@ -64,7 +64,7 @@
 - [x] مسیر بسته هدف Arch/Manjaro تعیین شود.
 - [x] حذف workflowهای قدیمی Slint، AppImage، پیش‌نمایش Pages مربوط به شاخه prototype و گردش‌کار چرخه‌عمر بسته Debian از شاخه مرجع؛ فقط CI هسته و CI ساخت Tauri/Arch فعال مانده‌اند.
 - [x] نسخه frontend، Tauri، Cargo و PKGBUILD در CI کنترل شود.
-- [~] ساختار کد به ماژول‌های روشن UI/features/services/components تقسیم شود؛ `JalaliDateField` و primitiveهای `PageHeading`/`PrimaryButton` به `src/components/` منتقل شدند. هنوز صفحات و منطق state/data در `App.tsx` متمرکز است و این کار ادامه دارد.
+- [~] ساختار کد به ماژول‌های روشن UI/features/services/components تقسیم شود؛ `JalaliDateField`، primitiveهای `PageHeading`/`PrimaryButton`، `RecordsPage`، `Pagination` و `RecordsTable` به `src/components/` منتقل شدند؛ نوع مشترک `RecordRow` نیز در `src/types.ts` قرار گرفت. هنوز Dashboard، Products، Reports و state/data orchestration در `App.tsx` هستند و modularization ادامه دارد.
 - [ ] یکسان‌سازی گزارش‌های تاریخی که به schema نسخه‌های ۸، ۱۰ یا ۱۲ اشاره می‌کنند؛ مرجع جاری schema نسخه ۱۴ است.
 - [ ] بررسی و حذف ارجاعات منسوخ به دو رابط، Slint، deb و AppImage از مستندات جاری.
 
