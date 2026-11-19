@@ -106,7 +106,7 @@ jobs:
           gz = sum(len(gzip.compress(p.read_bytes(), compresslevel=9)) for p in files)
           lines = ["Nabz frontend bundle report", f"Total dist raw: {raw} bytes", f"Total dist gzip: {gz} bytes", "", "Largest assets:"]
           lines += [f"{p.name}: {p.stat().st_size} bytes; gzip {len(gzip.compress(p.read_bytes(), compresslevel=9))} bytes" for p in assets[:15]]
-          report = "\\n".join(lines) + "\\n"
+          report = "\n".join(lines) + "\n"
           Path("bundle-performance-report.txt").write_text(report)
           print(report)
           PY
