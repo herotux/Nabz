@@ -15,6 +15,8 @@
 شاخهٔ مرجع: `ui/react-tauri-redesign` — [PR شمارهٔ ۸](https://github.com/herotux/Nabz/pull/8) (Draft)
 
 ## آخرین پیشرفت ثبت‌شده
+- فاز ۷: صفحه تولید/چاپ بارکد اکنون Code128 و EAN-13 دارد؛ ۱۲ رقم EAN ورودی رقم کنترلی می‌گیرد و ۱۳ رقم validate می‌شود.
+- فاز ۹: search filter از `useDeferredValue` استفاده می‌کند تا تایپ فوری بماند و فیلتر داده‌های بزرگ‌تر در render کم‌اولویت انجام شود.
 - فاز ۹: صفحات Dashboard/Products/Reports، RecordsPage و JalaliDateField با `React.lazy` و `Suspense` از bundle اولیه جدا می‌شوند؛ CI build این تفکیک را validate می‌کند. اندازه chunk و RAM/cold-start/CPU روی دستگاه هدف هنوز اندازه‌گیری نشده است.
 - فاز ۸: پشتیبان خودکار SQLite روزانه در پوشه app-data/backups، retention ۳۰ فایل، دکمه پشتیبان فوری، فهرست آخرین backup و پیش‌نمایش شمار رکوردها پیش از restore JSON افزوده شد. restore با backup ایمنی backend موجود اجرا می‌شود؛ تست عملی rollback و restore روی دیتابیس پرحجم هنوز باقی است.
 - commit `af1da177402014cc76c2365317a7540fbb650894`، CI هسته و Tauri/Arch هر دو موفق؛ TypeScript، build، Rust، SQLite و بسته Arch تأیید CI.

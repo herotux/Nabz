@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef, useDeferredValue } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import JsBarcode from 'jsbarcode';
@@ -55,7 +55,7 @@ function App(){
   const [movements,setMovements]=useState<InventoryMovement[]>([]);
   const [trend,setTrend]=useState<Trend[]>([]);
   const [days,setDays]=useState(7);
-  const [query,setQuery]=useState('');
+  const [query,setQuery]=useState('');\n  const deferredQuery=useDeferredValue(query);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [toast,setToast]=useState('');
@@ -118,9 +118,9 @@ function App(){
   },[page,days]);
   useEffect(()=>{void load()},[load]);
 
-  const filteredRecords=useMemo(()=>records.filter(r=>(r.name+' '+r.detail+' '+r.status).toLocaleLowerCase().includes(query.toLocaleLowerCase())),[records,query]);
+  const filteredRecords=useMemo(()=>records.filter(r=>(r.name+' '+r.detail+' '+r.status).toLocaleLowerCase().includes(deferredQuery.toLocaleLowerCase())),[records,deferredQuery]);
   const filteredInvoices=useMemo(()=>filteredRecords.filter(r=>(invoiceKindFilter==='all'||r.detail===invoiceKindFilter)&&(invoiceStatusFilter==='all'||(invoiceStatusFilter==='void'&&r.status.includes('باطل'))||(invoiceStatusFilter==='settled'&&r.status==='تسویه')||(invoiceStatusFilter==='partial'&&r.status==='پرداخت جزئی')||(invoiceStatusFilter==='unpaid'&&r.status==='پرداخت‌نشده'))&&(!invoiceDateFrom||r.date>=invoiceDateFrom)&&(!invoiceDateTo||r.date<=invoiceDateTo)),[filteredRecords,invoiceKindFilter,invoiceStatusFilter,invoiceDateFrom,invoiceDateTo]);
-  const filteredProducts=useMemo(()=>products.filter(p=>(p.name+' '+p.code+' '+p.barcode+' '+p.category).toLocaleLowerCase().includes(query.toLocaleLowerCase())),[products,query]);
+  const filteredProducts=useMemo(()=>products.filter(p=>(p.name+' '+p.code+' '+p.barcode+' '+p.category).toLocaleLowerCase().includes(deferredQuery.toLocaleLowerCase())),[products,deferredQuery]);
   const openEntry=(kind:Entry)=>{
     setEditingId(null);setDraftId(null);invoiceRequestKey.current=(kind==='sale'||kind==='purchase')?crypto.randomUUID():'';setEntry(kind);setQuery('');
     setForm({name:'',kind:kind==='payment'?'supplier':kind==='receipt'?'customer':'',phone:'',balance:'0',notes:'',code:'',barcode:'',qty:'0',buy:'0',sell:'0',min:'0',customer:'',amount:'',method:'cash',date:isoToday,item:'',price:'0',discount:'0',status:'paid',paid:'',paper:'A4'});
@@ -355,14 +355,23 @@ function App(){
 
 function PrintingPage({notify}:{notify:(s:string)=>void}){
  const [barcode,setBarcode]=useState('626000001');
+ const [format,setFormat]=useState<'CODE128'|'EAN13'>('CODE128');
  const [barcodeError,setBarcodeError]=useState('');
  const barcodeRef=useRef<SVGSVGElement>(null);
+ const [printValue,setPrintValue]=useState('');
  useEffect(()=>{
   if(!barcodeRef.current)return;
-  try{JsBarcode(barcodeRef.current,barcode,{format:'CODE128',displayValue:true,lineColor:'#1d2c24',width:2,height:76,margin:10,font:'Tahoma',fontSize:13});setBarcodeError('')}
-  catch{setBarcodeError('کد بارکد خالی یا نامعتبر است.')}
- },[barcode]);
- return <><PageHeading title="چاپ و بارکد" subtitle="تولید بارکد استاندارد و چاپ برچسب کالا"/><div className="surface print-panel"><div><h2>بارکد کالا</h2><p>می‌توانی کد را تایپ کنی یا با اسکنر USB/HID در همین کادر اسکن کنی.</p><label className="field-label">کد یا بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr" autoFocus/></label>{barcodeError&&<p className="barcode-error">{barcodeError}</p>}<button className="primary-btn" onClick={()=>{if(!barcodeError){window.print();notify('پنجره چاپ برچسب باز شد.')}}}><Printer size={16}/> چاپ برچسب</button></div><div className="barcode-preview"><svg ref={barcodeRef} role="img" aria-label="پیش‌نمایش بارکد تولیدشده"/></div></div></>;
+  let value=barcode.trim();
+  if(format==='EAN13'){
+   if(/^\\d{12}$/.test(value)){const sum=value.split('').reduce((n,d,i)=>n+Number(d)*(i%2?3:1),0);value+=String((10-sum%10)%10);}
+   if(!/^\\d{13}$/.test(value)){setBarcodeError('EAN-13 باید ۱۲ یا ۱۳ رقم داشته باشد.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
+   const digits=value.split('').map(Number),sum=digits.slice(0,12).reduce((n,d,i)=>n+d*(i%2?3:1),0),check=(10-sum%10)%10;
+   if(digits[12]!==check){setBarcodeError('رقم کنترلی EAN-13 معتبر نیست.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
+  }
+  try{JsBarcode(barcodeRef.current,value,{format,displayValue:true,lineColor:'#1d2c24',width:2,height:76,margin:10,font:'Tahoma',fontSize:13});setBarcodeError('');setPrintValue(value)}
+  catch{setBarcodeError('کد بارکد خالی یا نامعتبر است.');setPrintValue('')}
+ },[barcode,format]);
+ return <><PageHeading title="چاپ و بارکد" subtitle="تولید بارکد استاندارد و چاپ برچسب کالا"/><div className="surface print-panel"><div><h2>بارکد کالا</h2><p>می‌توانی کد را تایپ کنی یا با اسکنر USB/HID در همین کادر اسکن کنی.</p><label className="field-label">نوع بارکد<select value={format} onChange={e=>setFormat(e.target.value as 'CODE128'|'EAN13')}><option value="CODE128">Code 128 (SKU/کد داخلی)</option><option value="EAN13">EAN-13 (کد تجاری)</option></select></label><label className="field-label">کد یا بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr" autoFocus/></label>{barcodeError&&<p className="barcode-error">{barcodeError}</p>}<button className="primary-btn" disabled={!printValue||!!barcodeError} onClick={()=>{window.print();notify('پنجره چاپ برچسب باز شد.')}}><Printer size={16}/> چاپ برچسب</button></div><div className="barcode-preview"><svg ref={barcodeRef} role="img" aria-label="پیش‌نمایش بارکد تولیدشده"/></div></div></>;
 }
 function SettingsPage({settings,setSettings,onSave,onBackup,onRestore,autoBackups,onNativeBackup}:{settings:Record<string,string>;setSettings:(v:Record<string,string>)=>void;onSave:()=>void;onBackup:()=>void;onRestore:(f?:File)=>void;autoBackups:{name:string;size:number;modified:number}[];onNativeBackup:()=>void}){
  const update=(k:string,v:string)=>setSettings({...settings,[k]:v});
