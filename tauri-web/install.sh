@@ -18,7 +18,7 @@ printf 'دریافت آخرین نسخهٔ منتشرشدهٔ Nabz...\n'
 curl --fail --silent --show-error --location --retry 3 "$API" -o "$TMP_DIR/release.json" \
   || die 'نسخهٔ منتشرشده‌ای پیدا نشد یا GitHub در دسترس نیست. ابتدا باید یک Release منتشر شود.'
 
-readarray -t ASSETS < <(python3 - "$TMP_DIR/release.json" <<'PY'
+python3 - "$TMP_DIR/release.json" > "$TMP_DIR/assets.txt" <<'PY'
 import json, sys
 release = json.load(open(sys.argv[1], encoding="utf-8"))
 assets = release.get("assets", [])
@@ -34,7 +34,9 @@ print(checksums[0]["browser_download_url"])
 print(package["name"])
 print(release.get("tag_name", "unknown"))
 PY
-) || die 'اطلاعات دارایی‌های Release معتبر نیست.'
+|| die 'اطلاعات دارایی‌های Release معتبر نیست.'
+mapfile -t ASSETS < "$TMP_DIR/assets.txt"
+[[ "${#ASSETS[@]}" -eq 4 ]] || die 'فهرست فایل‌های Release ناقص است.'
 
 PKG_URL="${ASSETS[0]}"
 SUM_URL="${ASSETS[1]}"
