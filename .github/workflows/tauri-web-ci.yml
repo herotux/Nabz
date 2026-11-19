@@ -93,6 +93,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Run frontend unit tests
+        run: npm run test
+
+      - name: Validate installer shell syntax
+        run: bash -n install.sh
+
       - name: Build frontend and type-check
         run: npm run build
 
