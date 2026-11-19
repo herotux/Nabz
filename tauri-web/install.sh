@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 REPO="herotux/Nabz"
-API="https://api.github.com/repos/${REPO}/releases/latest"
+API="https://api.github.com/repos/${REPO}/releases?per_page=20"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -20,15 +20,19 @@ command -v python3 >/dev/null 2>&1 || die 'Python 3 در دسترس نیست.'
 
 printf 'دریافت آخرین نسخهٔ منتشرشدهٔ Nabz...\n'
 curl --fail --silent --show-error --location --retry 3 "$API" -o "$TMP_DIR/release.json" \
-  || die 'نسخهٔ منتشرشده‌ای پیدا نشد یا GitHub در دسترس نیست. ابتدا باید یک Release منتشر شود.'
+  || die 'فهرست نسخه‌ها دریافت نشد یا GitHub در دسترس نیست.'
 
 python3 - "$TMP_DIR/release.json" > "$TMP_DIR/assets.txt" <<'PY' || die 'اطلاعات دارایی‌های Release معتبر نیست.'
 import json, sys
-release = json.load(open(sys.argv[1], encoding="utf-8"))
+releases = json.load(open(sys.argv[1], encoding="utf-8"))
+# Prefer the newest published release, including prereleases intended for testing.
+release = next((r for r in releases if not r.get("draft")), None)
+if not release:
+    raise SystemExit("هنوز هیچ نسخهٔ منتشرشده‌ای وجود ندارد.")
 assets = release.get("assets", [])
 packages = [a for a in assets if a.get("name", "").endswith("-x86_64.pkg.tar.zst")]
 if not packages:
-    raise SystemExit("در آخرین Release بستهٔ x86_64 وجود ندارد.")
+    raise SystemExit("در آخرین نسخهٔ منتشرشده بستهٔ x86_64 وجود ندارد.")
 package = packages[0]
 checksums = [a for a in assets if a.get("name") == package["name"] + ".sha256"]
 if not checksums:
