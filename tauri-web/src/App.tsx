@@ -6,7 +6,8 @@ import { formatJalaliDate, latinDigits } from './utils/jalali';
 const JalaliDateField=lazy(()=>import('./components/forms/JalaliDateField').then(m=>({default:m.JalaliDateField})));
 import { PageHeading, PrimaryButton } from './components/layout/PagePrimitives';
 const RecordsPage=lazy(()=>import('./components/tables/RecordsPage').then(m=>({default:m.RecordsPage})));
-const Dashboard=lazy(()=>import('./components/pages/DashboardProducts').then(m=>({default:m.Dashboard})));\nconst ProductsPage=lazy(()=>import('./components/pages/DashboardProducts').then(m=>({default:m.ProductsPage})));
+const Dashboard=lazy(()=>import('./components/pages/DashboardProducts').then(m=>({default:m.Dashboard})));
+const ProductsPage=lazy(()=>import('./components/pages/DashboardProducts').then(m=>({default:m.ProductsPage})));
 const ReportsPage=lazy(()=>import('./components/pages/ReportsPage').then(m=>({default:m.ReportsPage})));
 import type { RecordRow } from './types';
 import {
@@ -55,7 +56,8 @@ function App(){
   const [movements,setMovements]=useState<InventoryMovement[]>([]);
   const [trend,setTrend]=useState<Trend[]>([]);
   const [days,setDays]=useState(7);
-  const [query,setQuery]=useState('');\n  const deferredQuery=useDeferredValue(query);
+  const [query,setQuery]=useState('');
+  const deferredQuery=useDeferredValue(query);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [toast,setToast]=useState('');
@@ -277,7 +279,11 @@ function App(){
     try{
       const data=JSON.parse(await file.text()) as Record<string,unknown>;
       const counts=['contacts','products','invoices','invoice_items','payments','expenses','invoice_drafts'].map(k=>k+': '+(Array.isArray(data[k])?data[k].length:0)).join(' · ');
-      if(!window.confirm('این پشتیبان جایگزین اطلاعات فعلی می‌شود.\n\n'+counts+'\n\nقبل از جایگزینی، backend پشتیبان ایمنی ایجاد می‌کند. ادامه؟'))return;
+      if(!window.confirm('این پشتیبان جایگزین اطلاعات فعلی می‌شود.
+
+'+counts+'
+
+قبل از جایگزینی، backend پشتیبان ایمنی ایجاد می‌کند. ادامه؟'))return;
       await invoke('restore_data',{data});notify('بازیابی انجام شد.');await load();
     }catch(e){notify('بازیابی انجام نشد: '+String(e))}
   };
