@@ -15,6 +15,7 @@
 شاخهٔ مرجع: `ui/react-tauri-redesign` — [PR شمارهٔ ۸](https://github.com/herotux/Nabz/pull/8) (Draft)
 
 ## آخرین پیشرفت ثبت‌شده
+- فاز ۹: صفحات Dashboard/Products/Reports، RecordsPage و JalaliDateField با `React.lazy` و `Suspense` از bundle اولیه جدا می‌شوند؛ CI build این تفکیک را validate می‌کند. اندازه chunk و RAM/cold-start/CPU روی دستگاه هدف هنوز اندازه‌گیری نشده است.
 - فاز ۸: پشتیبان خودکار SQLite روزانه در پوشه app-data/backups، retention ۳۰ فایل، دکمه پشتیبان فوری، فهرست آخرین backup و پیش‌نمایش شمار رکوردها پیش از restore JSON افزوده شد. restore با backup ایمنی backend موجود اجرا می‌شود؛ تست عملی rollback و restore روی دیتابیس پرحجم هنوز باقی است.
 - commit `af1da177402014cc76c2365317a7540fbb650894`، CI هسته و Tauri/Arch هر دو موفق؛ TypeScript، build، Rust، SQLite و بسته Arch تأیید CI.
 - فاز ۶: ماژول‌بندی React ۱۰/۱۰ و build تثبیت شد؛ میانبرها (Ctrl+K/N/S، F1/F2/F4/F8، Esc)، پنجره با حداقل 720×540 و CSS narrow layout اصلاح شدند. بررسی تصویری و تست عملی کلیدها هنوز باقی است.

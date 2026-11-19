@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import JsBarcode from 'jsbarcode';
 import { formatJalaliDate, latinDigits } from './utils/jalali';
-import { JalaliDateField } from './components/forms/JalaliDateField';
+const JalaliDateField=lazy(()=>import('./components/forms/JalaliDateField').then(m=>({default:m.JalaliDateField})));
 import { PageHeading, PrimaryButton } from './components/layout/PagePrimitives';
-import { RecordsPage } from './components/tables/RecordsPage';
-import { Dashboard, ProductsPage } from './components/pages/DashboardProducts';
-import { ReportsPage } from './components/pages/ReportsPage';
+const RecordsPage=lazy(()=>import('./components/tables/RecordsPage').then(m=>({default:m.RecordsPage})));
+const Dashboard=lazy(()=>import('./components/pages/DashboardProducts').then(m=>({default:m.Dashboard})));\nconst ProductsPage=lazy(()=>import('./components/pages/DashboardProducts').then(m=>({default:m.ProductsPage})));
+const ReportsPage=lazy(()=>import('./components/pages/ReportsPage').then(m=>({default:m.ReportsPage})));
 import type { RecordRow } from './types';
 import {
   ArrowDownLeft, ArrowUpRight, BarChart3, Bell, Boxes, CalendarDays,
@@ -317,7 +317,7 @@ function App(){
   },[page,entry,openEntry,saveInvoiceDraft,closeEntry,notify]);
 
   const active=pageTitles[page];
-  return <div className="app-shell">
+  return <Suspense fallback={<div className="app-loading" role="status">در حال بارگذاری نبض…</div>}><div className="app-shell">
     <aside className={'sidebar '+(mobileOpen?'sidebar-open':'')}>
       <div className="brand"><div className="brand-mark">ن</div><div><b>نبض</b><small>حسابداری فروشگاهی</small></div><button className="mobile-close icon-btn" onClick={()=>setMobileOpen(false)}><X size={18}/></button></div>
       <button className="store-switch"><span className="store-icon"><Store size={18}/></span><span><b>{settings.shop_name||'فروشگاه من'}</b><small>فضای کاری فعال</small></span><ChevronDown size={15}/></button>
@@ -349,7 +349,7 @@ function App(){
     {returnInvoice&&<InvoiceReturnModal detail={returnInvoice} onClose={()=>{setInvoiceDetail(returnInvoice);setReturnInvoice(null)}} onSubmit={submitInvoiceReturn}/>}
     {paymentInvoice&&<InvoicePaymentModal detail={paymentInvoice} onClose={()=>{setInvoiceDetail(paymentInvoice);setPaymentInvoice(null)}} onSubmit={submitInvoicePayment}/>}
     {toast&&<div className="toast"><Check size={16}/>{toast}</div>}
-  </div>;
+  </div></Suspense>;
 }
 
 
