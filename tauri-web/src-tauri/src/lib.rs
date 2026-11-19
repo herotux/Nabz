@@ -1641,6 +1641,27 @@ mod accounting_tests {
   let duplicate=json!({"name":"Duplicate","code":"SERVICE-02","barcode":"SRV-001","qty":0,"buy":0,"sell":100,"min":0,"unit":"عدد","is_service":false});
   assert!(save_product_with_connection(duplicate,&c).is_err());
   assert_eq!(scalar(&c,"SELECT COUNT(*) FROM products WHERE barcode='SRV-001'"),1);
+  #[test]
+  fn sqlite_backup_is_verified_before_it_is_listed_as_successful() {
+   let c=database();
+   let unique=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+   let path=std::env::temp_dir().join(format!("nabz-backup-test-{unique}.sqlite3"));
+   nabz_core::backup_database_to(&c,&path).unwrap();
+   verify_sqlite_backup(&path).unwrap();
+   let count:i64=Connection::open(&path).unwrap().query_row("SELECT COUNT(*) FROM products",[],|r|r.get(0)).unwrap();
+   assert_eq!(count,1);
+   fs::remove_file(path).unwrap();
+  }
+
+  #[test]
+  fn corrupted_sqlite_backup_is_rejected() {
+   let unique=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+   let path=std::env::temp_dir().join(format!("nabz-backup-corrupt-{unique}.sqlite3"));
+   fs::write(&path,b"not a sqlite database").unwrap();
+   assert!(verify_sqlite_backup(&path).is_err());
+   fs::remove_file(path).unwrap();
+  }
+
  }
 
 }
