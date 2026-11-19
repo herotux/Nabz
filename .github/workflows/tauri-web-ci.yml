@@ -100,7 +100,18 @@ jobs:
         run: bash -n install.sh
 
       - name: Build frontend and type-check
-        run: npm run build
+        env:
+          TAURI_ENV_PLATFORM: linux
+        run: |
+          npm run build
+          # A desktop build must load assets from the Tauri origin root, never
+          # from the GitHub Pages /Nabz/ subpath.
+          if grep -Eo '(/Nabz/)?assets/[^" ]+' dist/index.html | grep -q '^/Nabz/'; then
+            echo "Invalid GitHub Pages asset base in the desktop bundle" >&2
+            cat dist/index.html
+            exit 1
+          fi
+          grep -q 'src="/assets/' dist/index.html
 
       - name: Report frontend bundle size
         run: |
