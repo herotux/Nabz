@@ -7,7 +7,6 @@ import { JalaliDateField } from './components/forms/JalaliDateField';
 import { PageHeading, PrimaryButton } from './components/layout/PagePrimitives';
 import { RecordsPage } from './components/tables/RecordsPage';
 import { Dashboard, ProductsPage } from './components/pages/DashboardProducts';
-import { RecordsTable } from './components/tables/RecordsTable';
 import type { RecordRow } from './types';
 import {
   Activity, ArrowDownLeft, ArrowUpRight, BarChart3, Bell, Boxes, CalendarDays,
@@ -323,7 +322,6 @@ function App(){
 }
 
 
-function MiniStat({label,value,icon:Icon}:{label:string;value:number;icon:typeof Boxes}){return <div className="mini-stat"><i><Icon size={18}/></i><span>{label}</span><b>{money(value)}</b></div>}
 function reportCsvCell(value:string|number){
  const raw=String(value??'');
  const safe=/^[=+@\t\r\n-]/.test(raw)?"'"+raw:raw;
