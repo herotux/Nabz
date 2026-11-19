@@ -39,6 +39,10 @@ sudo pacman -U ./nabz-tauri-0.1.0-1-x86_64.pkg.tar.zst
 
 پیکربندی Tauri عمداً bundler داخلی deb/AppImage را غیرفعال کرده است؛ بستهٔ Arch از باینری Release و PKGBUILD ساخته می‌شود.
 
+## نصب روی Arch / Manjaro
+
+راهنمای نصب/ارتقا و اسکریپت نصب یک‌مرحله‌ای در [INSTALL.md](INSTALL.md) و [install.sh](install.sh) قرار دارد. نصب‌کننده پس از انتشار Release عمومی دارای checksum فعال می‌شود؛ تا آن زمان از artifact آزمایشی CI استفاده کنید.
+
 ## وضعیت و نقشهٔ راه
 
 - [وضعیت پیاده‌سازی و شواهد آزمون](IMPLEMENTATION_STATUS.md)
