@@ -135,7 +135,23 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Build optimized Tauri executable
-        run: cargo build --release --manifest-path src-tauri/Cargo.toml --bin nabz-tauri
+        id: release-build
+        run: |
+          started=$(date +%s)
+          cargo build --release --manifest-path src-tauri/Cargo.toml --bin nabz-tauri
+          finished=$(date +%s)
+          echo "seconds=$((finished-started))" >> "$GITHUB_OUTPUT"
+
+      - name: Report optimized runtime footprint
+        run: |
+          binary="src-tauri/target/release/nabz-tauri"
+          test -s "$binary"
+          bytes=$(stat -c '%s' "$binary")
+          echo "" >> bundle-performance-report.txt
+          echo "Optimized Tauri executable: $bytes bytes" >> bundle-performance-report.txt
+          echo "Release build wall time: ${{ steps.release-build.outputs.seconds }} seconds" >> bundle-performance-report.txt
+          echo "SQLite runtime: bundled; schema version and query indexes are covered by Rust tests." >> bundle-performance-report.txt
+          cat bundle-performance-report.txt
 
       - name: Prepare Arch package inputs
         run: |
