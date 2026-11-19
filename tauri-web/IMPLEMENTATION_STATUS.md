@@ -1,10 +1,10 @@
 > **ممیزی وضعیت — 2026-11-19:** فایل [TODO.md](TODO.md) سند مادر فازها و کارهای باز است. CI آخرین head قبل از استخراج کامپوننت‌ها موفق بود؛ استخراج جدید در head `a405315` شامل fixهای قبلی و ماژول‌های Records است و CI تازه در حال اجراست.
 >
 > - شاخه مرجع: `ui/react-tauri-redesign`؛ PR #8 باز، Draft و ادغام‌نشده.
-> - آخرین commit شاخه: `a405315a7ca50eb58d7c13926018080b58ae9c10`؛ از این commit تغییرات UI نیز در جریان است.
+> - آخرین commit UI: `374db4c0da53710a5863813f456f1160269acbdc`؛ از این commit تغییرات UI نیز در جریان است.
 > - schema جاری: **v14**؛ اشاره‌های v8/v10/v11/v12 در متن تاریخی‌اند.
 > - workflowهای فعال: `.github/workflows/phase1-core.yml` و `.github/workflows/tauri-web-ci.yml`.
-> - CI قبلی extraction کامپوننت به دلیل export و props ناقص شکست خورد؛ این دو خطا اصلاح شده‌اند. آخرین head `a405315` شامل استخراج RecordsPage/RecordsTable/Pagination است و CI آن هنوز نتیجه نگرفته است.
+> - CI قبلی extraction کامپوننت به دلیل export و props ناقص شکست خورد؛ این دو خطا اصلاح شدند. آخرین head `374db4c` شامل extraction RecordsPage/RecordsTable/Pagination و برچسب دسترس‌پذیر search است؛ CI آن در حال اجرا/صف است.
 > - نصب/ارتقا Manjaro واقعی، import دیتابیس egui واقعی، چاپگر و بارکدخوان فیزیکی هنوز تأیید عملی نشده‌اند.
 > - `main` در این مرحله تغییر نکرده است.
 
