@@ -94,6 +94,23 @@ jobs:
       - name: Build frontend and type-check
         run: npm run build
 
+      - name: Report frontend bundle size
+        run: |
+          python3 - <<'PY'
+          import gzip
+          from pathlib import Path
+          dist = Path("dist")
+          assets = sorted((p for p in (dist / "assets").glob("*") if p.is_file()), key=lambda p:p.stat().st_size, reverse=True)
+          files = [p for p in dist.rglob("*") if p.is_file()]
+          raw = sum(p.stat().st_size for p in files)
+          gz = sum(len(gzip.compress(p.read_bytes(), compresslevel=9)) for p in files)
+          lines = ["Nabz frontend bundle report", f"Total dist raw: {raw} bytes", f"Total dist gzip: {gz} bytes", "", "Largest assets:"]
+          lines += [f"{p.name}: {p.stat().st_size} bytes; gzip {len(gzip.compress(p.read_bytes(), compresslevel=9))} bytes" for p in assets[:15]]
+          report = "\\n".join(lines) + "\\n"
+          Path("bundle-performance-report.txt").write_text(report)
+          print(report)
+          PY
+
       - name: Verify release versions are consistent
         run: |
           python3 - <<'PY'
@@ -162,6 +179,14 @@ jobs:
           find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print
           test -n "$(find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print -quit)"
           file packaging/arch/*.pkg.tar.zst
+
+      - name: Upload frontend performance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: nabz-frontend-bundle-report
+          path: tauri-web/bundle-performance-report.txt
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload Arch / Manjaro package
         uses: actions/upload-artifact@v4

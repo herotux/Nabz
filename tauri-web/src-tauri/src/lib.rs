@@ -1111,6 +1111,7 @@ fn create_auto_backup(app:tauri::AppHandle,force:bool,db:State<'_,Db>)->Result<V
  let destination=dir.join(format!("nabz-auto-{timestamp}.sqlite3"));
  let c=db.0.lock().map_err(|e|e.to_string())?;
  nabz_core::backup_database_to(&c,&destination).map_err(|e|format!("پشتیبان خودکار ناموفق: {e}"))?;
+ #[cfg(unix)]{use std::os::unix::fs::PermissionsExt;fs::set_permissions(&dir,fs::Permissions::from_mode(0o700)).map_err(|e|format!("تنظیم permission پوشه backup ناموفق: {e}"))?;fs::set_permissions(&destination,fs::Permissions::from_mode(0o600)).map_err(|e|format!("تنظیم permission فایل backup ناموفق: {e}"))?;}
  drop(c);
  let size=fs::metadata(&destination).map_err(|e|e.to_string())?.len();
  let mut backups=fs::read_dir(&dir).map_err(|e|e.to_string())?.filter_map(|e|e.ok()).filter(|e|e.file_type().map(|t|t.is_file()).unwrap_or(false)&&e.file_name().to_string_lossy().starts_with("nabz-auto-")&&e.path().extension().is_some_and(|x|x=="sqlite3")).collect::<Vec<_>>();
