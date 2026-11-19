@@ -15,8 +15,8 @@
         "title": "نبض | حسابداری",
         "width": 1360,
         "height": 900,
-        "minWidth": 900,
-        "minHeight": 650
+        "minWidth": 720,
+        "minHeight": 540
       }
     ],
     "security": {

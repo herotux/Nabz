@@ -14,6 +14,12 @@
 آخرین بررسی: 2026-11-19  
 شاخهٔ مرجع: `ui/react-tauri-redesign` — [PR شمارهٔ ۸](https://github.com/herotux/Nabz/pull/8) (Draft)
 
+## آخرین پیشرفت ثبت‌شده
+- commit `af1da177402014cc76c2365317a7540fbb650894`، CI هسته و Tauri/Arch هر دو موفق؛ TypeScript، build، Rust، SQLite و بسته Arch تأیید CI.
+- فاز ۶: ماژول‌بندی React ۱۰/۱۰ و build تثبیت شد؛ میانبرها (Ctrl+K/N/S، F1/F2/F4/F8، Esc)، پنجره با حداقل 720×540 و CSS narrow layout اصلاح شدند. بررسی تصویری و تست عملی کلیدها هنوز باقی است.
+- فاز ۷: قالب چاپ فاکتور A4/A5/58mm/80mm، تنظیم paper از Settings، متن‌های HTML escape و اطلاعات تماس فروشگاه در print افزوده شد. چاپگر فیزیکی، layout دقیق، batch label و UI EAN13 هنوز تست/تکمیل نشده‌اند.
+- فاز ۸ و ۹ در ادامه: backup دوره‌ای native، restore staged و ممیزی permission/audit؛ baseline و benchmark روی دستگاه واقعی هنوز لازم‌اند.
+
 ## خلاصهٔ وضعیت
 
 - مسیر فعال محصول: React + TypeScript + Vite + Tauri 2 + Rust + SQLite؛ Slint و egui رابط فعال محصول نیستند.

@@ -41,6 +41,7 @@ const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string
 ];
 const pageTitles:Record<Page,string> = {dashboard:'نمای کلی',contacts:'طرف‌حساب‌ها',invoices:'فاکتورها',payments:'دریافت و پرداخت',products:'کالا و انبار',reports:'گزارش‌ها',printing:'چاپ و بارکد',settings:'تنظیمات'};
 const money=(n:number)=>new Intl.NumberFormat('fa-IR').format(Number.isFinite(n)?n:0);
+const escapeHtml=(value:unknown)=>String(value??'').replace(/[&<>\"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]||ch));
 const today=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{day:'numeric',month:'long',year:'numeric'}).format(new Date());
 const localIso=(date:Date)=>date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');
 const isoToday=localIso(new Date());
@@ -272,9 +273,13 @@ function App(){
   const printInvoice=async(id:number)=>{
     try{
       const data=await invoke<InvoicePrint>('get_invoice_print',{id});
-      const rows=data.items.map(x=>'<tr><td>'+x.item_name+'</td><td>'+money(x.quantity)+'</td><td>'+money(x.unit_price)+'</td><td>'+money(x.line_total)+'</td></tr>').join('');
+      const rows=data.items.map(x=>'<tr><td>'+escapeHtml(x.item_name)+'</td><td>'+money(x.quantity)+'</td><td>'+money(x.unit_price)+'</td><td>'+money(x.line_total)+'</td></tr>').join('');
       const w=window.open('','_blank','width=900,height=700');if(!w)throw new Error('پنجره چاپ مسدود است');
-      w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>فاکتور '+data.invoice.number+'</title><style>body{font-family:Tahoma,sans-serif;padding:32px;color:#182536}h1{font-size:22px}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border:1px solid #ddd;padding:10px;text-align:right}footer{margin-top:25px;font-weight:bold}</style><h1>'+((data.shop.shop_name)||'نبض')+'</h1><h2>فاکتور '+(data.invoice.kind==='sale'?'فروش':'خرید')+' شماره '+money(data.invoice.number)+'</h2><p>طرف حساب: '+data.invoice.contact_name+'　 تاریخ: '+formatJalaliDate(data.invoice.invoice_date)+'</p><table><thead><tr><th>شرح</th><th>تعداد</th><th>فی</th><th>مبلغ</th></tr></thead><tbody>'+rows+'</tbody></table><footer>جمع کل: '+money(data.invoice.total)+' تومان　 تخفیف: '+money(data.invoice.discount)+'　 پرداخت‌شده: '+money(data.invoice.paid)+'</footer><script>window.onload=()=>window.print()<\/script></html>');
+      const paper=settings.print_paper||'A4';
+      const pageSize=paper==='A5'?'A5':paper==='80mm'?'80mm auto':paper==='58mm'?'58mm auto':'A4';
+      const compact=paper==='80mm'||paper==='58mm';
+      const shopName=escapeHtml(data.shop.shop_name||'نبض'),shopPhone=escapeHtml(data.shop.shop_phone||''),shopAddress=escapeHtml(data.shop.shop_address||'');
+      w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>فاکتور '+escapeHtml(data.invoice.number)+'</title><style>@page{size:'+pageSize+';margin:'+(compact?'3mm':'10mm')+'}body{font-family:Tahoma,sans-serif;padding:'+(compact?'0':'10px')+';color:#182536;font-size:'+(compact?'10px':'12px')}h1{font-size:'+(compact?'15px':'22px')+';margin:0 0 6px}h2{font-size:'+(compact?'12px':'18px')}table{width:100%;border-collapse:collapse;margin-top:'+(compact?'10px':'24px')}td,th{border:1px solid #ddd;padding:'+(compact?'4px':'8px')+';text-align:right;font-size:inherit}footer{margin-top:12px;font-weight:bold;line-height:2}.shop-info{line-height:1.8;font-size:inherit}.muted{color:#59665e}@media print{body{print-color-adjust:exact}}</style><h1>'+shopName+'</h1><div class="shop-info">'+(shopPhone?('تماس: '+shopPhone+'<br>'):'')+(shopAddress?('نشانی: '+shopAddress):'')+'</div><h2>فاکتور '+(data.invoice.kind==='sale'?'فروش':'خرید')+' شماره '+money(data.invoice.number)+'</h2><p>طرف حساب: '+escapeHtml(data.invoice.contact_name)+'　 تاریخ: '+escapeHtml(formatJalaliDate(data.invoice.invoice_date))+'</p><table><thead><tr><th>شرح</th><th>تعداد</th><th>فی</th><th>مبلغ</th></tr></thead><tbody>'+rows+'</tbody></table><footer>جمع کل: '+money(data.invoice.total)+' تومان<br>تخفیف: '+money(data.invoice.discount)+' تومان<br>پرداخت‌شده: '+money(data.invoice.paid)+' تومان</footer><script>window.onload=()=>window.print()<\\/script></html>');
       w.document.close();
     }catch(e){notify('آماده‌سازی چاپ ناموفق بود: '+String(e))}
   };
@@ -282,6 +287,23 @@ function App(){
     try{await Promise.all(Object.entries(settings).map(([key,value])=>invoke('save_setting',{key,value})));notify('تنظیمات ذخیره شد.')}
     catch(e){notify('ذخیره تنظیمات ناموفق بود: '+String(e))}
   };
+
+  useEffect(()=>{
+    const onShortcut=(event:KeyboardEvent)=>{
+      const target=event.target as HTMLElement|null;
+      const typing=!!target&&(target.isContentEditable||!!target.closest('input,textarea,select'));
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){event.preventDefault();setQuery('');window.setTimeout(()=>document.querySelector<HTMLInputElement>('.search-box input')?.focus(),0);return;}
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&(entry==='sale'||entry==='purchase')){event.preventDefault();void saveInvoiceDraft();return;}
+      if(event.key==='Escape'&&entry){event.preventDefault();closeEntry();return;}
+      if(typing)return;
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='n'){event.preventDefault();openEntry(page==='contacts'?'contact':page==='products'?'product':page==='payments'?'receipt':'sale');return;}
+      if(event.key==='F1'){event.preventDefault();notify('میانبرها: Ctrl+K جست‌وجو · Ctrl+N مورد جدید · Ctrl+S ذخیره پیش‌نویس · F2 افزودن · F4 دریافت/پرداخت · F8 کالا · Esc بستن');}
+      else if(event.key==='F2'){event.preventDefault();openEntry(page==='contacts'?'contact':page==='products'?'product':page==='payments'?'receipt':'sale');}
+      else if(event.key==='F4'){event.preventDefault();setPage('payments');setQuery('');}
+      else if(event.key==='F8'){event.preventDefault();setPage('products');setQuery('');}
+    };
+    window.addEventListener('keydown',onShortcut);return()=>window.removeEventListener('keydown',onShortcut);
+  },[page,entry,openEntry,saveInvoiceDraft,closeEntry,notify]);
 
   const active=pageTitles[page];
   return <div className="app-shell">
@@ -333,7 +355,7 @@ function PrintingPage({notify}:{notify:(s:string)=>void}){
 }
 function SettingsPage({settings,setSettings,onSave,onBackup,onRestore}:{settings:Record<string,string>;setSettings:(v:Record<string,string>)=>void;onSave:()=>void;onBackup:()=>void;onRestore:(f?:File)=>void}){
  const update=(k:string,v:string)=>setSettings({...settings,[k]:v});
- return <><PageHeading title="تنظیمات" subtitle="اطلاعات فروشگاه، تنظیمات عمومی و حفاظت از داده‌ها"/><div className="settings-grid"><section className="surface settings-card"><h2><Store size={18}/> اطلاعات فروشگاه</h2><label className="field-label">نام فروشگاه<input value={settings.shop_name||''} onChange={e=>update('shop_name',e.target.value)} placeholder="نام فروشگاه"/></label><label className="field-label">شماره تماس<input value={settings.shop_phone||''} onChange={e=>update('shop_phone',e.target.value)} placeholder="شماره تماس"/></label><label className="field-label">نشانی<input value={settings.shop_address||''} onChange={e=>update('shop_address',e.target.value)} placeholder="نشانی فروشگاه"/></label><label className="field-label">شناسه مالیاتی<input value={settings.shop_tax||''} onChange={e=>update('shop_tax',e.target.value)} placeholder="اختیاری"/></label><button className="primary-btn" onClick={onSave}>ذخیره تنظیمات</button></section><section className="surface settings-card"><h2><ShieldIcon/> پشتیبان‌گیری و بازیابی</h2><p>برای جلوگیری از ازدست‌رفتن اطلاعات، به‌صورت منظم نسخه پشتیبان تهیه کن.</p><button className="secondary-btn wide" onClick={onBackup}><Download size={16}/> دریافت نسخه پشتیبان</button><label className="secondary-btn wide file-label"><Upload size={16}/> بازیابی از فایل پشتیبان<input type="file" accept=".json,application/json" onChange={e=>onRestore(e.target.files?.[0])}/></label></section></div></>;
+ return <><PageHeading title="تنظیمات" subtitle="اطلاعات فروشگاه، تنظیمات عمومی و حفاظت از داده‌ها"/><div className="settings-grid"><section className="surface settings-card"><h2><Store size={18}/> اطلاعات فروشگاه</h2><label className="field-label">نام فروشگاه<input value={settings.shop_name||''} onChange={e=>update('shop_name',e.target.value)} placeholder="نام فروشگاه"/></label><label className="field-label">شماره تماس<input value={settings.shop_phone||''} onChange={e=>update('shop_phone',e.target.value)} placeholder="شماره تماس"/></label><label className="field-label">نشانی<input value={settings.shop_address||''} onChange={e=>update('shop_address',e.target.value)} placeholder="نشانی فروشگاه"/></label><label className="field-label">شناسه مالیاتی<input value={settings.shop_tax||''} onChange={e=>update('shop_tax',e.target.value)} placeholder="اختیاری"/></label><label className="field-label">قالب کاغذ فاکتور<select value={settings.print_paper||'A4'} onChange={e=>update('print_paper',e.target.value)}><option value="A4">A4</option><option value="A5">A5</option><option value="80mm">حرارتی ۸۰ میلی‌متر</option><option value="58mm">حرارتی ۵۸ میلی‌متر</option></select></label><button className="primary-btn" onClick={onSave}>ذخیره تنظیمات</button></section><section className="surface settings-card"><h2><ShieldIcon/> پشتیبان‌گیری و بازیابی</h2><p>برای جلوگیری از ازدست‌رفتن اطلاعات، به‌صورت منظم نسخه پشتیبان تهیه کن.</p><button className="secondary-btn wide" onClick={onBackup}><Download size={16}/> دریافت نسخه پشتیبان</button><label className="secondary-btn wide file-label"><Upload size={16}/> بازیابی از فایل پشتیبان<input type="file" accept=".json,application/json" onChange={e=>onRestore(e.target.files?.[0])}/></label></section></div></>;
 }
 function ShieldIcon(){return <CreditCard size={18}/>}
 
