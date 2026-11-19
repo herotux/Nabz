@@ -11,7 +11,7 @@ import { ReportsPage } from './components/pages/ReportsPage';
 import type { RecordRow } from './types';
 import {
   ArrowDownLeft, ArrowUpRight, BarChart3, Bell, Boxes, CalendarDays,
-  Check, ChevronDown, ChevronLeft, CircleHelp, Command, CreditCard,
+  Check, ChevronDown, ChevronLeft, CircleHelp, Command, CreditCard, Download,
   FileText, LayoutDashboard, Menu, Package, Plus, Pencil, Eye, Printer, Search, Settings,
   ShoppingCart, SlidersHorizontal, Sparkles, Store, Users, Wallet, X, Trash2,
   Upload, RefreshCw, ScanBarcode
