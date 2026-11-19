@@ -7,7 +7,7 @@
 پس از انتشار Release عمومی:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/herotux/Nabz/main/tauri-web/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/herotux/Nabz/ui/react-tauri-redesign/tauri-web/install.sh | bash
 ```
 
 اسکریپت:
