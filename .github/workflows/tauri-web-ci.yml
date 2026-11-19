@@ -203,7 +203,7 @@ jobs:
           package="$(find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print -quit)"
           test -n "$package"
           file "$package"
-          sha256sum "$package" > "$package.sha256"
+          (cd packaging/arch && sha256sum "$(basename "$package")" > "$(basename "$package").sha256")
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             expected="v$(sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD | head -n1)"
             test "$GITHUB_REF_NAME" = "$expected" || {
