@@ -1094,23 +1094,69 @@ fn list_auto_backups(app:tauri::AppHandle)->Result<Vec<Value>,String>{
  files.reverse();
  let out=files.into_iter().map(|e|{
   let m=e.metadata().map_err(|x|x.to_string())?;
-  Ok(json!({"name":e.file_name().to_string_lossy().to_string(),"path":e.path().to_string_lossy().to_string(),"size":m.len(),"modified":m.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map(|d|d.as_secs()).unwrap_or(0)}))
+  Ok(json!({"name":e.file_name().to_string_lossy().to_string(),"size":m.len(),"modified":m.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map(|d|d.as_secs()).unwrap_or(0)}))
  }).collect::<Result<Vec<_>,String>>()?;
  Ok(out)
+}
+fn verify_sqlite_backup(path:&PathBuf)->Result<(),String>{
+ let check=Connection::open(path).map_err(|e|format!("بازکردن پشتیبان ساخته‌شده ناموفق بود: {e}"))?;
+ let integrity:String=check.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if integrity!="ok"{return Err(format!("سلامت فایل پشتیبان تأیید نشد: {integrity}"))}
+ let foreign_keys:i64=check.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if foreign_keys!=0{return Err("پشتیبان دارای ارجاع خارجی ناسازگار است".into())}
+ Ok(())
+}
+#[tauri::command]
+fn restore_auto_backup(name:String,app:tauri::AppHandle,db:State<'_,Db>)->Result<(),String>{
+ if name.len()>180||!name.starts_with("nabz-auto-")||!name.ends_with(".sqlite3")
+  ||name.chars().any(|c|!(c.is_ascii_alphanumeric()||c=='-'||c=='.')){
+  return Err("نام نسخه پشتیبان معتبر نیست".into())
+ }
+ let dir=app.path().app_data_dir().map_err(|e|e.to_string())?.join("backups");
+ let canonical_dir=dir.canonicalize().map_err(|_|"پوشه پشتیبان پیدا نشد")?;
+ let canonical_file=canonical_dir.join(&name).canonicalize().map_err(|_|"فایل پشتیبان پیدا نشد")?;
+ if canonical_file.parent()!=Some(canonical_dir.as_path())||!canonical_file.is_file(){
+  return Err("مسیر فایل پشتیبان خارج از پوشه مجاز است".into())
+ }
+ verify_sqlite_backup(&canonical_file)?;
+ let mut current=db.0.lock().map_err(|e|e.to_string())?;
+ let safety_path=create_restore_safety_backup(&current)?;
+ let source=Connection::open(&canonical_file).map_err(|e|format!("بازکردن پشتیبان ناموفق بود: {e}"))?;
+ let restore_result=(||->Result<(),String>{
+  let backup=rusqlite::backup::Backup::new(&source,&mut current).map_err(|e|e.to_string())?;
+  backup.run_to_completion(5,std::time::Duration::from_millis(100),None).map_err(|e|e.to_string())?;
+  let integrity:String=current.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if integrity!="ok"{return Err(format!("سلامت دیتابیس پس از بازیابی تأیید نشد: {integrity}"))}
+  let fk:i64=current.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if fk!=0{return Err("بازیابی به‌دلیل ناسازگاری ارجاعات رد شد".into())}
+  Ok(())
+ })();
+ if let Err(error)=restore_result{
+  let safety=Connection::open(&safety_path).map_err(|e|format!("{error}؛ بازکردن پشتیبان ایمنی ناموفق بود: {e}"))?;
+  let rollback=rusqlite::backup::Backup::new(&safety,&mut current)
+   .and_then(|b|b.run_to_completion(5,std::time::Duration::from_millis(100),None));
+  return match rollback{Ok(())=>Err(format!("{error}؛ اطلاعات قبل از بازیابی از پشتیبان ایمنی برگردانده شد.")),Err(e)=>Err(format!("{error}؛ بازیابی پشتیبان ایمنی نیز ناموفق بود: {e}؛ فایل ایمنی: {}",safety_path.display()))}
+ }
+ Ok(())
 }
 #[tauri::command]
 fn create_auto_backup(app:tauri::AppHandle,force:bool,db:State<'_,Db>)->Result<Value,String>{
  let app_dir=app.path().app_data_dir().map_err(|e|e.to_string())?;
  let dir=app_dir.join("backups");
  fs::create_dir_all(&dir).map_err(|e|format!("ساخت پوشه پشتیبان ناموفق: {e}"))?;
+ #[cfg(unix)]{use std::os::unix::fs::PermissionsExt;fs::set_permissions(&dir,fs::Permissions::from_mode(0o700)).map_err(|e|format!("تنظیم permission پوشه backup ناموفق: {e}"))?;}
  let mut existing=fs::read_dir(&dir).map_err(|e|e.to_string())?.filter_map(|e|e.ok()).filter(|e|e.file_type().map(|t|t.is_file()).unwrap_or(false)&&e.file_name().to_string_lossy().starts_with("nabz-auto-")&&e.path().extension().is_some_and(|x|x=="sqlite3")).collect::<Vec<_>>();
  existing.sort_by_key(|e|e.metadata().and_then(|m|m.modified()).ok());existing.reverse();
  if !force{if let Some(last)=existing.first(){if let Ok(m)=last.metadata(){if let Ok(age)=m.modified().and_then(|t|SystemTime::now().duration_since(t).map_err(std::io::Error::other)){if age.as_secs()<86400{return Ok(json!({"created":false,"name":last.file_name().to_string_lossy(),"size":m.len(),"modified":m.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map(|d|d.as_secs()).unwrap_or(0)}))}}}}}
- let timestamp=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_secs();
- let destination=dir.join(format!("nabz-auto-{timestamp}.sqlite3"));
+ let duration=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?;
+ let timestamp=duration.as_secs();let unique=duration.as_nanos();
+ let destination=dir.join(format!("nabz-auto-{unique}.sqlite3"));
+ let temporary=dir.join(format!(".nabz-auto-{unique}.tmp.sqlite3"));
  let c=db.0.lock().map_err(|e|e.to_string())?;
- nabz_core::backup_database_to(&c,&destination).map_err(|e|format!("پشتیبان خودکار ناموفق: {e}"))?;
- #[cfg(unix)]{use std::os::unix::fs::PermissionsExt;fs::set_permissions(&dir,fs::Permissions::from_mode(0o700)).map_err(|e|format!("تنظیم permission پوشه backup ناموفق: {e}"))?;fs::set_permissions(&destination,fs::Permissions::from_mode(0o600)).map_err(|e|format!("تنظیم permission فایل backup ناموفق: {e}"))?;}
+ if let Err(error)=nabz_core::backup_database_to(&c,&temporary){let _=fs::remove_file(&temporary);return Err(format!("پشتیبان خودکار ناموفق: {error}"))}
+ #[cfg(unix)]{use std::os::unix::fs::PermissionsExt;if let Err(e)=fs::set_permissions(&temporary,fs::Permissions::from_mode(0o600)){let _=fs::remove_file(&temporary);return Err(format!("تنظیم permission فایل backup ناموفق: {e}"))}}
+ if let Err(error)=verify_sqlite_backup(&temporary){let _=fs::remove_file(&temporary);return Err(error)}
+ if let Err(error)=fs::rename(&temporary,&destination){let _=fs::remove_file(&temporary);return Err(format!("ثبت نهایی فایل پشتیبان ناموفق: {error}"))}
  drop(c);
  let size=fs::metadata(&destination).map_err(|e|e.to_string())?.len();
  let mut backups=fs::read_dir(&dir).map_err(|e|e.to_string())?.filter_map(|e|e.ok()).filter(|e|e.file_type().map(|t|t.is_file()).unwrap_or(false)&&e.file_name().to_string_lossy().starts_with("nabz-auto-")&&e.path().extension().is_some_and(|x|x=="sqlite3")).collect::<Vec<_>>();
@@ -1120,7 +1166,7 @@ fn create_auto_backup(app:tauri::AppHandle,force:bool,db:State<'_,Db>)->Result<V
 }
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,restore_auto_backup,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
