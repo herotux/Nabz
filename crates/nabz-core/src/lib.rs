@@ -1,0 +1,1489 @@
+//! Shared persistence foundation used by every Nabz user interface.
+//!
+//! Tauri opens the per-user database. Keep schema creation and migrations here
+//! so every accounting command uses one versioned SQLite ledger.
+
+pub mod accounting;
+pub mod ai;
+pub mod legacy_migration;
+
+use rusqlite::{backup::Backup, Connection, OpenFlags};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::path::{Path, PathBuf};
+
+pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz";
+pub const DATABASE_FILE: &str = "nabz.sqlite3";
+pub const SCHEMA_VERSION: i64 = 14;
+
+/// Normalize Persian and English contact roles consistently across application instances.
+pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_lowercase().as_str() {
+        "" | "customer" | "مشتری" => Some("customer"),
+        "supplier" | "vendor" | "تامین‌کننده" | "تأمین‌کننده"
+        | "تامین کننده" | "تأمین کننده" => Some("supplier"),
+        "both" | "customer_supplier" | "هر دو"
+        | "مشتری و تامین‌کننده" | "مشتری و تأمین‌کننده"
+        | "مشتری و تامین کننده" | "مشتری و تأمین کننده" => Some("both"),
+        _ => None,
+    }
+}
+
+/// Resolve the canonical database path. NABZ_DB_PATH is retained as an
+/// explicit override for portable installs, tests, and administrators.
+#[cfg(target_os = "windows")]
+fn data_home_path() -> Option<PathBuf> {
+    std::env::var_os("APPDATA")
+        .or_else(|| std::env::var_os("LOCALAPPDATA"))
+        .map(PathBuf::from)
+}
+
+#[cfg(target_os = "macos")]
+fn data_home_path() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join("Library/Application Support"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn data_home_path() -> Option<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+}
+
+/// Previous Tauri prototype path. It is read only during a one-time, non-destructive
+/// migration to the stable application identifier.
+fn previous_tauri_database_path() -> Option<PathBuf> {
+    data_home_path().map(|root| root.join("com.herotux.nabz.webprototype").join(DATABASE_FILE))
+}
+
+/// Original egui application path.
+fn legacy_egui_database_path() -> Option<PathBuf> {
+    data_home_path().map(|root| root.join("nabz").join(DATABASE_FILE))
+}
+
+/// Resolve the canonical per-user database path. NABZ_DB_PATH is retained as an
+/// explicit override for portable installs, tests, and administrators.
+pub fn database_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("NABZ_DB_PATH") {
+        return PathBuf::from(path);
+    }
+    data_home_path()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(APP_DATA_DIRECTORY)
+        .join(DATABASE_FILE)
+}
+
+/// Canonical per-user storage layout. Application binaries are deliberately not
+/// part of this directory and may be independently installed or removed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataPaths {
+    pub root: PathBuf,
+    pub database: PathBuf,
+    pub backups: PathBuf,
+    pub attachments: PathBuf,
+    pub logs: PathBuf,
+}
+
+impl DataPaths {
+    pub fn from_database_path(database: impl Into<PathBuf>) -> Result<Self, String> {
+        let database = database.into();
+        let root = database.parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        Ok(Self {
+            backups: root.join("backups"),
+            attachments: root.join("attachments"),
+            logs: root.join("logs"),
+            root,
+            database,
+        })
+    }
+
+    pub fn ensure_directories(&self) -> Result<(), String> {
+        for directory in [&self.root, &self.backups, &self.attachments, &self.logs] {
+            std::fs::create_dir_all(directory)
+                .map_err(|e| format!("ساخت پوشهٔ دادهٔ نبض ناموفق بود ({}): {e}", directory.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+                    .map_err(|e| format!("محدودکردن دسترسی پوشهٔ داده ناموفق بود ({}): {e}", directory.display()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Return the canonical shared user-data layout used by the application.
+pub fn data_paths() -> Result<DataPaths, String> {
+    DataPaths::from_database_path(database_path())
+}
+
+/// Create shared data, backup, attachment, and log directories without
+/// coupling their lifetime to either application's installation directory.
+pub fn ensure_data_directories() -> Result<DataPaths, String> {
+    let paths = data_paths()?;
+    paths.ensure_directories()?;
+    Ok(paths)
+}
+
+/// Create a complete SQLite snapshot. The SQLite backup API includes every
+/// table, index, trigger and schema migration (including future accounting tables).
+pub fn backup_database_to(connection: &Connection, destination: impl AsRef<Path>) -> Result<(), String> {
+    let destination = destination.as_ref();
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("ساخت پوشهٔ پشتیبان ناموفق بود: {e}"))?;
+    }
+    let result = (|| -> Result<(), String> {
+        let mut output = Connection::open(destination)
+            .map_err(|e| format!("ساخت فایل پشتیبان ناموفق بود: {e}"))?;
+        let backup = Backup::new(connection, &mut output).map_err(|e| e.to_string())?;
+        backup.run_to_completion(128, Duration::from_millis(10), None)
+            .map_err(|e| format!("تهیهٔ نسخهٔ پشتیبان ناموفق بود: {e}"))?;
+        drop(backup);
+        let integrity: String = output.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        if integrity != "ok" {
+            return Err(format!("اعتبارسنجی نسخهٔ پشتیبان ناموفق بود: {integrity}"));
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(destination);
+    }
+    result
+}
+
+/// Store a timestamped full-database backup in the shared Nabz data directory.
+pub fn create_automatic_backup(connection: &Connection) -> Result<PathBuf, String> {
+    let directory = database_path().parent()
+        .ok_or("مسیر پایگاه داده معتبر نیست")?
+        .join("backups");
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?.as_nanos();
+    let path = directory.join(format!("nabz-{stamp}.sqlite3"));
+    backup_database_to(connection, &path)?;
+    Ok(path)
+}
+
+/// Return the newest timestamped SQLite backup in the shared data directory.
+pub fn latest_backup_path() -> Result<PathBuf, String> {
+    let directory = database_path().parent()
+        .ok_or("مسیر پایگاه داده معتبر نیست")?
+        .join("backups");
+    let mut candidates = std::fs::read_dir(&directory)
+        .map_err(|e| format!("پوشهٔ پشتیبان پیدا نشد: {e}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "sqlite3"))
+        .collect::<Vec<_>>();
+    candidates.sort();
+    candidates.pop().ok_or_else(|| "هیچ نسخهٔ پشتیبانی برای بازیابی وجود ندارد".into())
+}
+
+/// Validate the minimum schema contract before a snapshot is allowed to replace live data.
+fn validate_restore_source(source: &Connection) -> Result<(), String> {
+    let integrity: String = source.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|e| format!("فایل پشتیبان معتبر نیست: {e}"))?;
+    if integrity != "ok" {
+        return Err(format!("فایل پشتیبان خراب است: {integrity}"));
+    }
+
+    let version: i64 = source.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    if version > SCHEMA_VERSION {
+        return Err(format!("نسخهٔ پشتیبان ({version}) از نسخهٔ پشتیبانی‌شدهٔ برنامه ({SCHEMA_VERSION}) جدیدتر است."));
+    }
+
+    // A valid SQLite file is not necessarily a Nabz database. Reject unrelated
+    // or incomplete files before touching the active ledger.
+    for table in ["contacts", "products", "invoices", "invoice_items", "payments", "settings"] {
+        let exists: i64 = source.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+            [table], |row| row.get(0)
+        ).map_err(|e| e.to_string())?;
+        if exists != 1 {
+            return Err(format!("فایل انتخاب‌شده پایگاه دادهٔ معتبر نبض نیست؛ جدول «{table}» وجود ندارد."));
+        }
+    }
+
+    let foreign_key_errors: i64 = source.query_row(
+        "SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| row.get(0)
+    ).map_err(|e| e.to_string())?;
+    if foreign_key_errors != 0 {
+        return Err("فایل پشتیبان دارای ارجاع‌های ناسازگار است و بازیابی متوقف شد".into());
+    }
+    Ok(())
+}
+
+/// Restore a full database snapshot into the already-open shared connection.
+///
+/// A verified emergency snapshot is created before the live ledger is changed.
+/// If SQLite replacement or post-restore migration fails, the emergency
+/// snapshot is restored before returning an error. The safety snapshot is kept
+/// after success so the user can recover the pre-restore state manually.
+pub fn restore_database_from(connection: &mut Connection, source_path: impl AsRef<Path>) -> Result<(), String> {
+    let source_path = source_path.as_ref();
+    let source = Connection::open_with_flags(source_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("فایل پشتیبان باز نشد: {e}"))?;
+    validate_restore_source(&source)?;
+
+    let canonical_db = database_path();
+    let safety_dir = if canonical_db.exists() {
+        canonical_db.parent().ok_or("مسیر پایگاه داده معتبر نیست")?.join("backups")
+    } else {
+        // In-memory and isolated tests must never write into a developer's real
+        // Nabz data directory.
+        std::env::temp_dir().join("nabz-pre-restore-backups")
+    };
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?.as_nanos();
+    let safety_path = safety_dir.join(format!("pre-restore-{stamp}.sqlite3"));
+    backup_database_to(connection, &safety_path)
+        .map_err(|e| format!("ساخت نسخهٔ ایمنی پیش از بازیابی ناموفق بود؛ دیتابیس فعلی تغییر نکرد: {e}"))?;
+
+    let restore_result = (|| -> Result<(), String> {
+        let backup = Backup::new(&source, connection).map_err(|e| e.to_string())?;
+        backup.run_to_completion(128, Duration::from_millis(10), None)
+            .map_err(|e| format!("بازیابی پایگاه داده ناموفق بود: {e}"))?;
+        drop(backup);
+        initialize(connection)?;
+        Ok(())
+    })();
+
+    if let Err(restore_error) = restore_result {
+        let safety = Connection::open_with_flags(&safety_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| format!("{restore_error}; بازکردن نسخهٔ ایمنی برای بازگشت ناموفق بود: {e}. فایل ایمنی: {}", safety_path.display()))?;
+        let rollback = Backup::new(&safety, connection)
+            .and_then(|backup| backup.run_to_completion(128, Duration::from_millis(10), None));
+        if let Err(rollback_error) = rollback {
+            return Err(format!("{restore_error}; بازگردانی نسخهٔ ایمنی نیز ناموفق بود: {rollback_error}. فایل ایمنی را نگه دارید: {}", safety_path.display()));
+        }
+        drop(safety);
+        let rollback_validation = initialize(connection);
+        if let Err(validation_error) = rollback_validation {
+            return Err(format!("{restore_error}; دادهٔ قبلی بازیابی شد اما بررسی نهایی خطا داد: {validation_error}. فایل ایمنی: {}", safety_path.display()));
+        }
+        return Err(format!("{restore_error}; دیتابیس قبلی بازیابی شد. نسخهٔ ایمنی: {}", safety_path.display()));
+    }
+
+    Ok(())
+}
+
+/// Restore the newest automatic backup.
+pub fn restore_latest_backup(connection: &mut Connection) -> Result<PathBuf, String> {
+    let path = latest_backup_path()?;
+    restore_database_from(connection, &path)?;
+    Ok(path)
+}
+
+/// Open the canonical per-user database shared by all Nabz application instances.
+pub fn open_database() -> Result<Connection, String> {
+    let path = database_path();
+    let override_path = std::env::var_os("NABZ_DB_PATH").is_some();
+    let previous_tauri = if override_path { None } else { previous_tauri_database_path() };
+    let previous_tauri_exists = previous_tauri.as_ref().is_some_and(|old| old.is_file());
+
+    // Move the old prototype database to the stable app identifier using
+    // SQLite's backup API. The old file remains intact and wins over egui if
+    // both historical databases exist; they are never merged automatically.
+    if !override_path && !path.exists() {
+        if let Some(old) = previous_tauri.as_ref().filter(|old| old.is_file()) {
+            migrate_previous_tauri_database(&path, old)?;
+        }
+    }
+
+    let mut connection = open_database_at(&path)?;
+
+    // Import egui shop data only when no previous Tauri database exists.
+    // The importer itself refuses to merge into a destination with records.
+    #[cfg(target_os = "linux")]
+    if !override_path && !previous_tauri_exists {
+        if let Some(legacy) = legacy_egui_database_path() {
+            if legacy != path && legacy.is_file() {
+                legacy_migration::import_legacy_egui_database(
+                    &mut connection,
+                    &legacy,
+                    &path,
+                )?;
+            }
+        }
+    }
+
+    Ok(connection)
+}
+
+/// Copy a previous Tauri database into the new stable application-data path.
+/// The source is opened read-only and is never removed or modified.
+fn migrate_previous_tauri_database(
+    target_path: &Path,
+    previous_path: &Path,
+) -> Result<bool, String> {
+    if target_path.exists() || !previous_path.is_file() {
+        return Ok(false);
+    }
+    let paths = DataPaths::from_database_path(target_path.to_path_buf())?;
+    paths.ensure_directories()?;
+    let source = Connection::open_with_flags(
+        previous_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ).map_err(|e| format!("بازکردن دیتابیس Tauri قبلی ناموفق بود: {e}"))?;
+    let integrity: String = source.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|e| format!("بررسی سلامت دیتابیس Tauri قبلی ناموفق بود: {e}"))?;
+    if integrity != "ok" {
+        return Err(format!("دیتابیس Tauri قبلی سالم نیست؛ فایل اصلی حفظ شد: {integrity}"));
+    }
+    if let Err(error) = backup_database_to(&source, target_path) {
+        let _ = std::fs::remove_file(target_path);
+        return Err(format!("انتقال امن دیتابیس Tauri قبلی ناموفق بود؛ فایل اصلی حفظ شد: {error}"));
+    }
+    let copied = Connection::open_with_flags(
+        target_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ).map_err(|e| format!("بازبینی نسخهٔ منتقل‌شده ناموفق بود: {e}"))?;
+    let copied_integrity: String = copied.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|e| format!("بررسی نسخهٔ منتقل‌شده ناموفق بود: {e}"))?;
+    if copied_integrity != "ok" {
+        drop(copied);
+        let _ = std::fs::remove_file(target_path);
+        return Err(format!("نسخهٔ منتقل‌شده سالم نیست؛ دیتابیس قبلی حفظ شد: {copied_integrity}"));
+    }
+    Ok(true)
+}
+
+/// Open a database at an explicit path and apply the canonical schema/migrations.
+pub fn open_database_at(path: impl AsRef<Path>) -> Result<Connection, String> {
+    let path = path.as_ref();
+    let paths = DataPaths::from_database_path(path.to_path_buf())?;
+    paths.ensure_directories()?;
+
+    let connection = Connection::open(path)
+        .map_err(|e| format!("بازکردن پایگاه داده ناموفق بود ({}): {e}", path.display()))?;
+    initialize(&connection)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("محدودکردن دسترسی فایل پایگاه داده ناموفق بود: {e}"))?;
+    }
+    Ok(connection)
+}
+
+/// Create a verified snapshot of an existing on-disk database before changing
+/// its schema. In-memory databases and brand-new empty files have no durable
+/// user data to protect and are intentionally skipped.
+fn backup_before_migration(connection: &Connection, current_version: i64) -> Result<Option<PathBuf>, String> {
+    if current_version >= SCHEMA_VERSION {
+        return Ok(None);
+    }
+
+    let user_objects: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master
+         WHERE type IN ('table','index','trigger','view')
+           AND name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    ).map_err(|e| format!("بررسی دیتابیس پیش از مهاجرت ناموفق بود: {e}"))?;
+    if user_objects == 0 {
+        return Ok(None);
+    }
+
+    let filename: String = connection.query_row(
+        "PRAGMA database_list",
+        [],
+        |row| row.get(2),
+    ).map_err(|e| format!("تشخیص مسیر دیتابیس پیش از مهاجرت ناموفق بود: {e}"))?;
+    if filename.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let database = PathBuf::from(filename);
+    let root = database.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let backup_dir = root.join("backups");
+    std::fs::create_dir_all(&backup_dir)
+        .map_err(|e| format!("ساخت پوشهٔ پشتیبان پیش از مهاجرت ناموفق بود: {e}"))?;
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?.as_nanos();
+    let destination = backup_dir.join(format!("pre-migration-v{current_version}-{stamp}.sqlite3"));
+    backup_database_to(connection, &destination)
+        .map_err(|e| format!("مهاجرت متوقف شد؛ تهیهٔ پشتیبان پیش از تغییر ساختار ناموفق بود و دیتابیس دست‌نخورده ماند: {e}"))?;
+    Ok(Some(destination))
+}
+
+/// Initialize the common schema and apply every outstanding migration.
+pub fn initialize(connection: &Connection) -> Result<(), String> {
+    // Reject newer schemas before any DDL/DML can mutate a database.
+    let current_version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    if current_version > SCHEMA_VERSION {
+        return Err(format!(
+            "نسخهٔ پایگاه داده ({current_version}) از نسخهٔ پشتیبانی‌شدهٔ این برنامه ({SCHEMA_VERSION}) جدیدتر است."
+        ));
+    }
+
+    // Back up only when a real, existing on-disk database needs a migration.
+    // A failed backup aborts initialization before any schema DDL is executed.
+    backup_before_migration(connection, current_version)?;
+
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys=ON;
+             PRAGMA journal_mode=WAL;
+             CREATE TABLE IF NOT EXISTS contacts(
+               id INTEGER PRIMARY KEY,
+               name TEXT NOT NULL,
+               kind TEXT NOT NULL DEFAULT 'customer',
+               phone TEXT NOT NULL DEFAULT '',
+               opening_balance INTEGER NOT NULL DEFAULT 0,
+               notes TEXT NOT NULL DEFAULT '',
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime'))
+             );
+             CREATE TABLE IF NOT EXISTS products(
+               id INTEGER PRIMARY KEY,
+               name TEXT NOT NULL,
+               code TEXT NOT NULL UNIQUE,
+               barcode TEXT NOT NULL DEFAULT '',
+               buy_price INTEGER NOT NULL DEFAULT 0,
+               sell_price INTEGER NOT NULL DEFAULT 0,
+               quantity INTEGER NOT NULL DEFAULT 0,
+               min_quantity INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE IF NOT EXISTS invoices(
+               id INTEGER PRIMARY KEY,
+               number INTEGER NOT NULL UNIQUE,
+               kind TEXT NOT NULL,
+               contact_id INTEGER,
+               contact_name TEXT NOT NULL,
+               invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               subtotal INTEGER NOT NULL,
+               discount INTEGER NOT NULL DEFAULT 0,
+               total INTEGER NOT NULL,
+               paid INTEGER NOT NULL DEFAULT 0,
+               notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE IF NOT EXISTS invoice_items(
+               id INTEGER PRIMARY KEY,
+               invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+               product_id INTEGER,
+               item_name TEXT NOT NULL,
+               quantity INTEGER NOT NULL,
+               unit_price INTEGER NOT NULL,
+               line_total INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS payments(
+               id INTEGER PRIMARY KEY,
+               kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),
+               contact_id INTEGER,
+               contact_name TEXT NOT NULL,
+               amount INTEGER NOT NULL CHECK(amount>0),
+               method TEXT NOT NULL DEFAULT 'cash',
+               payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE IF NOT EXISTS settings(
+               key TEXT PRIMARY KEY,
+               value TEXT NOT NULL
+             );
+             UPDATE contacts SET kind='customer' WHERE lower(trim(kind)) IN ('مشتری');
+             UPDATE contacts SET kind='supplier'
+               WHERE lower(trim(kind)) IN ('vendor','تامین‌کننده','تأمین‌کننده','تامین کننده','تأمین کننده');
+             UPDATE contacts SET kind='both'
+               WHERE trim(kind) IN ('مشتری و تامین‌کننده','مشتری و تأمین‌کننده','مشتری و تامین کننده','مشتری و تأمین کننده');",
+        )
+        .map_err(|e| e.to_string())?;
+
+    migrate(connection)?;
+    // Keep SQLite's planner statistics fresh after schema/index migrations.
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_invoices_date_number
+           ON invoices(invoice_date DESC,number DESC);
+         CREATE INDEX IF NOT EXISTS idx_invoices_kind_void_date
+           ON invoices(kind,voided,invoice_date DESC,id DESC);
+         CREATE INDEX IF NOT EXISTS idx_payments_kind_date
+           ON payments(kind,payment_date DESC,id DESC);
+         PRAGMA optimize;"
+    ).map_err(|e| format!("بهینه‌سازی شاخص‌های پایگاه داده ناموفق بود: {e}"))?;
+    Ok(())
+}
+
+fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name=?2",
+        rusqlite::params![table, column],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    Ok(count > 0)
+}
+
+fn migrate(connection: &Connection) -> Result<(), String> {
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    if version > SCHEMA_VERSION {
+        return Err(format!(
+            "نسخهٔ پایگاه داده ({version}) از نسخهٔ پشتیبانی‌شدهٔ این برنامه ({SCHEMA_VERSION}) جدیدتر است."
+        ));
+    }
+
+    if version < 1 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        let has_voided: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('invoices') WHERE name='voided'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+
+        if has_voided == 0 {
+            tx.execute_batch(
+                "ALTER TABLE invoices ADD COLUMN voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1));",
+            )
+            .map_err(|e| format!("افزودن وضعیت ابطال فاکتور ناموفق بود: {e}"))?;
+        }
+
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sales_returns(
+               id INTEGER PRIMARY KEY,
+               invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+               return_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE IF NOT EXISTS sales_return_items(
+               id INTEGER PRIMARY KEY,
+               return_id INTEGER NOT NULL REFERENCES sales_returns(id),
+               invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),
+               product_id INTEGER NOT NULL REFERENCES products(id),
+               item_name TEXT NOT NULL,
+               quantity INTEGER NOT NULL CHECK(quantity>0),
+               unit_price INTEGER NOT NULL,
+               amount INTEGER NOT NULL CHECK(amount>0)
+             );
+             CREATE TABLE IF NOT EXISTS sales_refunds(
+               id INTEGER PRIMARY KEY,
+               invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+               return_id INTEGER NOT NULL REFERENCES sales_returns(id),
+               refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               method TEXT NOT NULL DEFAULT 'cash',
+               notes TEXT NOT NULL DEFAULT ''
+             );",
+        )
+        .map_err(|e| e.to_string())?;
+
+        tx.pragma_update(None, "user_version", 1).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 2 {
+        let tx=connection.unchecked_transaction().map_err(|e|e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS purchase_returns(
+               id INTEGER PRIMARY KEY,
+               invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+               return_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE IF NOT EXISTS purchase_return_items(
+               id INTEGER PRIMARY KEY,
+               return_id INTEGER NOT NULL REFERENCES purchase_returns(id),
+               invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),
+               product_id INTEGER NOT NULL REFERENCES products(id),
+               item_name TEXT NOT NULL,
+               quantity INTEGER NOT NULL CHECK(quantity>0),
+               unit_price INTEGER NOT NULL,
+               amount INTEGER NOT NULL CHECK(amount>0)
+             );
+             CREATE TABLE IF NOT EXISTS purchase_refunds(
+               id INTEGER PRIMARY KEY,
+               invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+               return_id INTEGER NOT NULL REFERENCES purchase_returns(id),
+               refund_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               method TEXT NOT NULL DEFAULT 'cash',
+               notes TEXT NOT NULL DEFAULT ''
+             );"
+        ).map_err(|e|e.to_string())?;
+        tx.pragma_update(None,"user_version",2).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;
+    }
+
+    if version < 3 {
+        let tx=connection.unchecked_transaction().map_err(|e|e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS inventory_adjustments(
+               id INTEGER PRIMARY KEY,
+               product_id INTEGER NOT NULL REFERENCES products(id),
+               product_name TEXT NOT NULL,
+               previous_quantity INTEGER NOT NULL CHECK(previous_quantity>=0),
+               new_quantity INTEGER NOT NULL CHECK(new_quantity>=0),
+               delta INTEGER NOT NULL CHECK(delta<>0),
+               reason TEXT NOT NULL CHECK(length(trim(reason))>=3),
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_inventory_adjustments_product_date
+               ON inventory_adjustments(product_id,created_at DESC);"
+        ).map_err(|e|e.to_string())?;
+        tx.pragma_update(None,"user_version",3).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;
+    }
+
+    if version < 4 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS inventory_adjustments_no_update
+               BEFORE UPDATE ON inventory_adjustments
+               BEGIN
+                 SELECT RAISE(ABORT, 'inventory adjustment history is immutable');
+               END;
+             CREATE TRIGGER IF NOT EXISTS inventory_adjustments_no_delete
+               BEFORE DELETE ON inventory_adjustments
+               BEGIN
+                 SELECT RAISE(ABORT, 'inventory adjustment history is immutable');
+               END;"
+        ).map_err(|e| e.to_string())?;
+        tx.pragma_update(None, "user_version", 4).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 5 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "invoice_items", "unit_cost")? {
+            tx.execute_batch(
+                "ALTER TABLE invoice_items ADD COLUMN unit_cost INTEGER CHECK(unit_cost IS NULL OR unit_cost>=0);"
+            ).map_err(|e| format!("افزودن بهای تاریخی ردیف فاکتور ناموفق بود: {e}"))?;
+        }
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS expenses(
+               id INTEGER PRIMARY KEY,
+               category TEXT NOT NULL CHECK(length(trim(category))>0),
+               description TEXT NOT NULL CHECK(length(trim(description))>0),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               expense_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date DESC,id DESC);"
+        ).map_err(|e| e.to_string())?;
+        tx.pragma_update(None, "user_version", 5).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 6 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "products", "average_cost")? {
+            tx.execute_batch(
+                "ALTER TABLE products ADD COLUMN average_cost INTEGER NOT NULL DEFAULT 0;
+                 -- Existing stock has no complete cost-layer history. Preserve the current
+                 -- recorded purchase price as its opening-cost estimate; new purchases
+                 -- use perpetual moving weighted-average costing from this point onward.
+                 UPDATE products SET average_cost=buy_price WHERE quantity>0;"
+            ).map_err(|e| format!("افزودن بهای میانگین موزون به کالاها ناموفق بود: {e}"))?;
+        }
+        tx.pragma_update(None, "user_version", 6).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+
+    if version < 7 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "contacts", "customer_credit_balance")? {
+            tx.execute_batch("ALTER TABLE contacts ADD COLUMN customer_credit_balance INTEGER NOT NULL DEFAULT 0 CHECK(customer_credit_balance>=0);")
+                .map_err(|e| format!("افزودن اعتبار مشتری ناموفق بود: {e}"))?;
+        }
+        if !column_exists(&tx, "contacts", "supplier_credit_balance")? {
+            tx.execute_batch("ALTER TABLE contacts ADD COLUMN supplier_credit_balance INTEGER NOT NULL DEFAULT 0 CHECK(supplier_credit_balance>=0);")
+                .map_err(|e| format!("افزودن اعتبار تأمین‌کننده ناموفق بود: {e}"))?;
+        }
+        if !column_exists(&tx, "invoices", "credit_applied")? {
+            tx.execute_batch("ALTER TABLE invoices ADD COLUMN credit_applied INTEGER NOT NULL DEFAULT 0 CHECK(credit_applied>=0);")
+                .map_err(|e| format!("ثبت اعتبار تخصیص‌یافته به فاکتور ناموفق بود: {e}"))?;
+        }
+        if !column_exists(&tx, "invoice_items", "quantity_before")? {
+            tx.execute_batch("ALTER TABLE invoice_items ADD COLUMN quantity_before INTEGER CHECK(quantity_before IS NULL OR quantity_before>=0);")
+                .map_err(|e| format!("ثبت موجودی پیش از فاکتور ناموفق بود: {e}"))?;
+        }
+        if !column_exists(&tx, "invoice_items", "average_cost_before")? {
+            tx.execute_batch("ALTER TABLE invoice_items ADD COLUMN average_cost_before INTEGER CHECK(average_cost_before IS NULL OR average_cost_before>=0);")
+                .map_err(|e| format!("ثبت میانگین بهای پیش از فاکتور ناموفق بود: {e}"))?;
+        }
+        if !column_exists(&tx, "sales_returns", "credit_refund")? {
+            tx.execute_batch("ALTER TABLE sales_returns ADD COLUMN credit_refund INTEGER NOT NULL DEFAULT 0 CHECK(credit_refund>=0);")
+                .map_err(|e| format!("ثبت برگشت اعتبار مشتری ناموفق بود: {e}"))?;
+        }
+        if !column_exists(&tx, "purchase_returns", "credit_refund")? {
+            tx.execute_batch("ALTER TABLE purchase_returns ADD COLUMN credit_refund INTEGER NOT NULL DEFAULT 0 CHECK(credit_refund>=0);")
+                .map_err(|e| format!("ثبت برگشت اعتبار تأمین‌کننده ناموفق بود: {e}"))?;
+        }
+        tx.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_invoices_contact_kind_date ON invoices(contact_id,kind,invoice_date,id);
+             CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id,id);
+             CREATE INDEX IF NOT EXISTS idx_invoice_items_product ON invoice_items(product_id);
+             CREATE INDEX IF NOT EXISTS idx_payments_contact_kind_date ON payments(contact_id,kind,payment_date,id);"
+        ).map_err(|e| e.to_string())?;
+        tx.pragma_update(None, "user_version", 7).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 8 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "invoice_items", "buy_price_before")? {
+            tx.execute_batch("ALTER TABLE invoice_items ADD COLUMN buy_price_before INTEGER CHECK(buy_price_before IS NULL OR buy_price_before>=0);")
+                .map_err(|e| format!("ثبت قیمت خرید پیش از فاکتور ناموفق بود: {e}"))?;
+        }
+        tx.pragma_update(None, "user_version", 8).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 9 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS invoice_voids(
+               id INTEGER PRIMARY KEY,
+               invoice_id INTEGER NOT NULL UNIQUE REFERENCES invoices(id),
+               kind TEXT NOT NULL CHECK(kind IN ('sale','purchase')),
+               void_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               cash_refund INTEGER NOT NULL DEFAULT 0 CHECK(cash_refund>=0),
+               credit_refund INTEGER NOT NULL DEFAULT 0 CHECK(credit_refund>=0),
+               notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE INDEX IF NOT EXISTS idx_invoice_voids_date ON invoice_voids(void_date DESC,id DESC);"
+        ).map_err(|e| format!("افزودن دفتر ابطال اسناد ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 9).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 10 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS payment_allocations(
+               id INTEGER PRIMARY KEY,
+               payment_id INTEGER REFERENCES payments(id),
+               invoice_id INTEGER REFERENCES invoices(id),
+               contact_id INTEGER REFERENCES contacts(id),
+               allocation_type TEXT NOT NULL CHECK(allocation_type IN ('invoice','opening_balance','advance','advance_application')),
+               amount INTEGER NOT NULL CHECK(amount>0),
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')),
+               CHECK(
+                 (allocation_type='invoice' AND payment_id IS NOT NULL AND invoice_id IS NOT NULL) OR
+                 (allocation_type='opening_balance' AND payment_id IS NOT NULL AND invoice_id IS NULL) OR
+                 (allocation_type='advance' AND payment_id IS NOT NULL AND invoice_id IS NULL) OR
+                 (allocation_type='advance_application' AND payment_id IS NULL AND invoice_id IS NOT NULL)
+               )
+             );
+             CREATE INDEX IF NOT EXISTS idx_payment_allocations_invoice ON payment_allocations(invoice_id,id);
+             CREATE INDEX IF NOT EXISTS idx_payment_allocations_payment ON payment_allocations(payment_id,id);
+             CREATE INDEX IF NOT EXISTS idx_payment_allocations_contact ON payment_allocations(contact_id,id);"
+        ).map_err(|e| format!("افزودن دفتر تخصیص دریافت/پرداخت ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 10).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 11 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        for (column, definition) in [
+            ("category", "TEXT NOT NULL DEFAULT ''"),
+            ("unit", "TEXT NOT NULL DEFAULT 'عدد'"),
+            ("wholesale_price", "INTEGER NOT NULL DEFAULT 0 CHECK(wholesale_price>=0)"),
+            ("is_service", "INTEGER NOT NULL DEFAULT 0 CHECK(is_service IN (0,1))"),
+        ] {
+            if !column_exists(&tx, "products", column)? {
+                tx.execute_batch(&format!("ALTER TABLE products ADD COLUMN {column} {definition};"))
+                    .map_err(|e| format!("افزودن مشخصات کالا ناموفق بود ({column}): {e}"))?;
+            }
+        }
+        tx.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category COLLATE NOCASE);
+             CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
+             CREATE INDEX IF NOT EXISTS idx_products_low_stock ON products(quantity,min_quantity)
+               WHERE is_service=0;"
+        ).map_err(|e| e.to_string())?;
+        tx.pragma_update(None, "user_version", 11).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 12 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "products", "is_active")? {
+            tx.execute_batch("ALTER TABLE products ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1));")
+                .map_err(|e| format!("افزودن وضعیت فعال کالا ناموفق بود: {e}"))?;
+        }
+        tx.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_products_active_name
+               ON products(is_active,name COLLATE NOCASE);
+             CREATE TRIGGER IF NOT EXISTS trg_products_active_barcode_unique_insert
+               BEFORE INSERT ON products
+               WHEN NEW.is_active=1 AND NEW.barcode<>'' AND EXISTS(
+                 SELECT 1 FROM products WHERE barcode=NEW.barcode AND is_active=1
+               )
+               BEGIN SELECT RAISE(ABORT,'بارکد کالای فعال تکراری است'); END;
+             CREATE TRIGGER IF NOT EXISTS trg_products_active_barcode_unique_update
+               BEFORE UPDATE OF barcode,is_active ON products
+               WHEN NEW.is_active=1 AND NEW.barcode<>'' AND (NEW.barcode<>OLD.barcode OR NEW.is_active<>OLD.is_active) AND EXISTS(
+                 SELECT 1 FROM products WHERE barcode=NEW.barcode AND is_active=1 AND id<>NEW.id
+               )
+               BEGIN SELECT RAISE(ABORT,'بارکد کالای فعال تکراری است'); END;"
+        ).map_err(|e| format!("ایجاد شاخص‌ها و کنترل بارکد کالا ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 12).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 13 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !column_exists(&tx, "invoices", "idempotency_key")? {
+            tx.execute_batch("ALTER TABLE invoices ADD COLUMN idempotency_key TEXT;")
+                .map_err(|e| format!("افزودن کلید جلوگیری از ثبت تکراری فاکتور ناموفق بود: {e}"))?;
+        }
+        tx.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_idempotency_key
+               ON invoices(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key<>'';
+             CREATE TABLE IF NOT EXISTS invoice_drafts(
+               id INTEGER PRIMARY KEY,
+               kind TEXT NOT NULL CHECK(kind IN ('sale','purchase')),
+               title TEXT NOT NULL DEFAULT '',
+               payload_json TEXT NOT NULL,
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')),
+               updated_at TEXT NOT NULL DEFAULT(datetime('now','localtime'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_invoice_drafts_updated
+               ON invoice_drafts(updated_at DESC,id DESC);"
+        ).map_err(|e| format!("ایجاد پیش‌نویس‌های فاکتور ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 13).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 14 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "ALTER TABLE sales_return_items RENAME TO sales_return_items_v13;
+             CREATE TABLE sales_return_items(
+               id INTEGER PRIMARY KEY,
+               return_id INTEGER NOT NULL REFERENCES sales_returns(id),
+               invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),
+               product_id INTEGER REFERENCES products(id),
+               item_name TEXT NOT NULL,
+               quantity INTEGER NOT NULL CHECK(quantity>0),
+               unit_price INTEGER NOT NULL,
+               amount INTEGER NOT NULL CHECK(amount>0)
+             );
+             INSERT INTO sales_return_items(id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
+               SELECT id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount
+               FROM sales_return_items_v13;
+             DROP TABLE sales_return_items_v13;
+             CREATE INDEX IF NOT EXISTS idx_sales_return_items_invoice_item
+               ON sales_return_items(invoice_item_id);
+             CREATE INDEX IF NOT EXISTS idx_sales_return_items_return
+               ON sales_return_items(return_id);"
+        ).map_err(|e| format!("فعال‌سازی برگشت ردیف‌های خدمت ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 14).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+
+    #[test]
+    fn schema_v13_adds_invoice_drafts_and_idempotency_without_losing_invoices() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO invoices(number,kind,contact_name,subtotal,total) VALUES(1001,'sale','Test',10,10)",
+            [],
+        ).unwrap();
+        connection.execute_batch("PRAGMA user_version=12;").unwrap();
+        initialize(&connection).unwrap();
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let preserved:i64=connection.query_row("SELECT COUNT(*) FROM invoices WHERE number=1001",[],|r|r.get(0)).unwrap();
+        let drafts:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='invoice_drafts'",[],|r|r.get(0)).unwrap();
+        assert_eq!((version,preserved,drafts),(SCHEMA_VERSION,1,1));
+        connection.execute("UPDATE invoices SET idempotency_key='request-1' WHERE number=1001",[]).unwrap();
+        connection.execute("INSERT INTO invoices(number,kind,contact_name,subtotal,total) VALUES(1002,'sale','Test 2',10,10)",[]).unwrap();
+        assert!(connection.execute("UPDATE invoices SET idempotency_key='request-1' WHERE number=1002",[]).is_err());
+    }
+
+    #[test]
+    fn schema_v14_allows_service_return_rows_and_preserves_product_return_history() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute("INSERT INTO products(id,name,code) VALUES(1,'کالای قدیمی','OLD-RETURN')", []).unwrap();
+        connection.execute("INSERT INTO invoices(id,number,kind,contact_name,subtotal,total) VALUES(1,1001,'sale','مشتری',100,100)", []).unwrap();
+        connection.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(1,1,1,'کالای قدیمی',1,100,100)", []).unwrap();
+        connection.execute("INSERT INTO sales_returns(id,invoice_id,amount) VALUES(1,1,100)", []).unwrap();
+        connection.execute("INSERT INTO sales_return_items(id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(1,1,1,1,'کالای قدیمی',1,100,100)", []).unwrap();
+        connection.execute_batch(
+            "DROP TABLE sales_return_items;
+             CREATE TABLE sales_return_items(
+               id INTEGER PRIMARY KEY,return_id INTEGER NOT NULL REFERENCES sales_returns(id),
+               invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id),
+               product_id INTEGER NOT NULL REFERENCES products(id),item_name TEXT NOT NULL,
+               quantity INTEGER NOT NULL CHECK(quantity>0),unit_price INTEGER NOT NULL,
+               amount INTEGER NOT NULL CHECK(amount>0)
+             );
+             INSERT INTO sales_return_items(id,return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount)
+               VALUES(1,1,1,1,'کالای قدیمی',1,100,100);
+             PRAGMA user_version=13;"
+        ).unwrap();
+        initialize(&connection).unwrap();
+        let preserved: i64 = connection.query_row("SELECT COUNT(*) FROM sales_return_items WHERE id=1 AND product_id=1", [], |r| r.get(0)).unwrap();
+        connection.execute("INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total) VALUES(2,1,NULL,'خدمت:مشاوره',1,50,50)", []).unwrap();
+        connection.execute("INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(1,2,NULL,'خدمت:مشاوره',1,50,50)", []).unwrap();
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let service_rows: i64 = connection.query_row("SELECT COUNT(*) FROM sales_return_items WHERE invoice_item_id=2 AND product_id IS NULL", [], |r| r.get(0)).unwrap();
+        let foreign_key_errors: i64 = connection.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();
+        assert_eq!(preserved,1);
+        assert_eq!((version,service_rows,foreign_key_errors),(SCHEMA_VERSION,1,0));
+    }
+
+    #[test]
+    fn schema_v12_adds_soft_deactivation_and_active_barcode_uniqueness() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        connection.execute("INSERT INTO products(name,code,barcode) VALUES('اول','ACT-1','BAR-12')", []).unwrap();
+        connection.execute("UPDATE products SET is_active=0 WHERE code='ACT-1'", []).unwrap();
+        connection.execute("INSERT INTO products(name,code,barcode) VALUES('دوم','ACT-2','BAR-12')", []).unwrap();
+        assert!(connection.execute("INSERT INTO products(name,code,barcode) VALUES('سوم','ACT-3','BAR-12')", []).is_err());
+        let active_count: i64 = connection.query_row("SELECT COUNT(*) FROM products WHERE barcode='BAR-12' AND is_active=1", [], |r| r.get(0)).unwrap();
+        assert_eq!(active_count, 1);
+        let index_count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('trg_products_active_barcode_unique_insert','trg_products_active_barcode_unique_update')",
+            [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(index_count, 2);
+    }
+
+    #[test]
+    fn v11_to_current_migration_keeps_legacy_duplicate_barcodes_without_blocking_database() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute_batch(
+            "DROP TRIGGER IF EXISTS trg_products_active_barcode_unique_insert;
+             DROP TRIGGER IF EXISTS trg_products_active_barcode_unique_update;
+             PRAGMA user_version=11;"
+        ).unwrap();
+        connection.execute("INSERT INTO products(name,code,barcode) VALUES('قدیمی ۱','OLD-BAR-1','DUP-OLD')",[]).unwrap();
+        connection.execute("INSERT INTO products(name,code,barcode) VALUES('قدیمی ۲','OLD-BAR-2','DUP-OLD')",[]).unwrap();
+        migrate(&connection).unwrap();
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let duplicates:i64=connection.query_row("SELECT COUNT(*) FROM products WHERE barcode='DUP-OLD' AND is_active=1",[],|r|r.get(0)).unwrap();
+        assert_eq!(version,SCHEMA_VERSION);
+        assert_eq!(duplicates,2);
+        connection.execute("UPDATE products SET name='ویرایش قدیمی' WHERE code='OLD-BAR-1'",[]).unwrap();
+        assert!(connection.execute("UPDATE products SET barcode='DUP-OLD' WHERE code='OLD-BAR-1'",[]).is_ok());
+        assert!(connection.execute("INSERT INTO products(name,code,barcode) VALUES('جدید','NEW-BAR','DUP-OLD')",[]).is_err());
+    }
+
+    #[test]
+    fn schema_v11_adds_product_catalog_metadata_and_stock_indexes() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let columns: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('invoice_items')
+             WHERE name IN ('unit_cost','quantity_before','average_cost_before','buy_price_before')",
+            [], |r| r.get(0)
+        ).unwrap();
+        let credit: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('contacts')
+             WHERE name IN ('customer_credit_balance','supplier_credit_balance')",
+            [], |r| r.get(0)
+        ).unwrap();
+        let void_table: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='invoice_voids'",
+            [], |r| r.get(0)
+        ).unwrap();
+        let allocation_table: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='payment_allocations'",
+            [], |r| r.get(0)
+        ).unwrap();
+        let catalog_columns: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('products')
+             WHERE name IN ('category','unit','wholesale_price','is_service')",
+            [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(columns, 4);
+        assert_eq!(credit, 2);
+        assert_eq!((void_table,allocation_table),(1,1));
+        assert_eq!(catalog_columns,4);
+    }
+
+    #[test]
+    fn v8_to_v12_migration_preserves_existing_accounting_rows() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute_batch("DROP TABLE payment_allocations; DROP TABLE invoice_voids; PRAGMA user_version=8;").unwrap();
+        connection.execute("INSERT INTO contacts(name,kind,opening_balance) VALUES('مشتری قدیمی','customer',125)",[]).unwrap();
+        connection.execute("INSERT INTO products(name,code,quantity,average_cost) VALUES('کالای قدیمی','OLD-8',3,45)",[]).unwrap();
+        migrate(&mut connection).unwrap();
+        let version: i64 = connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let (balance,stock,cost):(i64,i64,i64)=connection.query_row(
+            "SELECT c.opening_balance,p.quantity,p.average_cost FROM contacts c CROSS JOIN products p WHERE c.name='مشتری قدیمی' AND p.code='OLD-8'",
+            [],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+        ).unwrap();
+        assert_eq!((version,balance,stock,cost),(SCHEMA_VERSION,125,3,45));
+        assert!(connection.query_row("SELECT COUNT(*) FROM payment_allocations",[],|r|r.get::<_,i64>(0)).is_ok());
+        assert!(connection.query_row("SELECT COUNT(*) FROM invoice_voids",[],|r|r.get::<_,i64>(0)).is_ok());
+    }
+
+    #[test]
+    fn inventory_adjustment_audit_is_immutable_after_v4_migration() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO products(name,code,quantity) VALUES('کالا','IMM-1',5)", []
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO inventory_adjustments(product_id,product_name,previous_quantity,new_quantity,delta,reason)
+             VALUES(1,'کالا',4,5,1,'انبارگردانی')", []
+        ).unwrap();
+
+        let update = connection.execute(
+            "UPDATE inventory_adjustments SET reason='تغییر' WHERE id=1", []
+        );
+        let delete = connection.execute("DELETE FROM inventory_adjustments WHERE id=1", []);
+        assert!(update.is_err());
+        assert!(delete.is_err());
+        let count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM inventory_adjustments", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn previous_tauri_database_moves_to_stable_path_without_touching_source() {
+        let root = std::env::temp_dir().join(format!("nabz-tauri-path-migration-{}", std::process::id()));
+        let old_path = root.join("com.herotux.nabz.webprototype").join(DATABASE_FILE);
+        let new_path = root.join(APP_DATA_DIRECTORY).join(DATABASE_FILE);
+        let old = open_database_at(&old_path).unwrap();
+        old.execute_batch("DROP TABLE payment_allocations; DROP TABLE invoice_voids; PRAGMA user_version=8;").unwrap();
+        old.execute(
+            "INSERT INTO products(name,code,quantity,buy_price,average_cost) VALUES('دادهٔ قبلی','OLD-TAURI',4,25,25)",
+            [],
+        ).unwrap();
+        drop(old);
+
+        assert!(migrate_previous_tauri_database(&new_path,&old_path).unwrap());
+        assert!(old_path.is_file());
+        let migrated = open_database_at(&new_path).unwrap();
+        let migrated_version:i64=migrated.query_row("PRAGMA user_version",[],|row|row.get(0)).unwrap();
+        assert_eq!(migrated_version,SCHEMA_VERSION);
+        let (name,quantity):(String,i64)=migrated.query_row(
+            "SELECT name,quantity FROM products WHERE code='OLD-TAURI'",
+            [],|row|Ok((row.get(0)?,row.get(1)?))
+        ).unwrap();
+        assert_eq!((name,quantity),("دادهٔ قبلی".into(),4));
+        drop(migrated);
+
+        // A pre-existing canonical file always wins; it is never overwritten.
+        let existing = open_database_at(&new_path).unwrap();
+        existing.execute(
+            "INSERT INTO products(name,code,quantity) VALUES('دادهٔ مقصد','NEW-CANONICAL',1)",
+            [],
+        ).unwrap();
+        drop(existing);
+        assert!(!migrate_previous_tauri_database(&new_path,&old_path).unwrap());
+        let canonical = open_database_at(&new_path).unwrap();
+        let canonical_count:i64=canonical.query_row(
+            "SELECT COUNT(*) FROM products WHERE code='NEW-CANONICAL'",[],|row|row.get(0)
+        ).unwrap();
+        assert_eq!(canonical_count,1);
+        let old_connection=Connection::open_with_flags(&old_path,rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let old_count:i64=old_connection.query_row(
+            "SELECT COUNT(*) FROM products WHERE code='OLD-TAURI'",[],|row|row.get(0)
+        ).unwrap();
+        assert_eq!(old_count,1);
+        let old_version:i64=old_connection.query_row("PRAGMA user_version",[],|row|row.get(0)).unwrap();
+        assert_eq!(old_version,8);
+        drop(old_connection);
+        drop(canonical);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn data_layout_keeps_database_and_app_installation_separate() {
+        let root = std::env::temp_dir().join(format!("nabz-data-layout-{}", std::process::id()));
+        let paths = DataPaths::from_database_path(root.join(DATABASE_FILE)).unwrap();
+        paths.ensure_directories().unwrap();
+        assert!(paths.database.starts_with(&paths.root));
+        assert!(paths.backups.is_dir());
+        assert!(paths.attachments.is_dir());
+        assert!(paths.logs.is_dir());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn contact_roles_are_normalized_consistently() {
+        assert_eq!(normalize_contact_kind("مشتری"), Some("customer"));
+        assert_eq!(normalize_contact_kind("تأمین‌کننده"), Some("supplier"));
+        assert_eq!(normalize_contact_kind("هر دو"), Some("both"));
+        assert_eq!(normalize_contact_kind("unknown"), None);
+    }
+
+    #[test]
+    fn version_one_database_migrates_purchase_return_tables_without_data_loss() {
+        let connection=Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute("INSERT INTO products(name,code,quantity) VALUES('موجودی قدیمی','OLD-1',7)",[]).unwrap();
+        connection.pragma_update(None,"user_version",1).unwrap();
+        connection.execute_batch("DROP TABLE purchase_refunds; DROP TABLE purchase_return_items; DROP TABLE purchase_returns;").unwrap();
+        initialize(&connection).unwrap();
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let stock:i64=connection.query_row("SELECT quantity FROM products WHERE code='OLD-1'",[],|r|r.get(0)).unwrap();
+        let tables:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('purchase_returns','purchase_return_items','purchase_refunds')",[],|r|r.get(0)).unwrap();
+        assert_eq!(version,SCHEMA_VERSION);
+        assert_eq!(stock,7);
+        assert_eq!(tables,3);
+        let audit_table:i64=connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='inventory_adjustments'",[],|r|r.get(0)).unwrap();
+        assert_eq!(audit_table,1);
+    }
+
+    #[test]
+    fn version_two_database_migrates_inventory_adjustment_history() {
+        let connection=Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute("INSERT INTO products(name,code,quantity) VALUES('کالای موجود','STOCK-2',4)",[]).unwrap();
+        connection.execute_batch("DROP TABLE inventory_adjustments; DROP INDEX IF EXISTS idx_inventory_adjustments_product_date;").unwrap();
+        connection.pragma_update(None,"user_version",2).unwrap();
+        initialize(&connection).unwrap();
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let count:i64=connection.query_row("SELECT COUNT(*) FROM inventory_adjustments",[],|r|r.get(0)).unwrap();
+        let stock:i64=connection.query_row("SELECT quantity FROM products WHERE code='STOCK-2'",[],|r|r.get(0)).unwrap();
+        assert_eq!((version,count,stock),(SCHEMA_VERSION,0,4));
+    }
+
+    #[test]
+    fn version_three_database_gets_immutable_audit_triggers() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute_batch(
+            "DROP TRIGGER inventory_adjustments_no_update;
+             DROP TRIGGER inventory_adjustments_no_delete;"
+        ).unwrap();
+        connection.pragma_update(None, "user_version", 3).unwrap();
+        initialize(&connection).unwrap();
+
+        let trigger_count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger'
+             AND name IN ('inventory_adjustments_no_update','inventory_adjustments_no_delete')",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(trigger_count, 2);
+        assert_eq!(
+            connection.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0)).unwrap(),
+            SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn fresh_database_gets_shared_schema_and_version() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let has_returns: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sales_returns'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(has_returns, 1);
+    }
+
+    #[test]
+    fn initialization_is_idempotent_and_preserves_existing_records() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO contacts(name,kind) VALUES('Customer','customer')",
+            [],
+        ).unwrap();
+
+        initialize(&connection).unwrap();
+
+        let count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM contacts WHERE name='Customer'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn reopening_the_canonical_file_shares_one_ledger() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "nabz-shared-core-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let db_path = root.join(DATABASE_FILE);
+
+        let first_instance = open_database_at(&db_path).unwrap();
+        first_instance.execute(
+            "INSERT INTO contacts(name,kind) VALUES('Shared customer','customer')",
+            [],
+        ).unwrap();
+
+        // A second application process opens the same canonical file and sees
+        // the exact same record; it does not initialize a parallel ledger.
+        let second_instance = open_database_at(&db_path).unwrap();
+        let count: i64 = second_instance.query_row(
+            "SELECT COUNT(*) FROM contacts WHERE name='Shared customer'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(count, 1);
+
+        second_instance.execute(
+            "INSERT INTO products(name,code) VALUES('Shared item','SHARED-1')",
+            [],
+        ).unwrap();
+        let product_count: i64 = first_instance.query_row(
+            "SELECT COUNT(*) FROM products WHERE code='SHARED-1'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(product_count, 1);
+
+        drop(second_instance);
+        drop(first_instance);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn full_database_backup_and_restore_preserve_every_accounting_table() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "nabz-backup-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let backup_path = root.join("complete.sqlite3");
+
+        let source = Connection::open_in_memory().unwrap();
+        initialize(&source).unwrap();
+        source.execute("INSERT INTO contacts(name,kind) VALUES('Backup customer','customer')", []).unwrap();
+        source.execute("INSERT INTO products(name,code) VALUES('Backup item','BACKUP-1')", []).unwrap();
+        source.execute("INSERT INTO invoices(number,kind,contact_name,subtotal,total) VALUES(1001,'sale','Backup customer',50,50)", []).unwrap();
+        source.execute("INSERT INTO invoice_items(invoice_id,item_name,quantity,unit_price,line_total) VALUES(1,'Backup item',1,50,50)", []).unwrap();
+        source.execute("INSERT INTO sales_returns(invoice_id,amount) VALUES(1,10)", []).unwrap();
+        source.execute("INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(1,1,1,'Backup item',1,10,10)", []).unwrap();
+        source.execute("INSERT INTO sales_refunds(invoice_id,return_id,amount) VALUES(1,1,10)", []).unwrap();
+        source.execute("INSERT INTO payments(kind,contact_name,amount) VALUES('receipt','Backup customer',40)", []).unwrap();
+        source.execute("INSERT INTO settings(key,value) VALUES('store_name','Backup shop')", []).unwrap();
+
+        backup_database_to(&source, &backup_path).unwrap();
+
+        let mut target = Connection::open_in_memory().unwrap();
+        initialize(&target).unwrap();
+        target.execute("INSERT INTO contacts(name,kind) VALUES('Old data','customer')", []).unwrap();
+        restore_database_from(&mut target, &backup_path).unwrap();
+
+        let contacts: i64 = target.query_row("SELECT COUNT(*) FROM contacts", [], |r| r.get(0)).unwrap();
+        let returns: i64 = target.query_row("SELECT COUNT(*) FROM sales_returns", [], |r| r.get(0)).unwrap();
+        let return_items: i64 = target.query_row("SELECT COUNT(*) FROM sales_return_items", [], |r| r.get(0)).unwrap();
+        let refunds: i64 = target.query_row("SELECT COUNT(*) FROM sales_refunds", [], |r| r.get(0)).unwrap();
+        let settings: String = target.query_row("SELECT value FROM settings WHERE key='store_name'", [], |r| r.get(0)).unwrap();
+        assert_eq!(contacts, 1);
+        assert_eq!(returns, 1);
+        assert_eq!(return_items, 1);
+        assert_eq!(refunds, 1);
+        assert_eq!(settings, "Backup shop");
+
+        drop(target);
+        drop(source);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn restore_rejects_unrelated_sqlite_file_without_changing_live_data() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "nabz-invalid-restore-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let invalid_path = root.join("not-nabz.sqlite3");
+        let invalid = Connection::open(&invalid_path).unwrap();
+        invalid.execute("CREATE TABLE unrelated(value TEXT)", []).unwrap();
+        drop(invalid);
+
+        let mut live = Connection::open_in_memory().unwrap();
+        initialize(&live).unwrap();
+        live.execute("INSERT INTO contacts(name,kind) VALUES('Keep me','customer')", []).unwrap();
+
+        let error = restore_database_from(&mut live, &invalid_path).unwrap_err();
+        let name: String = live.query_row("SELECT name FROM contacts LIMIT 1", [], |r| r.get(0)).unwrap();
+        assert!(error.contains("پایگاه دادهٔ معتبر نبض نیست"));
+        assert_eq!(name, "Keep me");
+
+        drop(live);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_a_database_from_a_newer_schema_without_mutating_it() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES('keep');").unwrap();
+        connection.pragma_update(None, "user_version", SCHEMA_VERSION + 1).unwrap();
+        assert!(initialize(&connection).unwrap_err().contains("جدیدتر"));
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let contacts_table: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='contacts'", [], |r| r.get(0)
+        ).unwrap();
+        let value: String = connection.query_row("SELECT value FROM future_data", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, SCHEMA_VERSION + 1);
+        assert_eq!(contacts_table, 0);
+        assert_eq!(value, "keep");
+    }
+
+    #[test]
+    fn on_disk_schema_migration_creates_a_verified_pre_migration_backup() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "nabz-migration-backup-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let db_path = root.join(DATABASE_FILE);
+        let connection = open_database_at(&db_path).unwrap();
+        connection.execute(
+            "INSERT INTO products(name,code,buy_price,quantity,average_cost) VALUES('Legacy item','MIG-1',42,7,42)",
+            [],
+        ).unwrap();
+        connection.execute_batch(
+            "ALTER TABLE products DROP COLUMN average_cost;
+             PRAGMA user_version=5;"
+        ).unwrap();
+
+        initialize(&connection).unwrap();
+
+        let backup_dir = root.join("backups");
+        let backups = std::fs::read_dir(&backup_dir).unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.file_name().unwrap().to_string_lossy().starts_with("pre-migration-v5-"))
+            .collect::<Vec<_>>();
+        assert_eq!(backups.len(), 1);
+
+        let backup = Connection::open_with_flags(&backups[0], OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let backup_version: i64 = backup.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        let old_cost_column: i64 = backup.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('products') WHERE name='average_cost'",
+            [], |row| row.get(0)
+        ).unwrap();
+        let preserved_quantity: i64 = backup.query_row(
+            "SELECT quantity FROM products WHERE code='MIG-1'", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(backup_version, 5);
+        assert_eq!(old_cost_column, 0);
+        assert_eq!(preserved_quantity, 7);
+
+        let migrated_cost: i64 = connection.query_row(
+            "SELECT average_cost FROM products WHERE code='MIG-1'", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(migrated_cost, 42);
+
+        drop(backup);
+        drop(connection);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn version_five_migration_adds_average_cost_without_rewriting_historical_sales_cost() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO products(name,code,buy_price,quantity) VALUES('Legacy item','LEGACY-AVG',42,7)", []
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO invoices(number,kind,contact_name,subtotal,total) VALUES(7001,'sale','Legacy customer',100,100)", []
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost)
+             VALUES(1,1,'Legacy item',1,100,100,17)", []
+        ).unwrap();
+        connection.execute_batch(
+            "ALTER TABLE products DROP COLUMN average_cost;
+             PRAGMA user_version=5;"
+        ).unwrap();
+        initialize(&connection).unwrap();
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let (average_cost, historical_cost): (i64, i64) = connection.query_row(
+            "SELECT p.average_cost,ii.unit_cost
+             FROM products p JOIN invoice_items ii ON ii.product_id=p.id WHERE p.id=1",
+            [], |r| Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        assert_eq!((version, average_cost, historical_cost), (SCHEMA_VERSION, 42, 17));
+    }
+
+
+    #[test]
+    fn legacy_tauri_database_migrates_without_losing_credit_or_stock_data() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(
+            "CREATE TABLE contacts(
+               id INTEGER PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'customer',
+               phone TEXT NOT NULL DEFAULT '',opening_balance INTEGER NOT NULL DEFAULT 0,
+               notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT(datetime('now','localtime')),
+               customer_credit_balance INTEGER NOT NULL DEFAULT 0,
+               supplier_credit_balance INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE products(
+               id INTEGER PRIMARY KEY,name TEXT NOT NULL,code TEXT NOT NULL UNIQUE,
+               barcode TEXT NOT NULL DEFAULT '',buy_price INTEGER NOT NULL DEFAULT 0,
+               sell_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 0,
+               min_quantity INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE invoices(
+               id INTEGER PRIMARY KEY,number INTEGER NOT NULL UNIQUE,kind TEXT NOT NULL,
+               contact_id INTEGER,contact_name TEXT NOT NULL,
+               invoice_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               subtotal INTEGER NOT NULL,discount INTEGER NOT NULL DEFAULT 0,
+               total INTEGER NOT NULL,paid INTEGER NOT NULL DEFAULT 0,notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE invoice_items(
+               id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+               product_id INTEGER,item_name TEXT NOT NULL,quantity INTEGER NOT NULL,
+               unit_price INTEGER NOT NULL,line_total INTEGER NOT NULL
+             );
+             CREATE TABLE payments(
+               id INTEGER PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('receipt','payment')),
+               contact_id INTEGER,contact_name TEXT NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),
+               method TEXT NOT NULL DEFAULT 'cash',payment_date TEXT NOT NULL DEFAULT(date('now','localtime')),
+               notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+             INSERT INTO contacts(id,name,kind,customer_credit_balance,supplier_credit_balance)
+               VALUES(1,'Legacy customer','customer',75,0);
+             INSERT INTO products(id,name,code,buy_price,sell_price,quantity,min_quantity)
+               VALUES(1,'Legacy pen','LEGACY-PEN',42,90,7,1);
+             INSERT INTO invoices(id,number,kind,contact_id,contact_name,subtotal,total,paid)
+               VALUES(1,7001,'sale',1,'Legacy customer',100,100,100);
+             INSERT INTO invoice_items(id,invoice_id,product_id,item_name,quantity,unit_price,line_total)
+               VALUES(1,1,1,'Legacy pen',1,100,100);
+             PRAGMA user_version=0;"
+        ).unwrap();
+        initialize(&connection).unwrap();
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let (credit,quantity,average,voided,unit_cost):(i64,i64,i64,i64,Option<i64>) = connection.query_row(
+            "SELECT c.customer_credit_balance,p.quantity,p.average_cost,i.voided,ii.unit_cost
+             FROM contacts c JOIN products p ON p.id=1 JOIN invoices i ON i.id=1
+             JOIN invoice_items ii ON ii.id=1 WHERE c.id=1",
+            [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
+        ).unwrap();
+        assert_eq!((version,credit,quantity,average,voided,unit_cost),(SCHEMA_VERSION,75,7,42,0,None));
+    }
+
+
+}
