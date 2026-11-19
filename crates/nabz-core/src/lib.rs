@@ -104,6 +104,12 @@ impl DataPaths {
         for directory in [&self.root, &self.backups, &self.attachments, &self.logs] {
             std::fs::create_dir_all(directory)
                 .map_err(|e| format!("ساخت پوشهٔ دادهٔ نبض ناموفق بود ({}): {e}", directory.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+                    .map_err(|e| format!("محدودکردن دسترسی پوشهٔ داده ناموفق بود ({}): {e}", directory.display()))?;
+            }
         }
         Ok(())
     }
@@ -355,6 +361,12 @@ pub fn open_database_at(path: impl AsRef<Path>) -> Result<Connection, String> {
     let connection = Connection::open(path)
         .map_err(|e| format!("بازکردن پایگاه داده ناموفق بود ({}): {e}", path.display()))?;
     initialize(&connection)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("محدودکردن دسترسی فایل پایگاه داده ناموفق بود: {e}"))?;
+    }
     Ok(connection)
 }
 
