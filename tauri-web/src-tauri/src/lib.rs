@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection, OptionalExtension};
+use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{collections::{HashMap, HashSet}, path::PathBuf, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
@@ -1085,9 +1086,41 @@ fn get_invoice_detail(id:i64,db:State<'_,Db>)->Result<Value,String>{
  Ok(json!({"invoice":invoice,"items":items,"payments":payments,"returns":returns,"refunds":refunds,"void":void_record}))
 }
 
+#[tauri::command]
+fn list_auto_backups(app:tauri::AppHandle)->Result<Vec<Value>,String>{
+ let dir=app.path().app_data_dir().map_err(|e|e.to_string())?.join("backups");
+ if !dir.exists(){return Ok(Vec::new())}
+ let mut files=fs::read_dir(&dir).map_err(|e|e.to_string())?.filter_map(|e|e.ok()).filter(|e|e.file_type().map(|t|t.is_file()).unwrap_or(false)&&e.file_name().to_string_lossy().starts_with("nabz-auto-")&&e.path().extension().is_some_and(|x|x=="sqlite3")).collect::<Vec<_>>();
+ files.sort_by_key(|e|e.metadata().and_then(|m|m.modified()).ok());
+ files.reverse();
+ let out=files.into_iter().map(|e|{
+  let m=e.metadata().map_err(|x|x.to_string())?;
+  Ok(json!({"name":e.file_name().to_string_lossy().to_string(),"path":e.path().to_string_lossy().to_string(),"size":m.len(),"modified":m.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map(|d|d.as_secs()).unwrap_or(0)}))
+ }).collect::<Result<Vec<_>,String>>()?;
+ Ok(out)
+}
+#[tauri::command]
+fn create_auto_backup(app:tauri::AppHandle,force:bool,db:State<'_,Db>)->Result<Value,String>{
+ let app_dir=app.path().app_data_dir().map_err(|e|e.to_string())?;
+ let dir=app_dir.join("backups");
+ fs::create_dir_all(&dir).map_err(|e|format!("ساخت پوشه پشتیبان ناموفق: {e}"))?;
+ let mut existing=fs::read_dir(&dir).map_err(|e|e.to_string())?.filter_map(|e|e.ok()).filter(|e|e.file_type().map(|t|t.is_file()).unwrap_or(false)&&e.file_name().to_string_lossy().starts_with("nabz-auto-")&&e.path().extension().is_some_and(|x|x=="sqlite3")).collect::<Vec<_>>();
+ existing.sort_by_key(|e|e.metadata().and_then(|m|m.modified()).ok());existing.reverse();
+ if !force{if let Some(last)=existing.first(){if let Ok(m)=last.metadata(){if let Ok(age)=m.modified().and_then(|t|SystemTime::now().duration_since(t).map_err(std::io::Error::other)){if age.as_secs()<86400{return Ok(json!({"created":false,"name":last.file_name().to_string_lossy(),"size":m.len(),"modified":m.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map(|d|d.as_secs()).unwrap_or(0)}))}}}}}
+ let timestamp=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_secs();
+ let destination=dir.join(format!("nabz-auto-{timestamp}.sqlite3"));
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ nabz_core::backup_database_to(&c,&destination).map_err(|e|format!("پشتیبان خودکار ناموفق: {e}"))?;
+ drop(c);
+ let size=fs::metadata(&destination).map_err(|e|e.to_string())?.len();
+ let mut backups=fs::read_dir(&dir).map_err(|e|e.to_string())?.filter_map(|e|e.ok()).filter(|e|e.file_type().map(|t|t.is_file()).unwrap_or(false)&&e.file_name().to_string_lossy().starts_with("nabz-auto-")&&e.path().extension().is_some_and(|x|x=="sqlite3")).collect::<Vec<_>>();
+ backups.sort_by_key(|e|e.metadata().and_then(|m|m.modified()).ok());backups.reverse();
+ for old in backups.iter().skip(30){let _=fs::remove_file(old.path());}
+ Ok(json!({"created":true,"name":destination.file_name().unwrap_or_default().to_string_lossy(),"size":size,"modified":timestamp}))
+}
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]

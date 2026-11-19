@@ -74,6 +74,7 @@ function App(){
   const [form,setForm]=useState<Record<string,string>>({});
   const [lines,setLines]=useState([{item:'',qty:'1',price:'0'}]);
   const [settings,setSettings]=useState<Record<string,string>>({});
+  const [autoBackups,setAutoBackups]=useState<{name:string;size:number;modified:number}[]>([]);
   const [mobileOpen,setMobileOpen]=useState(false);
   const invoiceSubmitLock=useRef(false);
   const draftSaveLock=useRef(false);
@@ -261,14 +262,24 @@ function App(){
     try{await invoke('delete_record',{kind,id});notify('رکورد حذف شد.');await load()}
     catch(e){notify('حذف انجام نشد: '+String(e))}
   };
+  const refreshAutoBackups=async()=>{try{setAutoBackups(await invoke<{name:string;size:number;modified:number}[]>('list_auto_backups'))}catch{}};
+  const createNativeBackup=async(force=true)=>{
+    try{const result=await invoke<{created:boolean;name:string;size:number;modified:number}>('create_auto_backup',{force});await refreshAutoBackups();notify(result.created?'پشتیبان محلی امن ساخته شد.':'پشتیبان ۲۴ ساعت اخیر موجود است.');}
+    catch(e){notify('پشتیبان خودکار ناموفق بود: '+String(e))}
+  };
+  useEffect(()=>{void invoke('create_auto_backup',{force:false}).then(()=>refreshAutoBackups()).catch(e=>notify('پشتیبان خودکار شروع نشد: '+String(e)));const timer=window.setInterval(()=>void invoke('create_auto_backup',{force:false}).then(()=>refreshAutoBackups()).catch(()=>{}),24*60*60*1000);return()=>window.clearInterval(timer)},[]);
   const backup=async()=>{
     try{const data=await invoke<Record<string,unknown>>('export_data');const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='nabz-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(url);notify('نسخه پشتیبان دریافت شد.')}
     catch(e){notify('تهیه نسخه پشتیبان ناموفق بود: '+String(e))}
   };
   const restore=async(file?:File)=>{
-    if(!file)return;if(!window.confirm('بازیابی، اطلاعات فعلی را جایگزین می‌کند. ادامه می‌دهی؟'))return;
-    try{const data=JSON.parse(await file.text());await invoke('restore_data',{data});notify('بازیابی انجام شد.');await load()}
-    catch(e){notify('بازیابی انجام نشد: '+String(e))}
+    if(!file)return;
+    try{
+      const data=JSON.parse(await file.text()) as Record<string,unknown>;
+      const counts=['contacts','products','invoices','invoice_items','payments','expenses','invoice_drafts'].map(k=>k+': '+(Array.isArray(data[k])?data[k].length:0)).join(' · ');
+      if(!window.confirm('این پشتیبان جایگزین اطلاعات فعلی می‌شود.\n\n'+counts+'\n\nقبل از جایگزینی، backend پشتیبان ایمنی ایجاد می‌کند. ادامه؟'))return;
+      await invoke('restore_data',{data});notify('بازیابی انجام شد.');await load();
+    }catch(e){notify('بازیابی انجام نشد: '+String(e))}
   };
   const printInvoice=async(id:number)=>{
     try{
@@ -328,7 +339,7 @@ function App(){
         {page==='products'&&<ProductsPage products={filteredProducts} movements={movements} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('product')} onEdit={openProductEdit} onToggleActive={toggleProductActive} onAdjust={adjustProductStock} onPrintLabel={printProductLabel}/> }
         {page==='reports'&&<ReportsPage/>}
         {page==='printing'&&<PrintingPage notify={notify}/>}
-        {page==='settings'&&<SettingsPage settings={settings} setSettings={setSettings} onSave={saveSettings} onBackup={backup} onRestore={restore}/>}
+        {page==='settings'&&<SettingsPage settings={settings} setSettings={setSettings} onSave={saveSettings} onBackup={backup} onRestore={restore} autoBackups={autoBackups} onNativeBackup={()=>createNativeBackup(true)}/>}
         <footer className="page-footer"><span>نبض · مدیریت مالی هوشمند فروشگاه</span><span>نسخه آزمایشی رابط React</span></footer>
       </section>
     </main>
@@ -353,9 +364,9 @@ function PrintingPage({notify}:{notify:(s:string)=>void}){
  },[barcode]);
  return <><PageHeading title="چاپ و بارکد" subtitle="تولید بارکد استاندارد و چاپ برچسب کالا"/><div className="surface print-panel"><div><h2>بارکد کالا</h2><p>می‌توانی کد را تایپ کنی یا با اسکنر USB/HID در همین کادر اسکن کنی.</p><label className="field-label">کد یا بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr" autoFocus/></label>{barcodeError&&<p className="barcode-error">{barcodeError}</p>}<button className="primary-btn" onClick={()=>{if(!barcodeError){window.print();notify('پنجره چاپ برچسب باز شد.')}}}><Printer size={16}/> چاپ برچسب</button></div><div className="barcode-preview"><svg ref={barcodeRef} role="img" aria-label="پیش‌نمایش بارکد تولیدشده"/></div></div></>;
 }
-function SettingsPage({settings,setSettings,onSave,onBackup,onRestore}:{settings:Record<string,string>;setSettings:(v:Record<string,string>)=>void;onSave:()=>void;onBackup:()=>void;onRestore:(f?:File)=>void}){
+function SettingsPage({settings,setSettings,onSave,onBackup,onRestore,autoBackups,onNativeBackup}:{settings:Record<string,string>;setSettings:(v:Record<string,string>)=>void;onSave:()=>void;onBackup:()=>void;onRestore:(f?:File)=>void;autoBackups:{name:string;size:number;modified:number}[];onNativeBackup:()=>void}){
  const update=(k:string,v:string)=>setSettings({...settings,[k]:v});
- return <><PageHeading title="تنظیمات" subtitle="اطلاعات فروشگاه، تنظیمات عمومی و حفاظت از داده‌ها"/><div className="settings-grid"><section className="surface settings-card"><h2><Store size={18}/> اطلاعات فروشگاه</h2><label className="field-label">نام فروشگاه<input value={settings.shop_name||''} onChange={e=>update('shop_name',e.target.value)} placeholder="نام فروشگاه"/></label><label className="field-label">شماره تماس<input value={settings.shop_phone||''} onChange={e=>update('shop_phone',e.target.value)} placeholder="شماره تماس"/></label><label className="field-label">نشانی<input value={settings.shop_address||''} onChange={e=>update('shop_address',e.target.value)} placeholder="نشانی فروشگاه"/></label><label className="field-label">شناسه مالیاتی<input value={settings.shop_tax||''} onChange={e=>update('shop_tax',e.target.value)} placeholder="اختیاری"/></label><label className="field-label">قالب کاغذ فاکتور<select value={settings.print_paper||'A4'} onChange={e=>update('print_paper',e.target.value)}><option value="A4">A4</option><option value="A5">A5</option><option value="80mm">حرارتی ۸۰ میلی‌متر</option><option value="58mm">حرارتی ۵۸ میلی‌متر</option></select></label><button className="primary-btn" onClick={onSave}>ذخیره تنظیمات</button></section><section className="surface settings-card"><h2><ShieldIcon/> پشتیبان‌گیری و بازیابی</h2><p>برای جلوگیری از ازدست‌رفتن اطلاعات، به‌صورت منظم نسخه پشتیبان تهیه کن.</p><button className="secondary-btn wide" onClick={onBackup}><Download size={16}/> دریافت نسخه پشتیبان</button><label className="secondary-btn wide file-label"><Upload size={16}/> بازیابی از فایل پشتیبان<input type="file" accept=".json,application/json" onChange={e=>onRestore(e.target.files?.[0])}/></label></section></div></>;
+ return <><PageHeading title="تنظیمات" subtitle="اطلاعات فروشگاه، تنظیمات عمومی و حفاظت از داده‌ها"/><div className="settings-grid"><section className="surface settings-card"><h2><Store size={18}/> اطلاعات فروشگاه</h2><label className="field-label">نام فروشگاه<input value={settings.shop_name||''} onChange={e=>update('shop_name',e.target.value)} placeholder="نام فروشگاه"/></label><label className="field-label">شماره تماس<input value={settings.shop_phone||''} onChange={e=>update('shop_phone',e.target.value)} placeholder="شماره تماس"/></label><label className="field-label">نشانی<input value={settings.shop_address||''} onChange={e=>update('shop_address',e.target.value)} placeholder="نشانی فروشگاه"/></label><label className="field-label">شناسه مالیاتی<input value={settings.shop_tax||''} onChange={e=>update('shop_tax',e.target.value)} placeholder="اختیاری"/></label><label className="field-label">قالب کاغذ فاکتور<select value={settings.print_paper||'A4'} onChange={e=>update('print_paper',e.target.value)}><option value="A4">A4</option><option value="A5">A5</option><option value="80mm">حرارتی ۸۰ میلی‌متر</option><option value="58mm">حرارتی ۵۸ میلی‌متر</option></select></label><button className="primary-btn" onClick={onSave}>ذخیره تنظیمات</button></section><section className="surface settings-card"><h2><ShieldIcon/> پشتیبان‌گیری و بازیابی</h2><p>نبض در زمان اجرا روزانه پشتیبان SQLite محلی ایجاد می‌کند و حداکثر ۳۰ نسخه نگه می‌دارد.</p><div className="backup-status"><b>پشتیبان‌های محلی: {autoBackups.length}</b><small>{autoBackups[0]?`آخرین نسخه: ${autoBackups[0].name} · ${(autoBackups[0].size/1024/1024).toFixed(2)} MB`:"هنوز پشتیبان خودکار ثبت نشده"}</small></div><button className="secondary-btn wide" onClick={onNativeBackup}><ShieldIcon/> ایجاد پشتیبان SQLite فوری</button><button className="secondary-btn wide" onClick={onBackup}><Download size={16}/> خروجی JSON قابل انتقال</button><label className="secondary-btn wide file-label"><Upload size={16}/> بازیابی از فایل پشتیبان JSON<input type="file" accept=".json,application/json" onChange={e=>onRestore(e.target.files?.[0])}/></label></section></div></>;
 }
 function ShieldIcon(){return <CreditCard size={18}/>}
 

@@ -156,3 +156,5 @@
 /* Phase 6 responsive hardening: compact desktop window and safe narrow layouts */
 @media(max-width:900px){.topbar{padding-inline:12px}.page-content{padding-inline:12px}.dashboard-grid{grid-template-columns:1fr}.list-toolbar,.surface-heading{flex-wrap:wrap}.table-wrap{overflow-x:auto;max-width:100%}}
 @media(max-width:700px){.page-heading{flex-direction:column;align-items:stretch}.heading-actions{flex-wrap:wrap}.settings-grid,.print-panel{grid-template-columns:1fr}.report-analysis-grid{grid-template-columns:1fr}.invoice-line{grid-template-columns:minmax(0,1fr) 54px 88px 26px}.entry-modal{max-width:100%;width:100%}}
+
+.backup-status{display:grid;gap:7px;border:1px solid #e9f0eb;background:#f8fbf9;padding:12px;border-radius:10px;margin:10px 0}.backup-status b{font-size:11px;color:#3b493f}.backup-status small{font-size:10px;color:#85928a;line-height:1.7;overflow-wrap:anywhere}
