@@ -484,7 +484,18 @@ pub fn initialize(connection: &Connection) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
 
-    migrate(connection)
+    migrate(connection)?;
+    // Keep SQLite's planner statistics fresh after schema/index migrations.
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_invoices_date_number
+           ON invoices(invoice_date DESC,number DESC);
+         CREATE INDEX IF NOT EXISTS idx_invoices_kind_void_date
+           ON invoices(kind,voided,invoice_date DESC,id DESC);
+         CREATE INDEX IF NOT EXISTS idx_payments_kind_date
+           ON payments(kind,payment_date DESC,id DESC);
+         PRAGMA optimize;"
+    ).map_err(|e| format!("بهینه‌سازی شاخص‌های پایگاه داده ناموفق بود: {e}"))?;
+    Ok(())
 }
 
 fn column_exists(connection: &Connection, table: &str, column: &str) -> Result<bool, String> {
