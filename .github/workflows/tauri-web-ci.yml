@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - ui/react-tauri-redesign
+    tags:
+      - "v*"
     paths:
       - "tauri-web/**"
       - "crates/nabz-core/**"
@@ -21,7 +23,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: nabz-tauri-arch-${{ github.ref }}-${{ github.event_name }}
@@ -192,9 +194,28 @@ jobs:
       - name: Verify generated package
         run: |
           set -eux
-          find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print
-          test -n "$(find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print -quit)"
-          file packaging/arch/*.pkg.tar.zst
+          package="$(find packaging/arch -maxdepth 1 -type f -name '*.pkg.tar.zst' -size +0c -print -quit)"
+          test -n "$package"
+          file "$package"
+          sha256sum "$package" > "$package.sha256"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            expected="v$(sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD | head -n1)"
+            test "$GITHUB_REF_NAME" = "$expected" || {
+              echo "Tag $GITHUB_REF_NAME does not match package version $expected" >&2
+              exit 1
+            }
+          fi
+
+      - name: Publish draft GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            tauri-web/packaging/arch/*.pkg.tar.zst
+            tauri-web/packaging/arch/*.pkg.tar.zst.sha256
 
       - name: Upload frontend performance report
         uses: actions/upload-artifact@v4
@@ -208,6 +229,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nabz-manjaro-arch-x86_64
-          path: tauri-web/packaging/arch/*.pkg.tar.zst
+          path: |
+            tauri-web/packaging/arch/*.pkg.tar.zst
+            tauri-web/packaging/arch/*.pkg.tar.zst.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
