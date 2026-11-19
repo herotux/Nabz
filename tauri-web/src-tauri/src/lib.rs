@@ -666,15 +666,17 @@ fn validate_backup(data:&Value)->Result<(),String>{
 }
 fn create_restore_safety_backup(c:&Connection)->Result<PathBuf,String>{
  let filename:String=c.query_row("PRAGMA database_list",[],|r|r.get(2)).map_err(|e|e.to_string())?;
- let directory=if filename.trim().is_empty(){
-  std::env::temp_dir().join("nabz-json-restore-backups")
- }else{
-  PathBuf::from(filename).parent().ok_or("مسیر دیتابیس معتبر نیست")?.join("backups")
- };
- std::fs::create_dir_all(&directory).map_err(|e|format!("ساخت پوشهٔ پشتیبان پیش از بازیابی ناموفق بود: {e}"))?;
+ let directory=if filename.trim().is_empty(){std::env::temp_dir().join("nabz-json-restore-backups")}
+ else{PathBuf::from(filename).parent().ok_or("مسیر دیتابیس معتبر نیست")?.join("backups")};
+ fs::create_dir_all(&directory).map_err(|e|format!("ساخت پوشهٔ پشتیبان پیش از بازیابی ناموفق بود: {e}"))?;
+ #[cfg(unix)]{use std::os::unix::fs::PermissionsExt;fs::set_permissions(&directory,fs::Permissions::from_mode(0o700)).map_err(|e|format!("تنظیم دسترسی پوشه پشتیبان ایمنی ناموفق بود: {e}"))?;}
  let stamp=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
  let path=directory.join(format!("pre-json-restore-{stamp}.sqlite3"));
- nabz_core::backup_database_to(c,&path).map_err(|e|format!("بازیابی متوقف شد؛ پشتیبان ایمنی ساخته نشد و دیتابیس فعلی تغییر نکرد: {e}"))?;
+ let temporary=directory.join(format!(".pre-json-restore-{stamp}.tmp.sqlite3"));
+ nabz_core::backup_database_to(c,&temporary).map_err(|e|format!("بازیابی متوقف شد؛ پشتیبان ایمنی ساخته نشد و دیتابیس فعلی تغییر نکرد: {e}"))?;
+ #[cfg(unix)]{use std::os::unix::fs::PermissionsExt;fs::set_permissions(&temporary,fs::Permissions::from_mode(0o600)).map_err(|e|format!("تنظیم دسترسی فایل پشتیبان ایمنی ناموفق بود: {e}"))?;}
+ if let Err(error)=verify_sqlite_backup(&temporary){let _=fs::remove_file(&temporary);return Err(format!("پشتیبان ایمنی قابل تأیید نیست: {error}"))}
+ fs::rename(&temporary,&path).map_err(|e|{let _=fs::remove_file(&temporary);format!("ثبت پشتیبان ایمنی ناموفق بود: {e}")})?;
  Ok(path)
 }
 #[tauri::command]
@@ -1100,6 +1102,12 @@ fn list_auto_backups(app:tauri::AppHandle)->Result<Vec<Value>,String>{
 }
 fn verify_sqlite_backup(path:&PathBuf)->Result<(),String>{
  let check=Connection::open(path).map_err(|e|format!("بازکردن پشتیبان ساخته‌شده ناموفق بود: {e}"))?;
+ let version:i64=check.query_row("PRAGMA user_version",[],|r|r.get(0)).map_err(|e|e.to_string())?;
+ if version<=0||version>nabz_core::SCHEMA_VERSION{return Err(format!("نسخه schema پشتیبان پشتیبانی نمی‌شود: {version}"))}
+ for table in ["contacts","products","invoices","invoice_items","payments","settings"]{
+  let exists:i64=check.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",[table],|r|r.get(0)).map_err(|e|e.to_string())?;
+  if exists!=1{return Err(format!("جدول ضروری {table} در پشتیبان وجود ندارد"))}
+ }
  let integrity:String=check.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
  if integrity!="ok"{return Err(format!("سلامت فایل پشتیبان تأیید نشد: {integrity}"))}
  let foreign_keys:i64=check.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
@@ -1123,7 +1131,7 @@ fn restore_auto_backup(name:String,app:tauri::AppHandle,db:State<'_,Db>)->Result
  let safety_path=create_restore_safety_backup(&current)?;
  let source=Connection::open(&canonical_file).map_err(|e|format!("بازکردن پشتیبان ناموفق بود: {e}"))?;
  let restore_result=(||->Result<(),String>{
-  let backup=rusqlite::backup::Backup::new(&source,&mut current).map_err(|e|e.to_string())?;
+  let mut backup=rusqlite::backup::Backup::new(&source,&mut current).map_err(|e|e.to_string())?;
   backup.run_to_completion(5,std::time::Duration::from_millis(100),None).map_err(|e|e.to_string())?;
   let integrity:String=current.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(|e|e.to_string())?;
   if integrity!="ok"{return Err(format!("سلامت دیتابیس پس از بازیابی تأیید نشد: {integrity}"))}
@@ -1134,7 +1142,7 @@ fn restore_auto_backup(name:String,app:tauri::AppHandle,db:State<'_,Db>)->Result
  if let Err(error)=restore_result{
   let safety=Connection::open(&safety_path).map_err(|e|format!("{error}؛ بازکردن پشتیبان ایمنی ناموفق بود: {e}"))?;
   let rollback=rusqlite::backup::Backup::new(&safety,&mut current)
-   .and_then(|b|b.run_to_completion(5,std::time::Duration::from_millis(100),None));
+   .and_then(|mut b|b.run_to_completion(5,std::time::Duration::from_millis(100),None));
   return match rollback{Ok(())=>Err(format!("{error}؛ اطلاعات قبل از بازیابی از پشتیبان ایمنی برگردانده شد.")),Err(e)=>Err(format!("{error}؛ بازیابی پشتیبان ایمنی نیز ناموفق بود: {e}؛ فایل ایمنی: {}",safety_path.display()))}
  }
  Ok(())
