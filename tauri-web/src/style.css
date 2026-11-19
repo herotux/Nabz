@@ -166,3 +166,20 @@
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 .app-shell,.main-content,.page-content{min-width:0;max-width:100%}
 .entry-modal,.invoice-detail-modal,.invoice-action-modal{max-height:calc(100dvh - 28px);overflow-y:auto;overscroll-behavior:contain}
+
+
+/* Phase 7 — print sheet and backup recovery controls */
+.batch-label-panel{margin-top:16px;padding:16px}
+.backup-list{display:grid;gap:8px;margin-top:16px}
+.backup-list> b{font-size:12px;color:#405046}
+.backup-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #edf1ee}
+.backup-row>span{display:grid;gap:4px;min-width:0}
+.backup-row strong{font-size:11px;color:#405046}
+.backup-row small{font-size:9px;color:#849088;overflow-wrap:anywhere}
+.backup-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.batch-product-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;max-height:320px;overflow:auto;border:1px solid #e9efeb;border-radius:10px;padding:8px}
+.batch-product-row{display:flex;align-items:center;gap:9px;min-width:0;padding:8px;border-radius:8px;background:#fafcfb;cursor:pointer}
+.batch-product-row input{width:16px;height:16px;flex:0 0 auto;accent-color:#16804e}
+.batch-product-row span{display:grid;gap:3px;min-width:0;font-size:11px;color:#405046}
+.batch-product-row small{font:9px monospace;color:#829087;direction:ltr;text-align:right;overflow-wrap:anywhere}
+@media(max-width:520px){.batch-product-list{grid-template-columns:1fr}.backup-row{align-items:flex-start}.backup-row .secondary-btn{flex:0 0 auto}}
