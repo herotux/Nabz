@@ -292,7 +292,16 @@ function App(){
       const pageSize=paper==='A5'?'A5':paper==='80mm'?'80mm auto':paper==='58mm'?'58mm auto':'A4';
       const compact=paper==='80mm'||paper==='58mm';
       const shopName=escapeHtml(data.shop.shop_name||'نبض'),shopPhone=escapeHtml(data.shop.shop_phone||''),shopAddress=escapeHtml(data.shop.shop_address||'');
-      w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>فاکتور '+escapeHtml(data.invoice.number)+'</title><style>@page{size:'+pageSize+';margin:'+(compact?'3mm':'10mm')+'}body{font-family:Tahoma,sans-serif;padding:'+(compact?'0':'10px')+';color:#182536;font-size:'+(compact?'10px':'12px')}h1{font-size:'+(compact?'15px':'22px')+';margin:0 0 6px}h2{font-size:'+(compact?'12px':'18px')}table{width:100%;border-collapse:collapse;margin-top:'+(compact?'10px':'24px')}td,th{border:1px solid #ddd;padding:'+(compact?'4px':'8px')+';text-align:right;font-size:inherit}footer{margin-top:12px;font-weight:bold;line-height:2}.shop-info{line-height:1.8;font-size:inherit}.muted{color:#59665e}@media print{body{print-color-adjust:exact}}</style><h1>'+shopName+'</h1><div class="shop-info">'+(shopPhone?('تماس: '+shopPhone+'<br>'):'')+(shopAddress?('نشانی: '+shopAddress):'')+'</div><h2>فاکتور '+(data.invoice.kind==='sale'?'فروش':'خرید')+' شماره '+money(data.invoice.number)+'</h2><p>طرف حساب: '+escapeHtml(data.invoice.contact_name)+'　 تاریخ: '+escapeHtml(formatJalaliDate(data.invoice.invoice_date))+'</p><table><thead><tr><th>شرح</th><th>تعداد</th><th>فی</th><th>مبلغ</th></tr></thead><tbody>'+rows+'</tbody></table><footer>جمع کل: '+money(data.invoice.total)+' تومان<br>تخفیف: '+money(data.invoice.discount)+' تومان<br>پرداخت‌شده: '+money(data.invoice.paid)+' تومان</footer><script>window.onload=()=>window.print()<\\/script></html>');
+      w.document.write(`<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>فاکتور ${escapeHtml(data.invoice.number)}</title><style>
+        @page{size:${pageSize};margin:${compact?'3mm':'10mm'}}
+        body{font-family:Tahoma,sans-serif;padding:${compact?'0':'10px'};color:#182536;font-size:${compact?'10px':'12px'}}
+        h1{font-size:${compact?'15px':'22px'};margin:0 0 6px}
+        h2{font-size:${compact?'12px':'18px'}}
+        table{width:100%;border-collapse:collapse;margin-top:${compact?'10px':'24px'}}
+        td,th{border:1px solid #ddd;padding:${compact?'4px':'8px'};text-align:right;font-size:inherit}
+        footer{margin-top:12px;font-weight:bold;line-height:2}.shop-info{line-height:1.8;font-size:inherit}
+        @media print{body{print-color-adjust:exact}}
+      </style><h1>${shopName}</h1><div class="shop-info">${shopPhone?('تماس: '+shopPhone+'<br>'):''}${shopAddress?('نشانی: '+shopAddress):''}</div><h2>فاکتور ${data.invoice.kind==='sale'?'فروش':'خرید'} شماره ${money(data.invoice.number)}</h2><p>طرف حساب: ${escapeHtml(data.invoice.contact_name)}　 تاریخ: ${escapeHtml(formatJalaliDate(data.invoice.invoice_date))}</p><table><thead><tr><th>شرح</th><th>تعداد</th><th>فی</th><th>مبلغ</th></tr></thead><tbody>${rows}</tbody></table><footer>جمع کل: ${money(data.invoice.total)} تومان<br>تخفیف: ${money(data.invoice.discount)} تومان<br>پرداخت‌شده: ${money(data.invoice.paid)} تومان</footer><script>window.onload=()=>window.print()<\\/script></html>`);
       w.document.close();
     }catch(e){notify('آماده‌سازی چاپ ناموفق بود: '+String(e))}
   };
