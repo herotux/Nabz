@@ -30,7 +30,6 @@ type InvoiceDraft = {id:number;kind:'sale'|'purchase';title:string;updated_at:st
 type InvoiceItemDetail = {id:number;product_id:number|null;item_name:string;quantity:number;unit_price:number;line_total:number;unit_cost:number|null;sales_returned:number;purchase_returned:number;code:string;barcode:string};
 type InvoiceDetail = {invoice:{id:number;number:number;kind:'sale'|'purchase';contact_id:number|null;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string;voided:boolean;credit_applied:number};items:InvoiceItemDetail[];payments:{id:number;amount:number;method:string;date:string;notes:string;allocated:number}[];returns:{id:number;date:string;amount:number;credit_refund:number;notes:string;kind:string}[];refunds:{id:number;date:string;amount:number;method:string;notes:string;kind:string}[];void:{id:number;date:string;cash_refund:number;credit_refund:number;notes:string}|null};
 
-const escapeHtml=(value:string)=>value.replace(/[&<>\"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[ch]||ch));
 
 const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string}[] = [
   {id:'dashboard',label:'نمای کلی',icon:LayoutDashboard,group:'مدیریت'},
@@ -246,7 +245,6 @@ function App(){
   };
   const printProductLabel=(p:Product)=>{
     const value=p.barcode||p.code;
-    const escapeHtml=(v:string)=>v.replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]||ch));
     const w=window.open('','_blank','width=520,height=420');
     if(!w){notify('پنجره چاپ مسدود است؛ اجازه بازشدن پنجره را فعال کن.');return}
     w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>body{font-family:Tahoma,sans-serif;padding:22px;text-align:center;color:#18251e}h1{font-size:18px;margin:4px 0 12px}svg{width:100%;height:110px}p{font:12px monospace;letter-spacing:1px;margin:8px}small{color:#66736a}@page{size:auto;margin:6mm}</style><h1>'+escapeHtml(p.name)+'</h1><svg id="product-label-code"></svg><p>'+escapeHtml(value)+'</p><small>'+escapeHtml(p.code)+'</small></html>');
