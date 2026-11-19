@@ -1672,4 +1672,72 @@ mod accounting_tests {
   assert!(verify_sqlite_backup(&path).is_err());
   fs::remove_file(path).unwrap();
  }
+
+ #[test]
+ fn multi_line_cash_sale_updates_each_product_and_keeps_line_snapshots() {
+  let mut c=database();
+  c.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,min_quantity,average_cost) VALUES('Book','BOOK',5,12,5,1,5)",[]).unwrap();
+  let invoice=save_invoice_with_connection(json!({
+   "kind":"sale","customer":"Ali","payment_status":"paid","method":"cash",
+   "items":[
+    {"item":"PEN","qty":2,"price":20},
+    {"item":"BOOK","qty":1,"price":12}
+   ],
+   "discount":0,"date":"2026-11-18"
+  }),&mut c).unwrap();
+  assert_eq!(scalar(&c,&format!("SELECT COUNT(*) FROM invoice_items WHERE invoice_id={invoice}")),2);
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),8);
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='BOOK'"),4);
+  assert_eq!(scalar(&c,&format!("SELECT total FROM invoices WHERE id={invoice}")),52);
+  assert_eq!(scalar(&c,&format!("SELECT paid FROM invoices WHERE id={invoice}")),52);
+  assert_eq!(scalar(&c,&format!("SELECT SUM(unit_cost*quantity) FROM invoice_items WHERE invoice_id={invoice}")),25);
+ }
+
+ #[test]
+ fn invalid_later_invoice_line_rolls_back_earlier_stock_and_invoice_writes() {
+  let mut c=database();
+  let before=scalar(&c,"SELECT quantity FROM products WHERE code='PEN'");
+  let result=save_invoice_with_connection(json!({
+   "kind":"sale","customer":"Ali","payment_status":"credit",
+   "items":[
+    {"item":"PEN","qty":2,"price":20},
+    {"item":"PRODUCT-DOES-NOT-EXIST","qty":1,"price":99}
+   ],
+   "discount":0,"date":"2026-11-18"
+  }),&mut c);
+  assert!(result.is_err());
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM invoices"),0);
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM invoice_items"),0);
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),before);
+ }
+
+ #[test]
+ fn oversized_invoice_discount_is_rejected_without_mutating_stock_or_ledger() {
+  let mut c=database();
+  let result=save_invoice_with_connection(json!({
+   "kind":"sale","customer":"Ali","payment_status":"credit",
+   "items":[{"item":"PEN","qty":1,"price":20}],
+   "discount":21,"date":"2026-11-18"
+  }),&mut c);
+  assert!(result.is_err());
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM invoices"),0);
+  assert_eq!(scalar(&c,"SELECT COUNT(*) FROM payments"),0);
+  assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN'"),10);
+ }
+
+ #[test]
+ fn database_integrity_and_foreign_key_checks_pass_after_accounting_workflow() {
+  let mut c=database();
+  let invoice=save_invoice_with_connection(json!({
+   "kind":"sale","customer":"Ali","payment_status":"credit",
+   "items":[{"item":"PEN","qty":2,"price":20}],
+   "discount":0,"date":"2026-11-18"
+  }),&mut c).unwrap();
+  let item=scalar(&c,&format!("SELECT id FROM invoice_items WHERE invoice_id={invoice}"));
+  return_sale_items(&mut c,invoice,&[ReturnLineInput{invoice_item_id:Some(item),product_lookup:String::new(),quantity:1}],"cash").unwrap();
+  let integrity:String=c.query_row("PRAGMA integrity_check",[],|r|r.get(0)).unwrap();
+  assert_eq!(integrity,"ok");
+  let violations:i64=c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|r|r.get(0)).unwrap();
+  assert_eq!(violations,0);
+ }
 }
