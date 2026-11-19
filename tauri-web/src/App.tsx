@@ -5,6 +5,8 @@ import JsBarcode from 'jsbarcode';
 import { formatJalaliDate, latinDigits } from './utils/jalali';
 import { JalaliDateField } from './components/forms/JalaliDateField';
 import { PageHeading, PrimaryButton } from './components/layout/PagePrimitives';
+import { RecordsPage } from './components/tables/RecordsPage';
+import type { RecordRow } from './types';
 import {
   Activity, ArrowDownLeft, ArrowUpRight, BarChart3, Bell, Boxes, CalendarDays,
   Check, ChevronDown, ChevronLeft, CircleHelp, Command, CreditCard,
@@ -15,7 +17,6 @@ import {
 
 type Page = 'dashboard'|'contacts'|'invoices'|'payments'|'products'|'reports'|'printing'|'settings';
 type Entry = 'contact'|'product'|'sale'|'purchase'|'receipt'|'payment';
-type RecordRow = {id:number;name:string;detail:string;amount:number;status:string;date:string};
 type Product = {id:number;name:string;code:string;barcode:string;quantity:number;buy_price:number;average_cost:number;sell_price:number;min_quantity:number;category:string;unit:string;wholesale_price:number;is_service:boolean;is_active:boolean};
 type InventoryMovement = {product_id:number;product_name:string;movement_date:string;movement_type:string;reference:string;quantity_delta:number;balance_after:number};
 type Summary = {sales_today:number;receipts_today:number;customer_balance:number;supplier_balance:number;inventory_value:number;contacts:number;products:number;invoices:number;sales_month:number;purchases_month:number;gross_profit_month:number;net_profit_month:number;uncosted_sales_month:number;low_stock_count:number};
@@ -333,27 +334,6 @@ function Dashboard({summary,trend,days,setDays,records,busy,onAction,onNavigate,
    <article className="surface quick-card"><div className="surface-heading"><div><h2>دسترسی سریع</h2><p>کارهای روزمره فروشگاه</p></div><Sparkles size={18} className="muted-icon"/></div><div className="quick-list"><button onClick={()=>onAction('sale')}><i className="quick-icon green"><ShoppingCart size={18}/></i><span><b>فاکتور فروش</b><small>ثبت فروش جدید</small></span><ChevronLeft size={17}/></button><button onClick={()=>onAction('receipt')}><i className="quick-icon blue"><ArrowDownLeft size={18}/></i><span><b>ثبت دریافت</b><small>دریافت وجه از مشتری</small></span><ChevronLeft size={17}/></button><button onClick={()=>onAction('contact')}><i className="quick-icon violet"><Users size={18}/></i><span><b>طرف‌حساب جدید</b><small>افزودن مشتری یا تأمین‌کننده</small></span><ChevronLeft size={17}/></button><button onClick={()=>onAction('product')}><i className="quick-icon amber"><Package size={18}/></i><span><b>کالای جدید</b><small>ثبت کالا در انبار</small></span><ChevronLeft size={17}/></button></div></article></div>
   <article className="surface recent-card"><div className="surface-heading"><div><h2>آخرین رویدادها</h2><p>آخرین فاکتورها و دریافت / پرداخت‌ها</p></div><button className="text-btn" onClick={()=>onNavigate('invoices')}>همه فاکتورها <ChevronLeft size={15}/></button></div><RecordsTable records={records} kind="recent" onPrint={onPrint}/></article>
  </>;
-}
-function Pagination({page,pages,onChange}:{page:number;pages:number;onChange:(p:number)=>void}){
- if(pages<=1)return null;
- return <div className="pagination"><span>صفحه {money(page)} از {money(pages)}</span><div><button className="secondary-btn" disabled={page<=1} onClick={()=>onChange(page-1)}>قبلی</button><button className="secondary-btn" disabled={page>=pages} onClick={()=>onChange(page+1)}>بعدی</button></div></div>;
-}
-function RecordsPage({title,subtitle,records,query,setQuery,busy,onAdd,onDelete,onPrint,onEdit,onView,columns,extra}:{title:string;subtitle:string;records:RecordRow[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onDelete?:(id:number)=>void;onPrint?:(id:number)=>void;onEdit?:(r:RecordRow)=>void;onView?:(id:number)=>void;columns:string[];extra?:ReactNode}){
- const [page,setPage]=useState(1);const pageSize=10;const pages=Math.max(1,Math.ceil(records.length/pageSize));
- useEffect(()=>setPage(1),[query,records.length]);
- const visible=records.slice((page-1)*pageSize,page*pageSize);
- return <><PageHeading title={title} subtitle={subtitle}><div className="button-row">{extra}<PrimaryButton onClick={onAdd}>{title==='طرف‌حساب‌ها'?'طرف‌حساب جدید':title==='فاکتورها'?'فاکتور فروش':'ثبت دریافت'}</PrimaryButton></div></PageHeading><div className="surface list-surface"><div className="list-toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="جست‌وجو در فهرست..."/></div><div className="toolbar-meta"><span>{money(records.length)} مورد</span></div></div><RecordsTable records={visible} kind={title==='طرف‌حساب‌ها'?'contacts':title==='فاکتورها'?'invoices':'payments'} columns={columns} onDelete={onDelete} onPrint={onPrint} onEdit={onEdit} onView={onView}/><Pagination page={page} pages={pages} onChange={setPage}/>{busy&&<div className="table-loading">در حال دریافت اطلاعات...</div>}</div></>;
-}
-function RecordsTable({records,kind,columns,onDelete,onPrint,onEdit,onView}:{records:RecordRow[];kind:string;columns?:string[];onDelete?:(id:number)=>void;onPrint?:(id:number)=>void;onEdit?:(r:RecordRow)=>void;onView?:(id:number)=>void}){
- const heads=columns||['شرح تراکنش','جزئیات','مبلغ','وضعیت','تاریخ'];
- const contactKind=(v:string)=>v==='customer'?'مشتری':v==='supplier'?'تأمین‌کننده':v==='both'?'مشتری و تأمین‌کننده':v;
- const paymentMethod=(v:string)=>v==='cash'?'نقدی':v==='card'?'کارت':v==='transfer'?'انتقال بانکی':v;
- return <div className="table-wrap"><table className="data-table"><thead><tr>{heads.map(h=><th key={h}>{h}</th>)}<th>عملیات</th></tr></thead><tbody>{records.map(r=>{
-  const second=kind==='contacts'?(r.detail||'—'):kind==='invoices'?(r.detail==='sale'?'فروش':r.detail==='purchase'?'خرید':r.detail):kind==='payments'?(r.detail==='receipt'?'دریافت وجه':r.detail==='payment'?'پرداخت وجه':r.detail):r.detail;
-  const status=kind==='contacts'?contactKind(r.status):kind==='payments'?paymentMethod(r.status):r.status||'ثبت‌شده';
-  const statusClass=kind==='contacts'?'info':kind==='payments'?'success':(/بدهکار|کم‌موجود|در انتظار|پرداخت جزئی|پرداخت‌نشده/.test(status)?'warning':/باطل/.test(status)?'danger':/بستانکار/.test(status)?'info':'success');
-  return <tr key={r.id}><td><b>{r.name}</b>{kind==='recent'&&<small className="sub-cell">{second}</small>}</td><td>{kind==='recent'?'—':second}</td><td className="amount-cell">{money(r.amount)} <small>تومان</small></td><td><span className={'status '+statusClass}>{status}</span></td><td>{formatJalaliDate(r.date)}</td><td><div className="row-actions">{kind==='invoices'&&onPrint&&<button title="چاپ فاکتور" onClick={()=>onPrint(r.id)}><Printer size={16}/></button>}{kind==='contacts'&&onView&&<button title="گردش حساب" aria-label="گردش حساب" onClick={()=>onView(r.id)}><Eye size={16}/></button>}{kind==='invoices'&&onView&&<button title="جزئیات فاکتور" aria-label="جزئیات فاکتور" onClick={()=>onView(r.id)}><Eye size={16}/></button>}{kind==='contacts'&&onEdit&&<button title="ویرایش طرف‌حساب" onClick={()=>onEdit(r)}><Pencil size={16}/></button>}{onDelete&&!(kind==='invoices'&&r.status==='باطل‌شده')&&<button title={kind==='invoices'?'ابطال امن فاکتور':'حذف'} aria-label={kind==='invoices'?'ابطال امن فاکتور':'حذف رکورد'} onClick={()=>onDelete(r.id)}>{kind==='invoices'?<X size={16}/>:<Trash2 size={16}/>}</button>}</div></td></tr>;
- })}{!records.length&&<tr><td colSpan={6} className="empty-cell">هنوز اطلاعاتی ثبت نشده است.</td></tr>}</tbody></table></div>;
 }
 function ProductsPage({products,movements,query,setQuery,busy,onAdd,onEdit,onToggleActive,onAdjust,onPrintLabel}:{products:Product[];movements:InventoryMovement[];query:string;setQuery:(s:string)=>void;busy:boolean;onAdd:()=>void;onEdit:(p:Product)=>void;onToggleActive:(p:Product)=>void;onAdjust:(p:Product)=>void;onPrintLabel:(p:Product)=>void}){
  const [stockFilter,setStockFilter]=useState('all');const [activeFilter,setActiveFilter]=useState('active');const [categoryFilter,setCategoryFilter]=useState('all');const [unitFilter,setUnitFilter]=useState('all');const [priceMin,setPriceMin]=useState('');const [priceMax,setPriceMax]=useState('');const [sortBy,setSortBy]=useState('name');const [page,setPage]=useState(1);const pageSize=10;
