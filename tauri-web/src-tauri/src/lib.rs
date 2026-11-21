@@ -1210,6 +1210,13 @@ fn recalculate_selling_prices(db:State<'_,Db>)->Result<i64,String>{
  for (id,buy,consumer) in &products {
   let base=if basis=="consumer" {*consumer} else {*buy};
   let price=base.checked_mul(100+percent).and_then(|v|v.checked_add(50)).map(|v|v/100).ok_or("محاسبه قیمت فروش از محدوده مجاز خارج شد")?;
+  let (discount_type,discount_value):(String,i64)=tx.query_row("SELECT discount_type,discount_value FROM products WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;
+  if discount_type=="fixed" && discount_value>0 && discount_value>=price {
+   return Err(format!("قیمت فروش محاسبه‌شده برای کالا با تخفیف ثابت ثبت‌شده سازگار نیست (شناسه {id}). تخفیف را اصلاح کنید."));
+  }
+  if discount_type=="percent" && discount_value>100 {
+   return Err(format!("درصد تخفیف کالای دارای شناسه {id} نامعتبر است."));
+  }
   tx.execute("UPDATE products SET sell_price=?1 WHERE id=?2",rusqlite::params![price,id]).map_err(|e|e.to_string())?;
  }
  tx.commit().map_err(|e|e.to_string())?;
