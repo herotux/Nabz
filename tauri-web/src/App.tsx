@@ -400,7 +400,7 @@ function PrintingPage({notify,products}:{notify:(s:string)=>void;products:Produc
   const frame=document.createElement('iframe');
   frame.setAttribute('title','پیش‌نمایش چاپ');
   frame.setAttribute('aria-hidden','true');
-  frame.style.cssText='position:fixed;left:0;top:0;width:100vw;height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1';
+  frame.style.cssText='position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;pointer-events:none';
   document.body.appendChild(frame);
   frame.onload=()=>{
    const win=frame.contentWindow;
@@ -423,7 +423,7 @@ function PrintingPage({notify,products}:{notify:(s:string)=>void;products:Produc
   if(!chosen.length){notify('حداقل یک کالا را برای چاپ گروهی انتخاب کن.');return}
   const cards=chosen.map((p,i)=>'<article class="label"><b>'+escapeHtml(p.name)+'</b><svg id="batch-code-'+i+'"></svg><small>'+escapeHtml(p.barcode||p.code)+'</small></article>').join('');
   const html='<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>@page{size:A4;margin:8mm}*{box-sizing:border-box}body{font-family:Vazirmatn,Tahoma,sans-serif;margin:0;color:#18251e}.labels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5mm}.label{height:42mm;border:1px dashed #9aa79f;padding:3mm;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2mm;break-inside:avoid;overflow:hidden}.label b{font-size:10pt;text-align:center;max-height:10mm;overflow:hidden}.label svg{width:100%;height:20mm}.label small{font:9pt monospace;direction:ltr}@media print{.label{break-inside:avoid}}</style><main class="labels">'+cards+'</main></html>';
-  const frame=document.createElement('iframe');frame.setAttribute('title','چاپ بارکد');frame.style.cssText='position:fixed;left:0;top:0;width:100vw;height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1';document.body.appendChild(frame);
+  const frame=document.createElement('iframe');frame.setAttribute('title','چاپ بارکد');frame.style.cssText='position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;pointer-events:none';document.body.appendChild(frame);
   frame.onload=()=>{try{chosen.forEach((p,i)=>{const node=frame.contentDocument?.getElementById('batch-code-'+i) as unknown as SVGSVGElement;JsBarcode(node,p.barcode||p.code,{format:'CODE128',displayValue:false,lineColor:'#1d2c24',width:1.5,height:48,margin:2});});const win=frame.contentWindow;if(!win)throw new Error('پنجره چاپ در دسترس نیست');const cleanup=()=>{if(frame.isConnected)frame.remove()};win.addEventListener('afterprint',cleanup,{once:true});win.focus();win.print();window.setTimeout(cleanup,60000);notify('برگه بارکدهای انتخاب‌شده آماده چاپ یا ذخیره PDF است.')}catch(e){frame.remove();notify('ساخت برچسب گروهی ناموفق بود: '+String(e))}};
   frame.srcdoc=html;
  };
