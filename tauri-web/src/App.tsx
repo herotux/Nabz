@@ -557,7 +557,7 @@ function EntryModal({entry,products,settings,form,setField,lines,setLines,onClos
  const productSearchRef=useRef<HTMLInputElement>(null);
  const availableQuickProducts=products.filter(p=>p.is_active&&!p.is_service);
  const quickCategories=['همه',...Array.from(new Set(availableQuickProducts.map(p=>p.category?.trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'fa'))];
- const matchingQuickProducts=availableQuickProducts.filter(p=>(productCategory==='همه'||p.category===productCategory)&&(!productQuery.trim()||[p.name,p.code,p.barcode,p.category].some(v=>(v||'').toLocaleLowerCase().includes(productQuery.trim().toLocaleLowerCase()))));
+ const matchingQuickProducts=availableQuickProducts.filter(p=>(productCategory==='همه'||p.category?.trim()===productCategory)&&(!productQuery.trim()||[p.name,p.code,p.barcode,p.category].some(v=>(v||'').toLocaleLowerCase().includes(productQuery.trim().toLocaleLowerCase()))));
  const quickPageSize=12;
  const quickPageCount=Math.max(1,Math.ceil(matchingQuickProducts.length/quickPageSize));
  const quickProducts=matchingQuickProducts.slice(productPage*quickPageSize,(productPage+1)*quickPageSize);
