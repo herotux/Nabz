@@ -319,6 +319,11 @@ function App(){
   };
   const saveSettings=async()=>{
     try{
+      if((settings.selling_price_mode||'manual')==='auto'){
+        const margin=Number(settings.selling_price_margin_percent??0);
+        if(!Number.isSafeInteger(margin)||margin<0||margin>1000){notify('درصد سود باید عدد صحیحی بین صفر تا ۱۰۰۰ باشد.');return}
+        if(!['buy','consumer'].includes(settings.selling_price_basis||'buy')){notify('مبنای محاسبه قیمت فروش معتبر نیست.');return}
+      }
       await Promise.all(Object.entries(settings).map(([key,value])=>invoke('save_setting',{key,value})));
       if((settings.selling_price_mode||'manual')==='auto'){
         const changed=await invoke<number>('recalculate_selling_prices');
