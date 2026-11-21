@@ -333,7 +333,7 @@ function App(){
   };
 
   useEffect(()=>{
-    const onShortcut=(event:KeyboardEvent)=>{
+    const onShortcut=(event:globalThis.KeyboardEvent)=>{
       const target=event.target as HTMLElement|null;
       const typing=!!target&&(target.isContentEditable||!!target.closest('input,textarea,select'));
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){event.preventDefault();setQuery('');window.setTimeout(()=>document.querySelector<HTMLInputElement>('.search-box input')?.focus(),0);return;}
