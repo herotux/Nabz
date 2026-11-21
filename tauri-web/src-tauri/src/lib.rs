@@ -117,6 +117,7 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
   _=>return Err("نوع تخفیف کالا معتبر نیست".into()),
  };
  let discount_value=num(&payload,"discount_value");
+ let is_service=payload.get("is_service").and_then(Value::as_bool).unwrap_or(false);
  if consumer_price<0 || discount_value<0 { return Err("قیمت مصرف‌کننده و تخفیف نمی‌توانند منفی باشند".into()) }
  let mode:String=c.query_row("SELECT value FROM settings WHERE key='selling_price_mode'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"manual".into());
  if mode=="auto" {
@@ -125,6 +126,7 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
   let percent:i64=margin.parse().map_err(|_|"درصد سود تنظیم‌شده معتبر نیست")?;
   if !(0..=1000).contains(&percent) { return Err("درصد سود باید بین صفر تا ۱۰۰۰ باشد".into()) }
   let base=if basis=="consumer" { consumer_price } else { input.buy_price };
+  if base<=0 && !is_service { return Err("برای محاسبه خودکار قیمت فروش، ابتدا قیمت مبنای کالا را وارد کنید".into()) }
   input.sell_price=base.checked_mul(100+percent).and_then(|v|v.checked_add(50)).map(|v|v/100).ok_or("محاسبه قیمت فروش از محدوده مجاز خارج شد")?;
  }
  if discount_type=="percent" && discount_value>100 { return Err("درصد تخفیف باید بین صفر تا ۱۰۰ باشد".into()) }
@@ -133,7 +135,6 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
  let unit=text(&payload,"unit");
  let unit=if unit.is_empty(){"عدد".to_string()}else{unit};
  let wholesale=num(&payload,"wholesale");
- let is_service=payload.get("is_service").and_then(Value::as_bool).unwrap_or(false);
  if wholesale<0{return Err("قیمت عمده نمی‌تواند منفی باشد".into())}
  if !["عدد","متر","کیلوگرم","گرم","لیتر","بسته","حلقه","شاخه","جعبه","دستگاه","سرویس"].contains(&unit.as_str()) {
   return Err("واحد شمارش را از واحدهای معتبر انتخاب کنید".into())
@@ -1209,6 +1210,7 @@ fn recalculate_selling_prices(db:State<'_,Db>)->Result<i64,String>{
  drop(stmt);
  for (id,buy,consumer) in &products {
   let base=if basis=="consumer" {*consumer} else {*buy};
+  if base<=0 { return Err(format!("قیمت مبنای کالا با شناسه {id} خالی است؛ ابتدا قیمت خرید یا قیمت مصرف‌کننده را تکمیل کنید.")); }
   let price=base.checked_mul(100+percent).and_then(|v|v.checked_add(50)).map(|v|v/100).ok_or("محاسبه قیمت فروش از محدوده مجاز خارج شد")?;
   let (discount_type,discount_value):(String,i64)=tx.query_row("SELECT discount_type,discount_value FROM products WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;
   if discount_type=="fixed" && discount_value>0 && discount_value>=price {
@@ -1244,6 +1246,38 @@ mod accounting_tests {
  }
  fn scalar(c:&Connection,sql:&str)->i64 { c.query_row(sql,[],|r|r.get(0)).unwrap() }
 
+
+ #[test]
+ fn product_pricing_supports_manual_and_automatic_prices_and_persisted_discounts() {
+  let c=Connection::open_in_memory().unwrap();
+  init(&c).unwrap();
+  let manual=save_product_with_connection(json!({
+   "name":"Manual cable","code":"PRICE-MANUAL","buy":100,"consumer_price":160,
+   "sell":190,"qty":2,"min":0,"discount_type":"fixed","discount_value":20
+  }),&c).unwrap();
+  let manual_values:(i64,i64,String,i64)=c.query_row(
+   "SELECT sell_price,consumer_price,discount_type,discount_value FROM products WHERE id=?1",
+   [manual],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+  ).unwrap();
+  assert_eq!(manual_values,(190,160,"fixed".into(),20));
+
+  c.execute("INSERT INTO settings(key,value) VALUES('selling_price_mode','auto')",[]).unwrap();
+  c.execute("INSERT INTO settings(key,value) VALUES('selling_price_basis','buy')",[]).unwrap();
+  c.execute("INSERT INTO settings(key,value) VALUES('selling_price_margin_percent','25')",[]).unwrap();
+  let automatic=save_product_with_connection(json!({
+   "name":"Automatic cable","code":"PRICE-AUTO","buy":200,"consumer_price":280,
+   "sell":1,"qty":1,"min":0,"discount_type":"percent","discount_value":10
+  }),&c).unwrap();
+  let auto_values:(i64,i64,String,i64)=c.query_row(
+   "SELECT sell_price,consumer_price,discount_type,discount_value FROM products WHERE id=?1",
+   [automatic],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+  ).unwrap();
+  assert_eq!(auto_values,(250,280,"percent".into(),10));
+  assert!(save_product_with_connection(json!({
+   "name":"Invalid discount","code":"PRICE-BAD","buy":200,"consumer_price":280,
+   "sell":1,"qty":1,"min":0,"discount_type":"percent","discount_value":101
+  }),&c).is_err());
+ }
 
  #[test]
  fn period_reports_only_include_records_inside_the_selected_date_range() {
