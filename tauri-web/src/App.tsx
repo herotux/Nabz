@@ -552,9 +552,18 @@ function EntryModal({entry,products,settings,form,setField,lines,setLines,onClos
  const [simpleSale,setSimpleSale]=useState(true);
  const [showSaleDetails,setShowSaleDetails]=useState(false);
  const [productQuery,setProductQuery]=useState('');
+ const [productCategory,setProductCategory]=useState('همه');
+ const [productPage,setProductPage]=useState(0);
  const productSearchRef=useRef<HTMLInputElement>(null);
- const quickProducts=products.filter(p=>p.is_active&&!p.is_service&&(!productQuery.trim()||[p.name,p.code,p.barcode,p.category].some(v=>(v||'').toLocaleLowerCase().includes(productQuery.trim().toLocaleLowerCase())))).slice(0,30);
- const addQuickProduct=(product:Product)=>{const existing=lines.findIndex(x=>x.item===product.name);if(existing>=0){setLines(lines.map((x,i)=>i===existing?{...x,qty:String((Number(x.qty)||0)+1)}:x));}else{const firstEmpty=lines.findIndex(x=>!x.item.trim());const next={item:product.name,qty:'1',price:String(productFinalPrice(product))};setLines(firstEmpty>=0?lines.map((x,i)=>i===firstEmpty?next:x):[...lines,next]);}setProductQuery('');productSearchRef.current?.focus();};
+ const availableQuickProducts=products.filter(p=>p.is_active&&!p.is_service);
+ const quickCategories=['همه',...Array.from(new Set(availableQuickProducts.map(p=>p.category?.trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'fa'))];
+ const matchingQuickProducts=availableQuickProducts.filter(p=>(productCategory==='همه'||p.category===productCategory)&&(!productQuery.trim()||[p.name,p.code,p.barcode,p.category].some(v=>(v||'').toLocaleLowerCase().includes(productQuery.trim().toLocaleLowerCase()))));
+ const quickPageSize=12;
+ const quickPageCount=Math.max(1,Math.ceil(matchingQuickProducts.length/quickPageSize));
+ const quickProducts=matchingQuickProducts.slice(productPage*quickPageSize,(productPage+1)*quickPageSize);
+ const changeQuickCategory=(category:string)=>{setProductCategory(category);setProductPage(0);};
+ const changeQuickQuery=(query:string)=>{setProductQuery(query);setProductPage(0);};
+ const addQuickProduct=(product:Product)=>{const existing=lines.findIndex(x=>x.item===product.name);if(existing>=0){setLines(lines.map((x,i)=>i===existing?{...x,qty:String((Number(x.qty)||0)+1)}:x));}else{const firstEmpty=lines.findIndex(x=>!x.item.trim());const next={item:product.name,qty:'1',price:String(productFinalPrice(product))};setLines(firstEmpty>=0?lines.map((x,i)=>i===firstEmpty?next:x):[...lines,next]);}setProductQuery('');setProductPage(0);productSearchRef.current?.focus();};
  const handleSimpleSaleKeys=(e:KeyboardEvent<HTMLFormElement>)=>{if(entry!=='sale'||!simpleSale)return;const key=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&key==='k'){e.preventDefault();productSearchRef.current?.focus();productSearchRef.current?.select();return;}if(e.key==='F2'){e.preventDefault();productSearchRef.current?.focus();productSearchRef.current?.select();return;}if(e.key==='F4'){e.preventDefault();setField('status','paid');setField('method','cash');return;}if(e.key==='F6'){e.preventDefault();setField('status','paid');setField('method','card');return;}if(e.key==='F8'){e.preventDefault();setField('status','credit');setShowSaleDetails(true);return;}if(e.key==='F9'||(e.ctrlKey&&e.key==='Enter')){e.preventDefault();e.currentTarget.requestSubmit();return;}if(e.key==='Escape'){e.preventDefault();onClose();}};
  const titles:Record<Entry,string>={contact:editing?'ویرایش طرف‌حساب':'ثبت طرف‌حساب جدید',product:editing?'ویرایش کالا':'ثبت کالای جدید',sale:'فاکتور فروش جدید',purchase:'فاکتور خرید جدید',receipt:'ثبت دریافت وجه',payment:'ثبت پرداخت وجه'};
  const field=(key:string,label:string,placeholder='',type='text')=><label className="field-label">{label}<input type={type} value={form[key]||''} onChange={e=>setField(key,e.target.value)} placeholder={placeholder}/></label>;
@@ -580,13 +589,15 @@ function EntryModal({entry,products,settings,form,setField,lines,setLines,onClos
       </div>
       <div className="simple-sale-search">
        <label htmlFor="simple-sale-product-search">جست‌وجوی کالا</label>
-       <div className="simple-sale-searchbox"><Search size={19}/><input id="simple-sale-product-search" ref={productSearchRef} autoFocus placeholder="نام کالا، کد یا دسته‌بندی..." value={productQuery} onChange={e=>setProductQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&quickProducts.length){e.preventDefault();e.stopPropagation();addQuickProduct(quickProducts[0]);}if(e.key==='ArrowDown'&&quickProducts.length){e.preventDefault();(document.querySelector('.simple-product-tile') as HTMLButtonElement|null)?.focus();}}}/><kbd>F2</kbd></div>
+       <div className="simple-sale-searchbox"><Search size={19}/><input id="simple-sale-product-search" ref={productSearchRef} autoFocus placeholder="نام کالا، کد یا دسته‌بندی..." value={productQuery} onChange={e=>changeQuickQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&quickProducts.length){e.preventDefault();e.stopPropagation();addQuickProduct(quickProducts[0]);}if(e.key==='ArrowDown'&&quickProducts.length){e.preventDefault();(document.querySelector('.simple-product-tile') as HTMLButtonElement|null)?.focus();}}}/><kbd>F2</kbd></div>
        <div className="simple-sale-shortcuts"><span><kbd>Ctrl</kbd>+<kbd>K</kbd> جست‌وجو</span><span><kbd>F4</kbd> نقدی</span><span><kbd>F6</kbd> کارت‌خوان</span><span><kbd>F8</kbd> نسیه</span><span><kbd>F9</kbd> ثبت</span></div>
       </div>
+      <div className="simple-product-categories" aria-label="دسته‌بندی کالاها">{quickCategories.map(category=><button type="button" key={category} className={productCategory===category?'active':''} onClick={()=>changeQuickCategory(category)}>{category}</button>)}</div>
       <div className="simple-product-grid" aria-label="انتخاب سریع کالا">
        {quickProducts.map((product,i)=><button type="button" className="simple-product-tile" key={product.id} onClick={()=>addQuickProduct(product)} onKeyDown={e=>{if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();const tiles=Array.from(document.querySelectorAll<HTMLButtonElement>('.simple-product-tile'));tiles[Math.min(i+1,tiles.length-1)]?.focus();}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();if(i===0)productSearchRef.current?.focus();else{const tiles=Array.from(document.querySelectorAll<HTMLButtonElement>('.simple-product-tile'));tiles[i-1]?.focus();}}}}><b>{product.name}</b><span>{money(productFinalPrice(product))} تومان</span><small>{product.unit||'عدد'}{product.quantity<=product.min_quantity?' · موجودی کم':''}</small></button>)}
        {!quickProducts.length&&<p className="simple-no-products">{products.some(p=>p.is_active&&!p.is_service)?'کالایی با این عبارت پیدا نشد. عبارت دیگری جست‌وجو کن.':'هنوز کالای فعالی ثبت نشده است.'}</p>}
       </div>
+      {quickPageCount>1&&<div className="simple-product-pagination"><button type="button" disabled={productPage===0} onClick={()=>setProductPage(p=>Math.max(0,p-1))}>قبلی</button><span>صفحه {money(productPage+1)} از {money(quickPageCount)} · {money(matchingQuickProducts.length)} کالا</span><button type="button" disabled={productPage>=quickPageCount-1} onClick={()=>setProductPage(p=>Math.min(quickPageCount-1,p+1))}>بعدی</button></div>}
       <div className="simple-sale-items">
        <div className="simple-cart-heading"><b>سبد فروش</b><span>{money(lines.filter(x=>x.item.trim()).length)} ردیف</span></div>
        {lines.filter(line=>line.item.trim()).map((line)=>{const i=lines.indexOf(line);return <div className="simple-sale-item" key={i}>
