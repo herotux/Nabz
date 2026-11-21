@@ -247,7 +247,7 @@ body { font-size: 14px; line-height: 1.7; }
 .profile{padding-top:clamp(8px,1vh,12px)}
 .main-area{min-height:100vh;min-width:0}
 .topbar{position:sticky;top:0;z-index:18}
-@media(max-height:760px) and (min-width:821px){
+@media(max-height:760px){
   .sidebar{padding-block:8px}
   .brand{padding-bottom:8px}
   .brand-mark{width:36px;height:36px}
