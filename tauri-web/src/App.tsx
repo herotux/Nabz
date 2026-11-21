@@ -379,38 +379,97 @@ function PrintingPage({notify,products}:{notify:(s:string)=>void;products:Produc
  const barcodeRef=useRef<SVGSVGElement>(null);
  const [printValue,setPrintValue]=useState('');
  const [selectedIds,setSelectedIds]=useState<number[]>([]);
+ const [selectedLabelIds,setSelectedLabelIds]=useState<number[]>([]);
+ const [discountPrices,setDiscountPrices]=useState<Record<number,string>>({});
+ const [copies,setCopies]=useState<Record<number,string>>({});
  const printable=products.filter(p=>p.is_active&&!p.is_service&&(p.barcode||p.code)).slice(0,200);
+ const labelProducts=products.filter(p=>p.is_active&&!p.is_service).slice(0,500);
  useEffect(()=>{
   if(!barcodeRef.current)return;
   let value=barcode.trim();
   if(format==='EAN13'){
-   if(/^\\d{12}$/.test(value)){const sum=value.split('').reduce((n,d,i)=>n+Number(d)*(i%2?3:1),0);value+=String((10-sum%10)%10);}
-   if(!/^\\d{13}$/.test(value)){setBarcodeError('EAN-13 باید ۱۲ یا ۱۳ رقم داشته باشد.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
+   if(/^\d{12}$/.test(value)){const sum=value.split('').reduce((n,d,i)=>n+Number(d)*(i%2?3:1),0);value+=String((10-sum%10)%10);}
+   if(!/^\d{13}$/.test(value)){setBarcodeError('EAN-13 باید ۱۲ یا ۱۳ رقم داشته باشد.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
    const digits=value.split('').map(Number),sum=digits.slice(0,12).reduce((n,d,i)=>n+d*(i%2?3:1),0),check=(10-sum%10)%10;
    if(digits[12]!==check){setBarcodeError('رقم کنترلی EAN-13 معتبر نیست.');setPrintValue('');barcodeRef.current.innerHTML='';return;}
   }
   try{JsBarcode(barcodeRef.current,value,{format,displayValue:true,lineColor:'#1d2c24',width:2,height:76,margin:10,font:'Tahoma',fontSize:13});setBarcodeError('');setPrintValue(value)}
   catch{setBarcodeError('کد بارکد خالی یا نامعتبر است.');setPrintValue('')}
  },[barcode,format]);
+ const printDocument=(html:string)=>{
+  const frame=document.createElement('iframe');
+  frame.setAttribute('title','پیش‌نمایش چاپ');
+  frame.setAttribute('aria-hidden','true');
+  frame.style.cssText='position:fixed;left:0;top:0;width:100vw;height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1';
+  document.body.appendChild(frame);
+  frame.onload=()=>{
+   const win=frame.contentWindow;
+   if(!win){frame.remove();notify('ساخت پنجره چاپ ناموفق بود.');return}
+   const cleanup=()=>{if(frame.isConnected)frame.remove()};
+   win.addEventListener('afterprint',cleanup,{once:true});
+   win.focus();
+   win.print();
+   window.setTimeout(cleanup,60000);
+  };
+  frame.srcdoc=html;
+ };
  const printSingle=()=>{
   if(!printValue||!barcodeRef.current)return;
-  const w=window.open('','_blank','width=520,height=420');
-  if(!w){notify('پنجره چاپ مسدود است؛ اجازه بازشدن پنجره را فعال کن.');return}
-  w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب بارکد</title><style>@page{size:auto;margin:6mm}body{font-family:Tahoma,sans-serif;text-align:center;color:#18251e;padding:8mm}h2{font-size:14pt}svg{width:100%;max-width:100mm;height:35mm}p{font:11pt monospace;direction:ltr}</style><h2>برچسب کالا</h2>'+barcodeRef.current.outerHTML+'<p>'+escapeHtml(printValue)+'</p></html>');
-  w.document.close();w.focus();w.print();notify('برچسب برای چاپ یا ذخیره PDF آماده شد.');
+  printDocument('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب بارکد</title><style>@page{size:auto;margin:6mm}body{font-family:Vazirmatn,Tahoma,sans-serif;text-align:center;color:#18251e;padding:8mm}h2{font-size:14pt}svg{width:100%;max-width:100mm;height:35mm}p{font:11pt monospace;direction:ltr}</style><h2>برچسب کالا</h2>'+barcodeRef.current.outerHTML+'<p>'+escapeHtml(printValue)+'</p></html>');
+  notify('برچسب برای چاپ یا ذخیره PDF آماده شد.');
  };
  const printSelected=()=>{
   const chosen=printable.filter(p=>selectedIds.includes(p.id));
   if(!chosen.length){notify('حداقل یک کالا را برای چاپ گروهی انتخاب کن.');return}
-  const w=window.open('','_blank','width=900,height=700');
-  if(!w){notify('پنجره چاپ مسدود است؛ اجازه بازشدن پنجره را فعال کن.');return}
   const cards=chosen.map((p,i)=>'<article class="label"><b>'+escapeHtml(p.name)+'</b><svg id="batch-code-'+i+'"></svg><small>'+escapeHtml(p.barcode||p.code)+'</small></article>').join('');
-  w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>@page{size:A4;margin:8mm}*{box-sizing:border-box}body{font-family:Tahoma,sans-serif;margin:0;color:#18251e}.labels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5mm}.label{height:42mm;border:1px dashed #9aa79f;padding:3mm;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2mm;break-inside:avoid;overflow:hidden}.label b{font-size:10pt;text-align:center;max-height:10mm;overflow:hidden}.label svg{width:100%;height:20mm}.label small{font:9pt monospace;direction:ltr}@media print{.label{break-inside:avoid}}</style><main class="labels">'+cards+'</main></html>');
-  w.document.close();
-  try{chosen.forEach((p,i)=>{const node=w.document.getElementById('batch-code-'+i) as unknown as SVGSVGElement;JsBarcode(node,p.barcode||p.code,{format:'CODE128',displayValue:false,lineColor:'#1d2c24',width:1.5,height:48,margin:2});});w.focus();w.print();notify('برگه برچسب‌های انتخاب‌شده آماده چاپ یا ذخیره PDF است.')}catch(e){w.close();notify('ساخت برچسب گروهی ناموفق بود: '+String(e))}
+  const html='<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>@page{size:A4;margin:8mm}*{box-sizing:border-box}body{font-family:Vazirmatn,Tahoma,sans-serif;margin:0;color:#18251e}.labels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5mm}.label{height:42mm;border:1px dashed #9aa79f;padding:3mm;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2mm;break-inside:avoid;overflow:hidden}.label b{font-size:10pt;text-align:center;max-height:10mm;overflow:hidden}.label svg{width:100%;height:20mm}.label small{font:9pt monospace;direction:ltr}@media print{.label{break-inside:avoid}}</style><main class="labels">'+cards+'</main></html>';
+  const frame=document.createElement('iframe');frame.setAttribute('title','چاپ بارکد');frame.style.cssText='position:fixed;left:0;top:0;width:100vw;height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1';document.body.appendChild(frame);
+  frame.onload=()=>{try{chosen.forEach((p,i)=>{const node=frame.contentDocument?.getElementById('batch-code-'+i) as unknown as SVGSVGElement;JsBarcode(node,p.barcode||p.code,{format:'CODE128',displayValue:false,lineColor:'#1d2c24',width:1.5,height:48,margin:2});});const win=frame.contentWindow;if(!win)throw new Error('پنجره چاپ در دسترس نیست');const cleanup=()=>{if(frame.isConnected)frame.remove()};win.addEventListener('afterprint',cleanup,{once:true});win.focus();win.print();window.setTimeout(cleanup,60000);notify('برگه بارکدهای انتخاب‌شده آماده چاپ یا ذخیره PDF است.')}catch(e){frame.remove();notify('ساخت برچسب گروهی ناموفق بود: '+String(e))}};
+  frame.srcdoc=html;
  };
- return <><PageHeading title="چاپ و بارکد" subtitle="تولید بارکد استاندارد، چاپ تکی و گروهی برچسب کالا"/><div className="surface print-panel"><div><h2>بارکد کالا</h2><p>می‌توانی کد را تایپ کنی یا با اسکنر USB/HID در همین کادر اسکن کنی.</p><label className="field-label">نوع بارکد<select value={format} onChange={e=>setFormat(e.target.value as 'CODE128'|'EAN13')}><option value="CODE128">Code 128 (SKU/کد داخلی)</option><option value="EAN13">EAN-13 (کد تجاری)</option></select></label><label className="field-label">کد یا بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr" autoFocus/></label>{barcodeError&&<p className="barcode-error">{barcodeError}</p>}<button className="primary-btn" disabled={!printValue||!!barcodeError} onClick={printSingle}><Printer size={16}/> چاپ / ذخیره PDF</button></div><div className="barcode-preview"><svg ref={barcodeRef} role="img" aria-label="پیش‌نمایش بارکد تولیدشده"/></div></div>
- <section className="surface settings-card batch-label-panel"><div className="surface-heading"><div><h2>چاپ گروهی برچسب کالا</h2><p>چند کالا را انتخاب کن تا برچسب‌های Code128 در یک برگه A4 چیده شوند.</p></div><span>{selectedIds.length} انتخاب</span></div><div className="backup-actions"><button className="secondary-btn" onClick={()=>setSelectedIds(printable.map(p=>p.id))}>انتخاب همه نتایج</button><button className="secondary-btn" onClick={()=>setSelectedIds([])}>پاک‌کردن انتخاب</button><button className="primary-btn" disabled={!selectedIds.some(id=>printable.some(p=>p.id===id))} onClick={printSelected}><Printer size={16}/> چاپ برچسب‌های انتخاب‌شده</button></div><div className="batch-product-list">{printable.map(p=><label key={p.id} className="batch-product-row"><input type="checkbox" checked={selectedIds.includes(p.id)} onChange={e=>setSelectedIds(old=>e.target.checked?[...old,p.id]:old.filter(id=>id!==p.id))}/><span>{p.name}<small>{p.barcode||p.code}</small></span></label>)}{!printable.length&&<p>کالای فعال دارای کد یا بارکد برای چاپ وجود ندارد.</p>}</div>{products.length>200&&<small>برای جلوگیری از کندشدن رابط، حداکثر ۲۰۰ نتیجه نخست نمایش داده می‌شود؛ از جست‌وجوی بالای برنامه برای محدودکردن فهرست استفاده کن.</small>}</section></>;
+ const printPriceLabels=()=>{
+  const chosen=labelProducts.filter(p=>selectedLabelIds.includes(p.id));
+  if(!chosen.length){notify('برای چاپ اتیکت، حداقل یک کالا را انتخاب کن.');return}
+  const rows=chosen.flatMap(p=>{
+   const rawCopies=Number(copies[p.id]||1);
+   const count=Number.isInteger(rawCopies)?Math.max(1,Math.min(999,rawCopies)):1;
+   const discount=Number(discountPrices[p.id]||0);
+   return Array.from({length:count},()=>({product:p,discount}));
+  });
+  const invalid=rows.find(x=>!Number.isSafeInteger(x.discount)||x.discount<0||(x.discount>0&&x.discount>=x.product.sell_price));
+  if(invalid){notify('قیمت تخفیفی باید صفر (بدون تخفیف) یا عددی مثبت و کمتر از قیمت مصرف‌کننده باشد: '+invalid.product.name);return}
+  const pages:Array<typeof rows>=[];
+  for(let i=0;i<rows.length;i+=28)pages.push(rows.slice(i,i+28));
+  const pageMarkup=pages.map((page,index)=>{
+   const cells=Array.from({length:28},(_,i)=>{
+    const item=page[i];
+    if(!item)return '<article class="price-label empty"></article>';
+    const p=item.product,discount=item.discount;
+    return '<article class="price-label"><div class="price-label-name">'+escapeHtml(p.name)+'</div><div class="price-line consumer"><span>قیمت مصرف‌کننده</span><strong>'+money(p.sell_price)+' <small>تومان</small></strong></div><div class="price-line discount"><span>قیمت با تخفیف</span><strong>'+(discount?money(discount):'—')+' <small>تومان</small></strong></div></article>';
+   }).join('');
+   return '<section class="a4-sheet"'+(index===pages.length-1?'':' style="break-after:page"')+'>'+cells+'</section>';
+  }).join('');
+  const html='<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>اتیکت قیمت کالاها</title><style>'+
+   '@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:210mm;background:#fff;color:#17251d;font-family:Vazirmatn,Tahoma,"Noto Sans Arabic",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+   '.a4-sheet{width:210mm;height:297mm;padding:8.5mm 5mm;display:grid;grid-template-columns:repeat(4,50mm);grid-template-rows:repeat(7,40mm);gap:0;overflow:hidden;break-after:page;page-break-after:always}'+
+   '.a4-sheet:last-child{break-after:auto;page-break-after:auto}.price-label{width:50mm;height:40mm;border:.25mm dashed #aebbb2;padding:2.2mm 2.5mm;display:flex;flex-direction:column;justify-content:center;gap:2mm;overflow:hidden;text-align:right;background:#fff}'+
+   '.price-label-name{font-size:10pt;font-weight:700;line-height:1.5;text-align:center;max-height:9mm;overflow:hidden;color:#1c3025;margin-bottom:.5mm}'+
+   '.price-line{display:flex;align-items:center;justify-content:space-between;gap:1mm;white-space:nowrap;line-height:1.4}.price-line span{font-size:7pt;color:#637269}.price-line strong{font-size:9pt;font-weight:800;color:#1d3327}.price-line small{font-size:6pt;font-weight:500;color:#65756a}.price-line.discount{border-top:.2mm solid #e4ebe6;padding-top:1.3mm}.price-line.discount strong{color:#138454}.empty{background:#fff}'+
+   '@media screen{body{background:#eef2ee}.a4-sheet{margin:8mm auto;background:#fff;box-shadow:0 2mm 8mm #20332822}}'+
+   '</style></head><body>'+pageMarkup+'</body></html>';
+  printDocument(html);
+  notify('اتیکت‌ها در قالب A4 و با اندازه واقعی ۵×۴ سانتی‌متر برای چاپ یا ذخیره PDF آماده شدند.');
+ };
+ const selectedLabelProducts=labelProducts.filter(p=>selectedLabelIds.includes(p.id));
+ return <><PageHeading title="چاپ و بارکد" subtitle="تولید بارکد و چاپ اتیکت قیمت کالاها روی برگه A4"/><div className="surface print-panel"><div><h2>بارکد کالا</h2><p>می‌توانی کد را تایپ کنی یا با اسکنر USB/HID در همین کادر اسکن کنی.</p><label className="field-label">نوع بارکد<select value={format} onChange={e=>setFormat(e.target.value as 'CODE128'|'EAN13')}><option value="CODE128">Code 128 (SKU/کد داخلی)</option><option value="EAN13">EAN-13 (کد تجاری)</option></select></label><label className="field-label">کد یا بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr" autoFocus/></label>{barcodeError&&<p className="barcode-error">{barcodeError}</p>}<button className="primary-btn" disabled={!printValue||!!barcodeError} onClick={printSingle}><Printer size={16}/> چاپ / ذخیره PDF</button></div><div className="barcode-preview"><svg ref={barcodeRef} role="img" aria-label="پیش‌نمایش بارکد تولیدشده"/></div></div>
+ <section className="surface settings-card price-label-tool"><div className="surface-heading"><div><h2>چاپ اتیکت قیمت</h2><p>کالاها را انتخاب کن، در صورت نیاز قیمت تخفیفی و تعداد هر اتیکت را وارد کن، سپس پیش‌نمایش و چاپ بگیر.</p></div><span>{selectedLabelIds.length} کالا · {selectedLabelProducts.reduce((n,p)=>n+Math.max(1,Math.min(999,Number(copies[p.id]||1)||1)),0)} اتیکت</span></div>
+ <div className="price-label-toolbar"><button className="secondary-btn" onClick={()=>setSelectedLabelIds(labelProducts.map(p=>p.id))}>انتخاب همه کالاها</button><button className="secondary-btn" onClick={()=>setSelectedLabelIds([])}>پاک‌کردن انتخاب</button><button className="primary-btn" disabled={!selectedLabelIds.length} onClick={printPriceLabels}><Printer size={16}/> چاپ A4 / ذخیره PDF</button></div>
+ <div className="price-label-table"><div className="price-label-table-head"><span>انتخاب</span><span>نام کالا</span><span>قیمت مصرف‌کننده</span><span>قیمت با تخفیف (تومان)</span><span>تعداد</span></div>
+ {labelProducts.map(p=><div className="price-label-product" key={p.id}><label><input type="checkbox" checked={selectedLabelIds.includes(p.id)} onChange={e=>setSelectedLabelIds(old=>e.target.checked?[...old,p.id]:old.filter(id=>id!==p.id))}/></label><strong>{p.name}</strong><span>{money(p.sell_price)} تومان</span><input aria-label={'قیمت با تخفیف '+p.name} type="number" min="0" max={Math.max(0,p.sell_price-1)} value={discountPrices[p.id]||''} placeholder="بدون تخفیف" onChange={e=>setDiscountPrices(old=>({...old,[p.id]:e.target.value}))}/><input aria-label={'تعداد اتیکت '+p.name} type="number" min="1" max="999" value={copies[p.id]||'1'} onChange={e=>setCopies(old=>({...old,[p.id]:e.target.value}))}/></div>)}
+ {!labelProducts.length&&<p>کالای فعالی برای چاپ اتیکت وجود ندارد.</p>}</div>
+ {selectedLabelProducts.length>0&&<div className="price-label-preview"><div className="surface-heading"><div><h3>پیش‌نمایش اتیکت</h3><p>ابعاد هر اتیکت ۵۰×۴۰ میلی‌متر است؛ هر صفحه A4 شامل ۲۸ جایگاه (۴ ستون × ۷ ردیف) می‌شود.</p></div></div><div className="price-label-preview-grid">{selectedLabelProducts.slice(0,4).map(p=><article className="price-label-preview-card" key={p.id}><b>{p.name}</b><div><span>قیمت مصرف‌کننده</span><strong>{money(p.sell_price)} تومان</strong></div><div><span>قیمت با تخفیف</span><strong>{discountPrices[p.id]&&Number(discountPrices[p.id])>0?money(Number(discountPrices[p.id]))+' تومان':'—'}</strong></div></article>)}</div></div>}
+ </section>
+ <section className="surface settings-card batch-label-panel"><div className="surface-heading"><div><h2>چاپ گروهی بارکد کالا</h2><p>چند کالا را انتخاب کن تا برچسب‌های Code128 در یک برگه A4 چیده شوند.</p></div><span>{selectedIds.length} انتخاب</span></div><div className="backup-actions"><button className="secondary-btn" onClick={()=>setSelectedIds(printable.map(p=>p.id))}>انتخاب همه نتایج</button><button className="secondary-btn" onClick={()=>setSelectedIds([])}>پاک‌کردن انتخاب</button><button className="primary-btn" disabled={!selectedIds.some(id=>printable.some(p=>p.id===id))} onClick={printSelected}><Printer size={16}/> چاپ برچسب‌های انتخاب‌شده</button></div><div className="batch-product-list">{printable.map(p=><label key={p.id} className="batch-product-row"><input type="checkbox" checked={selectedIds.includes(p.id)} onChange={e=>setSelectedIds(old=>e.target.checked?[...old,p.id]:old.filter(id=>id!==p.id))}/><span>{p.name}<small>{p.barcode||p.code}</small></span></label>)}{!printable.length&&<p>کالای فعال دارای کد یا بارکد برای چاپ وجود ندارد.</p>}</div>{products.length>200&&<small>برای جلوگیری از کندشدن رابط، حداکثر ۲۰۰ نتیجه نخست نمایش داده می‌شود؛ از جست‌وجوی بالای برنامه برای محدودکردن فهرست استفاده کن.</small>}</section></>;
 }
 function SettingsPage({settings,setSettings,onSave,onBackup,onRestore,autoBackups,onNativeBackup,onRestoreNative}:{settings:Record<string,string>;setSettings:(v:Record<string,string>)=>void;onSave:()=>void;onBackup:()=>void;onRestore:(f?:File)=>void;autoBackups:{name:string;size:number;modified:number}[];onNativeBackup:()=>void;onRestoreNative:(name:string)=>void}){
   const update=(k:string,v:string)=>setSettings({...settings,[k]:v});
