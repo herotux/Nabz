@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef, useDeferredValue } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { FormEvent, ReactNode, KeyboardEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import JsBarcode from 'jsbarcode';
 import { formatJalaliDate, latinDigits } from './utils/jalali';
@@ -551,6 +551,11 @@ function InvoicePaymentModal({detail,onClose,onSubmit}:{detail:InvoiceDetail;onC
 function EntryModal({entry,products,settings,form,setField,lines,setLines,onClose,onSubmit,onSaveDraft,hasDraft,busy,editing}:{entry:Entry;products:Product[];settings:Record<string,string>;form:Record<string,string>;setField:(k:string,v:string)=>void;lines:{item:string;qty:string;price:string}[];setLines:(v:{item:string;qty:string;price:string}[])=>void;onClose:()=>void;onSubmit:(e:FormEvent)=>void;onSaveDraft:()=>void;hasDraft:boolean;busy:boolean;editing:boolean}){
  const [simpleSale,setSimpleSale]=useState(true);
  const [showSaleDetails,setShowSaleDetails]=useState(false);
+ const [productQuery,setProductQuery]=useState('');
+ const productSearchRef=useRef<HTMLInputElement>(null);
+ const quickProducts=products.filter(p=>p.is_active&&!p.is_service&&(!productQuery.trim()||[p.name,p.code,p.barcode,p.category].some(v=>(v||'').toLocaleLowerCase().includes(productQuery.trim().toLocaleLowerCase())))).slice(0,30);
+ const addQuickProduct=(product:Product)=>{const existing=lines.findIndex(x=>x.item===product.name);if(existing>=0){setLines(lines.map((x,i)=>i===existing?{...x,qty:String((Number(x.qty)||0)+1)}:x));}else{const firstEmpty=lines.findIndex(x=>!x.item.trim());const next={item:product.name,qty:'1',price:String(productFinalPrice(product))};setLines(firstEmpty>=0?lines.map((x,i)=>i===firstEmpty?next:x):[...lines,next]);}setProductQuery('');productSearchRef.current?.focus();};
+ const handleSimpleSaleKeys=(e:KeyboardEvent<HTMLFormElement>)=>{if(entry!=='sale'||!simpleSale)return;const key=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&key==='k'){e.preventDefault();productSearchRef.current?.focus();productSearchRef.current?.select();return;}if(e.key==='F2'){e.preventDefault();productSearchRef.current?.focus();productSearchRef.current?.select();return;}if(e.key==='F4'){e.preventDefault();setField('status','paid');setField('method','cash');return;}if(e.key==='F6'){e.preventDefault();setField('status','paid');setField('method','card');return;}if(e.key==='F8'){e.preventDefault();setField('status','credit');setShowSaleDetails(true);return;}if(e.key==='F9'||(e.ctrlKey&&e.key==='Enter')){e.preventDefault();e.currentTarget.requestSubmit();return;}if(e.key==='Escape'){e.preventDefault();onClose();}};
  const titles:Record<Entry,string>={contact:editing?'ویرایش طرف‌حساب':'ثبت طرف‌حساب جدید',product:editing?'ویرایش کالا':'ثبت کالای جدید',sale:'فاکتور فروش جدید',purchase:'فاکتور خرید جدید',receipt:'ثبت دریافت وجه',payment:'ثبت پرداخت وجه'};
  const field=(key:string,label:string,placeholder='',type='text')=><label className="field-label">{label}<input type={type} value={form[key]||''} onChange={e=>setField(key,e.target.value)} placeholder={placeholder}/></label>;
  const invoiceSubtotal=lines.reduce((sum,line)=>sum+Math.max(0,Number(line.qty)||0)*Math.max(0,Number(line.price)||0),0);
@@ -563,7 +568,7 @@ function EntryModal({entry,products,settings,form,setField,lines,setLines,onClos
  const pricingMargin=Math.max(0,Number(settings.selling_price_margin_percent||0));
  const suggestedSell=Math.round(pricingBasis*(100+pricingMargin)/100);
   const updateInvoiceItem=(index:number,value:string)=>{const normalized=value.startsWith('خدمت:')?value.slice(6).trim():value;const found=products.find(p=>p.is_active&&(p.name.toLocaleLowerCase()===normalized.toLocaleLowerCase()||p.code===normalized||p.barcode===normalized)&&((entry==='purchase'&&!p.is_service)||entry==='sale'));setLines(lines.map((line,i)=>i===index?{...line,item:value,price:found?String(entry==='purchase'?found.buy_price:productFinalPrice(found)):line.price}:line));};
- return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><form className={"entry-modal "+(entry==="sale"&&simpleSale?"simple-sale-modal":"")} onSubmit={onSubmit}><div className="modal-heading"><div><span className="eyebrow">{entry==='sale'&&simpleSale?'فروش سریع':'فرم ثبت اطلاعات'}</span><h2>{titles[entry]}</h2></div><button type="button" className="icon-btn" onClick={onClose}><X size={20}/></button></div>
+ return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><form className={"entry-modal "+(entry==="sale"&&simpleSale?"simple-sale-modal":"")} onSubmit={onSubmit} onKeyDown={handleSimpleSaleKeys}><div className="modal-heading"><div><span className="eyebrow">{entry==='sale'&&simpleSale?'فروش سریع':'فرم ثبت اطلاعات'}</span><h2>{titles[entry]}</h2></div><button type="button" className="icon-btn" onClick={onClose}><X size={20}/></button></div>
   <div className="modal-fields">
    {entry==='contact'&&<>{field('name','نام طرف‌حساب','نام و نام خانوادگی یا شرکت')}<div className="form-two">{<label className="field-label">نوع طرف‌حساب<select value={form.kind} onChange={e=>setField('kind',e.target.value)}><option value="customer">مشتری</option><option value="supplier">تأمین‌کننده</option><option value="both">هر دو</option></select></label>}{field('phone','شماره تماس','اختیاری')}</div>{field('balance','مانده افتتاحیه','۰','number')}{!editing&&field('notes','یادداشت','توضیحات تکمیلی')}</>}
    {entry==='product'&&<>{field('name','نام کالا / خدمت','مثلاً کابل افشان')}<div className="form-two">{field('code','کد کالا','SKU-001')}{field('barcode','بارکد','اختیاری')}</div><div className="form-two">{field('category','دسته‌بندی','مثلاً سیم و کابل')}{field('unit','واحد شمارش','عدد، متر، حلقه، بسته...')}</div><div className="form-three">{field('qty','موجودی اولیه','۰','number')}{field('buy','قیمت خرید','۰','number')}{field('consumer_price','قیمت مصرف‌کننده روی بسته','۰','number')}</div><label className="field-label">قیمت فروش {autoPricing?'(محاسبه خودکار)':'(ورود دستی مدیر)'}<input type="number" min="0" value={autoPricing?String(suggestedSell):form.sell||''} disabled={autoPricing} onChange={e=>setField('sell',e.target.value)} placeholder="۰"/></label>{autoPricing&&<p className="edit-stock-note">قیمت پیشنهادی بر اساس {pricingBasis===Number(form.consumer_price||0)&&settings.selling_price_basis==='consumer'?'قیمت مصرف‌کننده':'قیمت خرید'} و {money(pricingMargin)}٪ سود محاسبه شده است.</p>}<div className="form-three"><label className="field-label">نوع تخفیف کالا<select value={form.discount_type||'none'} onChange={e=>setField('discount_type',e.target.value)}><option value="none">بدون تخفیف</option><option value="percent">درصدی</option><option value="fixed">مبلغ ثابت</option></select></label>{form.discount_type!=='none'&&field('discount_value',form.discount_type==='percent'?'درصد تخفیف':'مبلغ تخفیف (تومان)','۰','number')}{field('wholesale','قیمت عمده','۰','number')}</div><div className="form-two">{field('min','حداقل موجودی هشدار','۰','number')}<span className="edit-stock-note">قیمت فروش مبنای فاکتور فروش و تخفیف اختصاصی کالا است.</span></div><label className="field-label service-toggle"><input type="checkbox" checked={form.is_service==='true'} onChange={e=>{setField('is_service',e.target.checked?'true':'false');if(e.target.checked)setField('qty','0')}}/> این مورد خدمت است و موجودی انبار ندارد</label>{form.is_service==='true'&&<p className="edit-stock-note">خدمت در ارزش موجودی و گردش انبار محاسبه نمی‌شود. در فاکتور، عنوان آن را با پیشوند «خدمت:» وارد کن.</p>}{editing&&<p className="edit-stock-note">برای حفظ سوابق، موجودی کالای دارای فاکتور از این فرم تغییر نمی‌کند؛ اصلاح موجودی را از عملیات انبار انجام بده.</p>}</>}
@@ -573,24 +578,23 @@ function EntryModal({entry,products,settings,form,setField,lines,setLines,onClos
        <div><b>برای فروش، فقط کالاها را انتخاب کن</b><p>تعداد و مبلغ به‌صورت خودکار حساب می‌شود.</p></div>
        <button type="button" className="secondary-btn" onClick={()=>setSimpleSale(false)}>حالت کامل</button>
       </div>
-      <div className="simple-sale-items">
-       {lines.map((line,i)=><div className="simple-sale-item" key={i}>
-        <div className="simple-sale-product">
-         <input aria-label="انتخاب کالا" list={"sale-products-"+i} placeholder="نام کالا را بنویس یا انتخاب کن" value={line.item} onChange={e=>updateInvoiceItem(i,e.target.value)} onBlur={e=>{const value=e.currentTarget.value.trim();const found=products.find(p=>p.is_active&&(p.name.toLocaleLowerCase()===value.toLocaleLowerCase()||p.code===value||p.barcode===value));if(!found){setLines(lines.map((x,j)=>j===i?{...x,item:'',price:'0'}:x))}else if(found.name!==line.item){updateInvoiceItem(i,found.name)}}}/>
-         <datalist id={"sale-products-"+i}>{products.filter(p=>p.is_active).map(p=><option key={p.id} value={p.name} label={money(productFinalPrice(p))+" تومان · "+p.unit}/>)}</datalist>
-         <span>{line.item?money(Number(line.price)||0)+" تومان":"قیمت کالا"}</span>
-        </div>
-        <div className="simple-sale-item-controls">
-         <div className="simple-qty">
-          <button type="button" aria-label="افزایش تعداد" disabled={!line.item} onClick={()=>setLines(lines.map((x,j)=>j===i?{...x,qty:String((Number(x.qty)||1)+1)}:x))}>+</button>
-          <b>{money(Number(line.qty)||1)}</b>
-          <button type="button" aria-label="کاهش تعداد" disabled={!line.item||Number(line.qty)<=1} onClick={()=>setLines(lines.map((x,j)=>j===i?{...x,qty:String(Math.max(1,(Number(x.qty)||1)-1))}:x))}>−</button>
-         </div>
-         <button type="button" className="simple-remove" aria-label="حذف کالا" onClick={()=>setLines(lines.length===1?[{item:'',qty:'1',price:'0'}]:lines.filter((_,j)=>j!==i))}>حذف</button>
-        </div>
-       </div>)}
+      <div className="simple-sale-search">
+       <label htmlFor="simple-sale-product-search">جست‌وجوی کالا</label>
+       <div className="simple-sale-searchbox"><Search size={19}/><input id="simple-sale-product-search" ref={productSearchRef} autoFocus placeholder="نام کالا، کد یا دسته‌بندی..." value={productQuery} onChange={e=>setProductQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&quickProducts.length){e.preventDefault();e.stopPropagation();addQuickProduct(quickProducts[0]);}if(e.key==='ArrowDown'&&quickProducts.length){e.preventDefault();(document.querySelector('.simple-product-tile') as HTMLButtonElement|null)?.focus();}}}/><kbd>F2</kbd></div>
+       <div className="simple-sale-shortcuts"><span><kbd>Ctrl</kbd>+<kbd>K</kbd> جست‌وجو</span><span><kbd>F4</kbd> نقدی</span><span><kbd>F6</kbd> کارت‌خوان</span><span><kbd>F8</kbd> نسیه</span><span><kbd>F9</kbd> ثبت</span></div>
       </div>
-      <button type="button" className="simple-add-item" onClick={()=>setLines([...lines,{item:'',qty:'1',price:'0'}])}>＋ افزودن کالای دیگر</button>
+      <div className="simple-product-grid" aria-label="انتخاب سریع کالا">
+       {quickProducts.map((product,i)=><button type="button" className="simple-product-tile" key={product.id} onClick={()=>addQuickProduct(product)} onKeyDown={e=>{if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();const tiles=Array.from(document.querySelectorAll<HTMLButtonElement>('.simple-product-tile'));tiles[Math.min(i+1,tiles.length-1)]?.focus();}if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();if(i===0)productSearchRef.current?.focus();else{const tiles=Array.from(document.querySelectorAll<HTMLButtonElement>('.simple-product-tile'));tiles[i-1]?.focus();}}}}><b>{product.name}</b><span>{money(productFinalPrice(product))} تومان</span><small>{product.unit||'عدد'}{product.quantity<=product.min_quantity?' · موجودی کم':''}</small></button>)}
+       {!quickProducts.length&&<p className="simple-no-products">{products.some(p=>p.is_active&&!p.is_service)?'کالایی با این عبارت پیدا نشد. عبارت دیگری جست‌وجو کن.':'هنوز کالای فعالی ثبت نشده است.'}</p>}
+      </div>
+      <div className="simple-sale-items">
+       <div className="simple-cart-heading"><b>سبد فروش</b><span>{money(lines.filter(x=>x.item.trim()).length)} ردیف</span></div>
+       {lines.filter(line=>line.item.trim()).map((line)=>{const i=lines.indexOf(line);return <div className="simple-sale-item" key={i}>
+        <div className="simple-sale-product"><b>{line.item}</b><span>{money(Number(line.price)||0)} تومان · هر {products.find(p=>p.name===line.item)?.unit||'عدد'}</span></div>
+        <div className="simple-sale-item-controls"><div className="simple-qty"><button type="button" aria-label="افزایش تعداد" onClick={()=>setLines(lines.map((x,j)=>j===i?{...x,qty:String((Number(x.qty)||0)+1)}:x))}>+</button><b>{money(Number(line.qty)||1)}</b><button type="button" aria-label="کاهش تعداد" disabled={Number(line.qty)<=1} onClick={()=>setLines(lines.map((x,j)=>j===i?{...x,qty:String(Math.max(1,(Number(x.qty)||1)-1))}:x))}>−</button></div><button type="button" className="simple-remove" aria-label="حذف کالا" onClick={()=>setLines(lines.filter((_,j)=>j!==i))}>حذف</button></div>
+       </div>})}
+       {!lines.some(x=>x.item.trim())&&<p className="simple-cart-empty">برای شروع، یک کالا را از فهرست بالا انتخاب کن.</p>}
+      </div>
       <div className="simple-sale-total">
        <div><span>تعداد اقلام</span><b>{money(lines.filter(x=>x.item.trim()).length)} قلم</b></div>
        {invoiceDiscount>0&&<div><span>تخفیف فاکتور</span><b>{money(invoiceDiscount)} تومان</b></div>}
