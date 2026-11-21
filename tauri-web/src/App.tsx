@@ -601,12 +601,12 @@ function EntryModal({entry,products,settings,form,setField,lines,setLines,onClos
        <div className="simple-payment-options">
         <button type="button" className={form.status==='paid'&&form.method==='cash'?'selected':''} onClick={()=>{setField('status','paid');setField('method','cash')}}>نقدی</button>
         <button type="button" className={form.status==='paid'&&form.method==='card'?'selected':''} onClick={()=>{setField('status','paid');setField('method','card')}}>کارت‌خوان</button>
-        <button type="button" className={form.status==='credit'?'selected':''} onClick={()=>setField('status','credit')}>نسیه</button>
+        <button type="button" className={form.status==='credit'?'selected':''} onClick={()=>{setField('status','credit');setShowSaleDetails(true)}}>نسیه</button>
        </div>
       </div>
       <button type="button" className="simple-details-toggle" onClick={()=>setShowSaleDetails(!showSaleDetails)}>{showSaleDetails?'بستن جزئیات بیشتر':'افزودن نام مشتری یا تخفیف فاکتور'} <span>{showSaleDetails?'−':'＋'}</span></button>
       {showSaleDetails&&<div className="simple-sale-details">
-       {field('customer','نام مشتری','برای فروش نقدی گذری خالی بگذار')}
+       {field('customer',form.status==='credit'?'نام مشتری ثبت‌شده (برای نسیه الزامی)':'نام مشتری','برای فروش نقدی گذری خالی بگذار')}
        <div className="form-two">{field('discount','تخفیف کل فاکتور','۰','number')}<JalaliDateField label="تاریخ فاکتور" value={form.date||isoToday} onChange={v=>setField('date',v)} todayValue={isoToday}/></div>
        {field('notes','یادداشت','اختیاری')}
       </div>}
