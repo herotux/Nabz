@@ -216,7 +216,7 @@ function App(){
       const subtotal=lines.reduce((sum,x)=>sum+Number(x.qty)*Number(x.price),0);
       const discount=Number(form.discount||0);
       if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(discount)||discount<0||discount>subtotal){notify('مبلغ تخفیف یا جمع فاکتور معتبر نیست.');return}
-      if(entry==='sale'&&form.status==='partial'&&(!Number.isSafeInteger(Number(form.paid))||Number(form.paid)<=0||Number(form.paid)>=subtotal-discount)){notify('مبلغ دریافتی باید بیشتر از صفر و کمتر از مبلغ نهایی باشد.');return}
+      if(entry==='sale'&&(form.status==='credit'||form.status==='partial')&&!form.customer.trim()){notify('برای فروش نسیه یا پرداخت جزئی، ابتدا مشتری ثبت‌شده را انتخاب کنید.');return}if(entry==='sale'&&form.status==='partial'&&(!Number.isSafeInteger(Number(form.paid))||Number(form.paid)<=0||Number(form.paid)>=subtotal-discount)){notify('مبلغ دریافتی باید بیشتر از صفر و کمتر از مبلغ نهایی باشد.');return}
     }
     if(entry==='sale'||entry==='purchase')invoiceSubmitLock.current=true;
     setBusy(true);
