@@ -8,7 +8,7 @@ import { formatJalaliDate } from '../../utils/jalali';
 import type { RecordRow } from '../../types';
 type Page = 'dashboard'|'contacts'|'invoices'|'payments'|'products'|'reports'|'printing'|'settings';
 type Entry = 'contact'|'product'|'sale'|'purchase'|'receipt'|'payment';
-type Product = {id:number;name:string;code:string;barcode:string;quantity:number;buy_price:number;average_cost:number;sell_price:number;min_quantity:number;category:string;unit:string;wholesale_price:number;is_service:boolean;is_active:boolean};
+type Product = {id:number;name:string;code:string;barcode:string;quantity:number;buy_price:number;average_cost:number;sell_price:number;consumer_price:number;discount_type:'none'|'percent'|'fixed';discount_value:number;min_quantity:number;category:string;unit:string;wholesale_price:number;is_service:boolean;is_active:boolean};
 type InventoryMovement = {product_id:number;product_name:string;movement_date:string;movement_type:string;reference:string;quantity_delta:number;balance_after:number};
 type Summary = {sales_today:number;receipts_today:number;customer_balance:number;supplier_balance:number;inventory_value:number;contacts:number;products:number;invoices:number;sales_month:number;purchases_month:number;gross_profit_month:number;net_profit_month:number;uncosted_sales_month:number;low_stock_count:number};
 type Trend = {date:string;total:number};
