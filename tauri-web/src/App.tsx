@@ -217,6 +217,7 @@ function App(){
       const discount=Number(form.discount||0);
       if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(discount)||discount<0||discount>subtotal){notify('مبلغ تخفیف یا جمع فاکتور معتبر نیست.');return}
       if(entry==='sale'&&(form.status==='credit'||form.status==='partial')&&!form.customer.trim()){notify('برای فروش نسیه یا پرداخت جزئی، ابتدا مشتری ثبت‌شده را انتخاب کنید.');return}if(entry==='sale'&&form.status==='partial'&&(!Number.isSafeInteger(Number(form.paid))||Number(form.paid)<=0||Number(form.paid)>=subtotal-discount)){notify('مبلغ دریافتی باید بیشتر از صفر و کمتر از مبلغ نهایی باشد.');return}
+      if(entry==='sale'&&form.status==='credit'&&!form.customer.trim()){notify('برای ثبت فروش نسیه، نام مشتری ثبت‌شده را وارد کن.');return}
     }
     if(entry==='sale'||entry==='purchase')invoiceSubmitLock.current=true;
     setBusy(true);
@@ -604,9 +605,9 @@ function EntryModal({entry,products,settings,form,setField,lines,setLines,onClos
         <button type="button" className={form.status==='credit'?'selected':''} onClick={()=>{setField('status','credit');setShowSaleDetails(true)}}>نسیه</button>
        </div>
       </div>
-      <button type="button" className="simple-details-toggle" onClick={()=>setShowSaleDetails(!showSaleDetails)}>{showSaleDetails?'بستن جزئیات بیشتر':'افزودن نام مشتری یا تخفیف فاکتور'} <span>{showSaleDetails?'−':'＋'}</span></button>
+      <button type="button" className="simple-details-toggle" disabled={form.status==='credit'} onClick={()=>setShowSaleDetails(!showSaleDetails)}>{showSaleDetails?'بستن جزئیات بیشتر':'افزودن نام مشتری یا تخفیف فاکتور'} <span>{showSaleDetails?'−':'＋'}</span></button>
       {showSaleDetails&&<div className="simple-sale-details">
-       {field('customer',form.status==='credit'?'نام مشتری ثبت‌شده (برای نسیه الزامی)':'نام مشتری','برای فروش نقدی گذری خالی بگذار')}
+       {field('customer',form.status==='credit'?'نام مشتری ثبت‌شده (برای نسیه الزامی)':'نام مشتری',form.status==='credit'?'نام مشتری ثبت‌شده را دقیق وارد کن':'برای فروش نقدی گذری خالی بگذار')}
        <div className="form-two">{field('discount','تخفیف کل فاکتور','۰','number')}<JalaliDateField label="تاریخ فاکتور" value={form.date||isoToday} onChange={v=>setField('date',v)} todayValue={isoToday}/></div>
        {field('notes','یادداشت','اختیاری')}
       </div>}
