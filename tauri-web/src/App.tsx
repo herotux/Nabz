@@ -44,6 +44,30 @@ const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string
 const pageTitles:Record<Page,string> = {dashboard:'نمای کلی',contacts:'طرف‌حساب‌ها',invoices:'فاکتورها',payments:'دریافت و پرداخت',products:'کالا و انبار',reports:'گزارش‌ها',printing:'چاپ و بارکد',settings:'تنظیمات'};
 const money=(n:number)=>new Intl.NumberFormat('fa-IR').format(Number.isFinite(n)?n:0);
 const escapeHtml=(value:unknown)=>String(value??'').replace(/[&<>\"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]||ch));
+const printHtml=(html:string,onReady?:(frame:HTMLIFrameElement)=>void,onError?:(error:unknown)=>void)=>{
+  const frame=document.createElement('iframe');
+  frame.title='پیش‌نمایش چاپ';
+  frame.setAttribute('aria-hidden','true');
+  frame.style.cssText='position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none';
+  let cleaned=false;
+  const cleanup=()=>{if(cleaned)return;cleaned=true;window.setTimeout(()=>frame.remove(),250)};
+  frame.onload=()=>{
+    try{
+      onReady?.(frame);
+      const target=frame.contentWindow;
+      if(!target)throw new Error('پنجره چاپ داخلی در دسترس نیست');
+      target.addEventListener('afterprint',cleanup,{once:true});
+      target.focus();
+      window.setTimeout(()=>{try{target.print()}catch(error){cleanup();onError?.(error)}},180);
+      window.setTimeout(cleanup,60000);
+    }catch(error){cleanup();onError?.(error)}
+  };
+  document.body.appendChild(frame);
+  const doc=frame.contentDocument;
+  if(!doc){cleanup();onError?.(new Error('ساخت سند چاپ ناموفق بود'));return null}
+  doc.open();doc.write(html);doc.close();
+  return frame;
+};
 const today=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{day:'numeric',month:'long',year:'numeric'}).format(new Date());
 const localIso=(date:Date)=>date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');
 const isoToday=localIso(new Date());
@@ -247,12 +271,12 @@ function App(){
   };
   const printProductLabel=(p:Product)=>{
     const value=p.barcode||p.code;
-    const w=window.open('','_blank','width=520,height=420');
-    if(!w){notify('پنجره چاپ مسدود است؛ اجازه بازشدن پنجره را فعال کن.');return}
-    w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>body{font-family:Tahoma,sans-serif;padding:22px;text-align:center;color:#18251e}h1{font-size:18px;margin:4px 0 12px}svg{width:100%;height:110px}p{font:12px monospace;letter-spacing:1px;margin:8px}small{color:#66736a}@page{size:auto;margin:6mm}</style><h1>'+escapeHtml(p.name)+'</h1><svg id="product-label-code"></svg><p>'+escapeHtml(value)+'</p><small>'+escapeHtml(p.code)+'</small></html>');
-    w.document.close();
-    try{const svg=w.document.getElementById('product-label-code') as unknown as SVGSVGElement;JsBarcode(svg,value,{format:'CODE128',displayValue:false,lineColor:'#1d2c24',width:2,height:76,margin:8});w.focus();w.print()}
-    catch(e){w.close();notify('ساخت بارکد برچسب ناموفق بود: '+String(e))}
+    const html='<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>body{font-family:Tahoma,sans-serif;padding:22px;text-align:center;color:#18251e}h1{font-size:18px;margin:4px 0 12px}svg{width:100%;height:110px}p{font:12px monospace;letter-spacing:1px;margin:8px}small{color:#66736a}@page{size:auto;margin:6mm}</style><body><h1>'+escapeHtml(p.name)+'</h1><svg id="product-label-code"></svg><p>'+escapeHtml(value)+'</p><small>'+escapeHtml(p.code)+'</small></body></html>';
+    printHtml(html,frame=>{
+      const svg=frame.contentDocument?.getElementById('product-label-code') as unknown as SVGSVGElement|null;
+      if(!svg)throw new Error('محل بارکد در سند چاپ پیدا نشد');
+      JsBarcode(svg,value,{format:'CODE128',displayValue:false,lineColor:'#1d2c24',width:2,height:76,margin:8});
+    },error=>notify('آماده‌سازی برچسب چاپ ناموفق بود: '+String(error)));
   };
   const toggleProductActive=async(p:Product)=>{const active=!p.is_active;if(!window.confirm(active?'این کالا دوباره در فاکتورهای جدید قابل انتخاب شود؟':'این کالا از فهرست انتخاب فاکتورهای جدید خارج شود؟ سابقه آن حفظ می‌شود.'))return;try{await invoke('set_product_active',{productId:p.id,active});notify(active?'کالا فعال شد.':'کالا غیرفعال شد و سوابق آن باقی ماند.');await load()}catch(e){notify('تغییر وضعیت کالا انجام نشد: '+String(e))}};
   const removeRecord=async(kind:string,id:number)=>{
@@ -295,12 +319,11 @@ function App(){
     try{
       const data=await invoke<InvoicePrint>('get_invoice_print',{id});
       const rows=data.items.map(x=>'<tr><td>'+escapeHtml(x.item_name)+'</td><td>'+money(x.quantity)+'</td><td>'+money(x.unit_price)+'</td><td>'+money(x.line_total)+'</td></tr>').join('');
-      const w=window.open('','_blank','width=900,height=700');if(!w)throw new Error('پنجره چاپ مسدود است');
       const paper=settings.print_paper||'A4';
       const pageSize=paper==='A5'?'A5':paper==='80mm'?'80mm auto':paper==='58mm'?'58mm auto':'A4';
       const compact=paper==='80mm'||paper==='58mm';
       const shopName=escapeHtml(data.shop.shop_name||'نبض'),shopPhone=escapeHtml(data.shop.shop_phone||''),shopAddress=escapeHtml(data.shop.shop_address||''),shopTax=escapeHtml(data.shop.shop_tax||'');
-      w.document.write(`<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>فاکتور ${escapeHtml(data.invoice.number)}</title><style>
+      const printDocument=`<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>فاکتور ${escapeHtml(data.invoice.number)}</title><style>
         @page{size:${pageSize};margin:${compact?'3mm':'10mm'}}
         body{font-family:Tahoma,sans-serif;padding:${compact?'0':'10px'};color:#182536;font-size:${compact?'10px':'12px'}}
         h1{font-size:${compact?'15px':'22px'};margin:0 0 6px}
@@ -309,8 +332,8 @@ function App(){
         td,th{border:1px solid #ddd;padding:${compact?'4px':'8px'};text-align:right;font-size:inherit}
         footer{margin-top:12px;font-weight:bold;line-height:2}.shop-info{line-height:1.8;font-size:inherit}
         @media print{body{print-color-adjust:exact}}
-      </style><h1>${shopName}</h1><div class="shop-info">${shopPhone?('تماس: '+shopPhone+'<br>'):''}${shopAddress?('نشانی: '+shopAddress+'<br>'):''}${shopTax?('شناسه مالیاتی: '+shopTax):''}</div><h2>فاکتور ${data.invoice.kind==='sale'?'فروش':'خرید'} شماره ${money(data.invoice.number)}</h2><p>طرف حساب: ${escapeHtml(data.invoice.contact_name)}　 تاریخ: ${escapeHtml(formatJalaliDate(data.invoice.invoice_date))}</p><table><thead><tr><th>شرح</th><th>تعداد</th><th>فی</th><th>مبلغ</th></tr></thead><tbody>${rows}</tbody></table><footer>جمع جزء: ${money(data.invoice.subtotal)} تومان<br>تخفیف: ${money(data.invoice.discount)} تومان<br>جمع نهایی: ${money(data.invoice.total)} تومان<br>پرداخت‌شده: ${money(data.invoice.paid)} تومان<br>مانده: ${money(Math.max(0,data.invoice.total-data.invoice.paid))} تومان</footer><script>window.onload=()=>window.print()</script></html>`);
-      w.document.close();
+      </style><h1>${shopName}</h1><div class="shop-info">${shopPhone?('تماس: '+shopPhone+'<br>'):''}${shopAddress?('نشانی: '+shopAddress+'<br>'):''}${shopTax?('شناسه مالیاتی: '+shopTax):''}</div><h2>فاکتور ${data.invoice.kind==='sale'?'فروش':'خرید'} شماره ${money(data.invoice.number)}</h2><p>طرف حساب: ${escapeHtml(data.invoice.contact_name)}　 تاریخ: ${escapeHtml(formatJalaliDate(data.invoice.invoice_date))}</p><table><thead><tr><th>شرح</th><th>تعداد</th><th>فی</th><th>مبلغ</th></tr></thead><tbody>${rows}</tbody></table><footer>جمع جزء: ${money(data.invoice.subtotal)} تومان<br>تخفیف: ${money(data.invoice.discount)} تومان<br>جمع نهایی: ${money(data.invoice.total)} تومان<br>پرداخت‌شده: ${money(data.invoice.paid)} تومان<br>مانده: ${money(Math.max(0,data.invoice.total-data.invoice.paid))} تومان</footer></html>`;
+      printHtml(printDocument,undefined,error=>notify('چاپ فاکتور ناموفق بود: '+String(error)));
     }catch(e){notify('آماده‌سازی چاپ ناموفق بود: '+String(e))}
   };
   const saveSettings=async()=>{
@@ -394,20 +417,23 @@ function PrintingPage({notify,products}:{notify:(s:string)=>void;products:Produc
  },[barcode,format]);
  const printSingle=()=>{
   if(!printValue||!barcodeRef.current)return;
-  const w=window.open('','_blank','width=520,height=420');
-  if(!w){notify('پنجره چاپ مسدود است؛ اجازه بازشدن پنجره را فعال کن.');return}
-  w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب بارکد</title><style>@page{size:auto;margin:6mm}body{font-family:Tahoma,sans-serif;text-align:center;color:#18251e;padding:8mm}h2{font-size:14pt}svg{width:100%;max-width:100mm;height:35mm}p{font:11pt monospace;direction:ltr}</style><h2>برچسب کالا</h2>'+barcodeRef.current.outerHTML+'<p>'+escapeHtml(printValue)+'</p></html>');
-  w.document.close();w.focus();w.print();notify('برچسب برای چاپ یا ذخیره PDF آماده شد.');
+  const html='<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب بارکد</title><style>@page{size:auto;margin:6mm}body{font-family:Tahoma,sans-serif;text-align:center;color:#18251e;padding:8mm}h2{font-size:14pt}svg{width:100%;max-width:100mm;height:35mm}p{font:11pt monospace;direction:ltr}</style><body><h2>برچسب کالا</h2>'+barcodeRef.current.outerHTML+'<p>'+escapeHtml(printValue)+'</p></body></html>';
+  printHtml(html,undefined,error=>notify('چاپ برچسب ناموفق بود: '+String(error)));
+  notify('برچسب برای چاپ یا ذخیره PDF آماده شد.');
  };
  const printSelected=()=>{
   const chosen=printable.filter(p=>selectedIds.includes(p.id));
   if(!chosen.length){notify('حداقل یک کالا را برای چاپ گروهی انتخاب کن.');return}
-  const w=window.open('','_blank','width=900,height=700');
-  if(!w){notify('پنجره چاپ مسدود است؛ اجازه بازشدن پنجره را فعال کن.');return}
   const cards=chosen.map((p,i)=>'<article class="label"><b>'+escapeHtml(p.name)+'</b><svg id="batch-code-'+i+'"></svg><small>'+escapeHtml(p.barcode||p.code)+'</small></article>').join('');
-  w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>@page{size:A4;margin:8mm}*{box-sizing:border-box}body{font-family:Tahoma,sans-serif;margin:0;color:#18251e}.labels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5mm}.label{height:42mm;border:1px dashed #9aa79f;padding:3mm;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2mm;break-inside:avoid;overflow:hidden}.label b{font-size:10pt;text-align:center;max-height:10mm;overflow:hidden}.label svg{width:100%;height:20mm}.label small{font:9pt monospace;direction:ltr}@media print{.label{break-inside:avoid}}</style><main class="labels">'+cards+'</main></html>');
-  w.document.close();
-  try{chosen.forEach((p,i)=>{const node=w.document.getElementById('batch-code-'+i) as unknown as SVGSVGElement;JsBarcode(node,p.barcode||p.code,{format:'CODE128',displayValue:false,lineColor:'#1d2c24',width:1.5,height:48,margin:2});});w.focus();w.print();notify('برگه برچسب‌های انتخاب‌شده آماده چاپ یا ذخیره PDF است.')}catch(e){w.close();notify('ساخت برچسب گروهی ناموفق بود: '+String(e))}
+  const html='<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>@page{size:A4;margin:8mm}*{box-sizing:border-box}body{font-family:Tahoma,sans-serif;margin:0;color:#18251e}.labels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5mm}.label{height:42mm;border:1px dashed #9aa79f;padding:3mm;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2mm;break-inside:avoid;overflow:hidden}.label b{font-size:10pt;text-align:center;max-height:10mm;overflow:hidden}.label svg{width:100%;height:20mm}.label small{font:9pt monospace;direction:ltr}@media print{.label{break-inside:avoid}}</style><body><main class="labels">'+cards+'</main></body></html>';
+  printHtml(html,frame=>{
+    chosen.forEach((p,i)=>{
+      const node=frame.contentDocument?.getElementById('batch-code-'+i) as unknown as SVGSVGElement|null;
+      if(!node)throw new Error('محل بارکد گروهی پیدا نشد');
+      JsBarcode(node,p.barcode||p.code,{format:'CODE128',displayValue:false,lineColor:'#1d2c24',width:1.5,height:48,margin:2});
+    });
+  },error=>notify('ساخت برچسب گروهی ناموفق بود: '+String(error)));
+  notify('برگه برچسب‌های انتخاب‌شده برای چاپ یا ذخیره PDF آماده شد.');
  };
  return <><PageHeading title="چاپ و بارکد" subtitle="تولید بارکد استاندارد، چاپ تکی و گروهی برچسب کالا"/><div className="surface print-panel"><div><h2>بارکد کالا</h2><p>می‌توانی کد را تایپ کنی یا با اسکنر USB/HID در همین کادر اسکن کنی.</p><label className="field-label">نوع بارکد<select value={format} onChange={e=>setFormat(e.target.value as 'CODE128'|'EAN13')}><option value="CODE128">Code 128 (SKU/کد داخلی)</option><option value="EAN13">EAN-13 (کد تجاری)</option></select></label><label className="field-label">کد یا بارکد<input value={barcode} onChange={e=>setBarcode(e.target.value)} dir="ltr" autoFocus/></label>{barcodeError&&<p className="barcode-error">{barcodeError}</p>}<button className="primary-btn" disabled={!printValue||!!barcodeError} onClick={printSingle}><Printer size={16}/> چاپ / ذخیره PDF</button></div><div className="barcode-preview"><svg ref={barcodeRef} role="img" aria-label="پیش‌نمایش بارکد تولیدشده"/></div></div>
  <section className="surface settings-card batch-label-panel"><div className="surface-heading"><div><h2>چاپ گروهی برچسب کالا</h2><p>چند کالا را انتخاب کن تا برچسب‌های Code128 در یک برگه A4 چیده شوند.</p></div><span>{selectedIds.length} انتخاب</span></div><div className="backup-actions"><button className="secondary-btn" onClick={()=>setSelectedIds(printable.map(p=>p.id))}>انتخاب همه نتایج</button><button className="secondary-btn" onClick={()=>setSelectedIds([])}>پاک‌کردن انتخاب</button><button className="primary-btn" disabled={!selectedIds.some(id=>printable.some(p=>p.id===id))} onClick={printSelected}><Printer size={16}/> چاپ برچسب‌های انتخاب‌شده</button></div><div className="batch-product-list">{printable.map(p=><label key={p.id} className="batch-product-row"><input type="checkbox" checked={selectedIds.includes(p.id)} onChange={e=>setSelectedIds(old=>e.target.checked?[...old,p.id]:old.filter(id=>id!==p.id))}/><span>{p.name}<small>{p.barcode||p.code}</small></span></label>)}{!printable.length&&<p>کالای فعال دارای کد یا بارکد برای چاپ وجود ندارد.</p>}</div>{products.length>200&&<small>برای جلوگیری از کندشدن رابط، حداکثر ۲۰۰ نتیجه نخست نمایش داده می‌شود؛ از جست‌وجوی بالای برنامه برای محدودکردن فهرست استفاده کن.</small>}</section></>;
