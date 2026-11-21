@@ -917,11 +917,17 @@ mod tests {
             "INSERT INTO products(id,name,code,buy_price,sell_price) VALUES(1,'کالای قدیمی','OLD-PRICE',100,150)",
             [],
         ).unwrap();
-        connection.execute_batch("PRAGMA user_version=14;").unwrap();
+        connection.execute_batch(
+            "ALTER TABLE products DROP COLUMN consumer_price;
+             ALTER TABLE products DROP COLUMN discount_type;
+             ALTER TABLE products DROP COLUMN discount_value;
+             PRAGMA user_version=14;"
+        ).unwrap();
         migrate(&connection).unwrap();
-        let (version,buy,sell,consumer,discount_type,discount_value):(i64,i64,i64,i64,String,i64)=connection.query_row(
-            "SELECT (SELECT user_version FROM pragma_user_version),buy_price,sell_price,consumer_price,discount_type,discount_value FROM products WHERE id=1",
-            [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
+        let version:i64=connection.query_row("PRAGMA user_version",[],|r|r.get(0)).unwrap();
+        let (buy,sell,consumer,discount_type,discount_value):(i64,i64,i64,String,i64)=connection.query_row(
+            "SELECT buy_price,sell_price,consumer_price,discount_type,discount_value FROM products WHERE id=1",
+            [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
         ).unwrap();
         assert_eq!(version,SCHEMA_VERSION);
         assert_eq!((buy,sell,consumer,discount_type.as_str(),discount_value),(100,150,0,"none",0));
