@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 14;
+pub const SCHEMA_VERSION: i64 = 15;
 
 /// Normalize Persian and English contact roles consistently across application instances.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -885,6 +885,22 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         tx.commit().map_err(|e| e.to_string())?;
     }
 
+    if version < 15 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        for (column, definition) in [
+            ("consumer_price", "INTEGER NOT NULL DEFAULT 0 CHECK(consumer_price>=0)"),
+            ("discount_type", "TEXT NOT NULL DEFAULT 'none' CHECK(discount_type IN ('none','percent','fixed'))"),
+            ("discount_value", "INTEGER NOT NULL DEFAULT 0 CHECK(discount_value>=0)"),
+        ] {
+            if !column_exists(&tx, "products", column)? {
+                tx.execute_batch(&format!("ALTER TABLE products ADD COLUMN {column} {definition};"))
+                    .map_err(|e| format!("افزودن تنظیم قیمت کالا ناموفق بود ({column}): {e}"))?;
+            }
+        }
+        tx.pragma_update(None, "user_version", 15).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -892,6 +908,24 @@ fn migrate(connection: &Connection) -> Result<(), String> {
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn schema_v15_adds_consumer_price_and_product_discount_without_changing_legacy_prices() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO products(id,name,code,buy_price,sell_price) VALUES(1,'کالای قدیمی','OLD-PRICE',100,150)",
+            [],
+        ).unwrap();
+        connection.execute_batch("PRAGMA user_version=14;").unwrap();
+        migrate(&connection).unwrap();
+        let (version,buy,sell,consumer,discount_type,discount_value):(i64,i64,i64,i64,String,i64)=connection.query_row(
+            "SELECT (SELECT user_version FROM pragma_user_version),buy_price,sell_price,consumer_price,discount_type,discount_value FROM products WHERE id=1",
+            [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
+        ).unwrap();
+        assert_eq!(version,SCHEMA_VERSION);
+        assert_eq!((buy,sell,consumer,discount_type.as_str(),discount_value),(100,150,0,"none",0));
+    }
 
     #[test]
     fn schema_v13_adds_invoice_drafts_and_idempotency_without_losing_invoices() {
