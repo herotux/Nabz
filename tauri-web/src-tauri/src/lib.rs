@@ -22,7 +22,7 @@ struct Summary {
 #[derive(Serialize)]
 struct Record { id:i64, name:String, detail:String, amount:i64, status:String, date:String }
 #[derive(Serialize)]
-struct ProductRecord { id:i64, name:String, code:String, barcode:String, quantity:i64, buy_price:i64, average_cost:i64, sell_price:i64, min_quantity:i64, category:String, unit:String, wholesale_price:i64, is_service:bool, is_active:bool }
+struct ProductRecord { id:i64, name:String, code:String, barcode:String, quantity:i64, buy_price:i64, average_cost:i64, sell_price:i64, consumer_price:i64, discount_type:String, discount_value:i64, min_quantity:i64, category:String, unit:String, wholesale_price:i64, is_service:bool, is_active:bool }
 
 fn text(v:&Value,k:&str)->String { v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned() }
 fn num(v:&Value,k:&str)->i64 { v.get(k).and_then(|x|x.as_i64().or_else(||x.as_str().and_then(|s|s.replace(',',"").replace('٬',"").parse().ok()))).unwrap_or(0) }
@@ -56,8 +56,8 @@ fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{
 #[tauri::command] fn list_records(kind:String,db:State<'_,Db>)->Result<Vec<Record>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let sql=match kind.as_str(){"contacts"=>"SELECT id,name,phone,opening_balance,kind,datetime(created_at) FROM contacts ORDER BY id DESC","products"=>"SELECT id,name,code,quantity,sell_price,'موجود', '' FROM products ORDER BY id DESC","invoices"=>"SELECT id,'فاکتور #'||number||' · '||contact_name,kind,total,CASE WHEN voided=1 THEN 'باطل‌شده' WHEN paid>=total THEN 'تسویه' WHEN paid>0 THEN 'پرداخت جزئی' ELSE 'پرداخت‌نشده' END,invoice_date FROM invoices ORDER BY invoice_date DESC,number DESC","payments"=>"SELECT id,contact_name,kind,amount,method,payment_date FROM payments ORDER BY id DESC",_=>return Err("فهرست نامعتبر است".into())};let mut s=c.prepare(sql).map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Record{id:r.get(0)?,name:r.get(1)?,detail:r.get(2)?,amount:r.get(3)?,status:r.get(4)?,date:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 #[tauri::command] fn list_products(db:State<'_,Db>)->Result<Vec<ProductRecord>,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
- let mut s=c.prepare("SELECT id,name,code,barcode,quantity,buy_price,average_cost,sell_price,min_quantity,category,unit,wholesale_price,is_service,is_active FROM products ORDER BY is_active DESC,name COLLATE NOCASE,id DESC").map_err(|e|e.to_string())?;
- let rows=s.query_map([],|r|Ok(ProductRecord{id:r.get(0)?,name:r.get(1)?,code:r.get(2)?,barcode:r.get(3)?,quantity:r.get(4)?,buy_price:r.get(5)?,average_cost:r.get(6)?,sell_price:r.get(7)?,min_quantity:r.get(8)?,category:r.get(9)?,unit:r.get(10)?,wholesale_price:r.get(11)?,is_service:r.get::<_,i64>(12)?!=0,is_active:r.get::<_,i64>(13)?!=0})).map_err(|e|e.to_string())?;
+ let mut s=c.prepare("SELECT id,name,code,barcode,quantity,buy_price,average_cost,sell_price,consumer_price,discount_type,discount_value,min_quantity,category,unit,wholesale_price,is_service,is_active FROM products ORDER BY is_active DESC,name COLLATE NOCASE,id DESC").map_err(|e|e.to_string())?;
+ let rows=s.query_map([],|r|Ok(ProductRecord{id:r.get(0)?,name:r.get(1)?,code:r.get(2)?,barcode:r.get(3)?,quantity:r.get(4)?,buy_price:r.get(5)?,average_cost:r.get(6)?,sell_price:r.get(7)?,consumer_price:r.get(8)?,discount_type:r.get(9)?,discount_value:r.get(10)?,min_quantity:r.get(11)?,category:r.get(12)?,unit:r.get(13)?,wholesale_price:r.get(14)?,is_service:r.get::<_,i64>(15)?!=0,is_active:r.get::<_,i64>(16)?!=0})).map_err(|e|e.to_string())?;
  rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
 }
 #[tauri::command]
@@ -100,7 +100,7 @@ fn save_product(payload:Value,db:State<'_,Db>)->Result<i64,String>{
  save_product_with_connection(payload,&c)
 }
 fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>{
- let input=ProductInput{
+ let mut input=ProductInput{
   name:text(&payload,"name"),
   code:text(&payload,"code"),
   barcode:text(&payload,"barcode"),
@@ -109,6 +109,26 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
   quantity:num(&payload,"qty"),
   min_quantity:num(&payload,"min"),
  };
+ let consumer_price=num(&payload,"consumer_price");
+ let discount_type=match text(&payload,"discount_type").as_str() {
+  ""|"none"=>"none",
+  "percent"=>"percent",
+  "fixed"=>"fixed",
+  _=>return Err("نوع تخفیف کالا معتبر نیست".into()),
+ };
+ let discount_value=num(&payload,"discount_value");
+ if consumer_price<0 || discount_value<0 { return Err("قیمت مصرف‌کننده و تخفیف نمی‌توانند منفی باشند".into()) }
+ let mode:String=c.query_row("SELECT value FROM settings WHERE key='selling_price_mode'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"manual".into());
+ if mode=="auto" {
+  let basis:String=c.query_row("SELECT value FROM settings WHERE key='selling_price_basis'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"buy".into());
+  let margin:String=c.query_row("SELECT value FROM settings WHERE key='selling_price_margin_percent'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"0".into());
+  let percent:i64=margin.parse().map_err(|_|"درصد سود تنظیم‌شده معتبر نیست")?;
+  if !(0..=1000).contains(&percent) { return Err("درصد سود باید بین صفر تا ۱۰۰۰ باشد".into()) }
+  let base=if basis=="consumer" { consumer_price } else { input.buy_price };
+  input.sell_price=base.checked_mul(100+percent).and_then(|v|v.checked_add(50)).map(|v|v/100).ok_or("محاسبه قیمت فروش از محدوده مجاز خارج شد")?;
+ }
+ if discount_type=="percent" && discount_value>100 { return Err("درصد تخفیف باید بین صفر تا ۱۰۰ باشد".into()) }
+ if discount_type=="fixed" && discount_value>=input.sell_price && discount_value>0 { return Err("تخفیف ثابت باید کمتر از قیمت فروش باشد".into()) }
  let category=text(&payload,"category");
  let unit=text(&payload,"unit");
  let unit=if unit.is_empty(){"عدد".to_string()}else{unit};
@@ -137,8 +157,8 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
   }
  }
  let id=core_save_product(c,payload.get("id").and_then(Value::as_i64),&input)?;
- c.execute("UPDATE products SET category=?1,unit=?2,wholesale_price=?3,is_service=?4,quantity=CASE WHEN ?4=1 THEN 0 ELSE quantity END,average_cost=CASE WHEN ?4=1 THEN 0 ELSE average_cost END WHERE id=?5",
-  rusqlite::params![category,unit,wholesale,is_service as i64,id]).map_err(|e|e.to_string())?;
+ c.execute("UPDATE products SET category=?1,unit=?2,wholesale_price=?3,is_service=?4,consumer_price=?5,discount_type=?6,discount_value=?7,quantity=CASE WHEN ?4=1 THEN 0 ELSE quantity END,average_cost=CASE WHEN ?4=1 THEN 0 ELSE average_cost END WHERE id=?8",
+  rusqlite::params![category,unit,wholesale,is_service as i64,consumer_price,discount_type,discount_value,id]).map_err(|e|e.to_string())?;
  Ok(id)
 }
 #[tauri::command]
@@ -1173,9 +1193,31 @@ fn create_auto_backup(app:tauri::AppHandle,force:bool,db:State<'_,Db>)->Result<V
  for old in backups.iter().skip(30){let _=fs::remove_file(old.path());}
  Ok(json!({"created":true,"name":destination.file_name().unwrap_or_default().to_string_lossy(),"size":size,"modified":timestamp}))
 }
+#[tauri::command]
+fn recalculate_selling_prices(db:State<'_,Db>)->Result<i64,String>{
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ let mode:String=c.query_row("SELECT value FROM settings WHERE key='selling_price_mode'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"manual".into());
+ if mode!="auto" { return Ok(0) }
+ let basis:String=c.query_row("SELECT value FROM settings WHERE key='selling_price_basis'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"buy".into());
+ let margin:String=c.query_row("SELECT value FROM settings WHERE key='selling_price_margin_percent'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"0".into());
+ let percent:i64=margin.parse().map_err(|_|"درصد سود تنظیم‌شده معتبر نیست")?;
+ if !(0..=1000).contains(&percent) { return Err("درصد سود باید بین صفر تا ۱۰۰۰ باشد".into()) }
+ let tx=c.transaction().map_err(|e|e.to_string())?;
+ let mut stmt=tx.prepare("SELECT id,buy_price,consumer_price FROM products WHERE is_service=0").map_err(|e|e.to_string())?;
+ let rows=stmt.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?))).map_err(|e|e.to_string())?;
+ let products=rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?;
+ drop(stmt);
+ for (id,buy,consumer) in &products {
+  let base=if basis=="consumer" {*consumer} else {*buy};
+  let price=base.checked_mul(100+percent).and_then(|v|v.checked_add(50)).map(|v|v/100).ok_or("محاسبه قیمت فروش از محدوده مجاز خارج شد")?;
+  tx.execute("UPDATE products SET sell_price=?1 WHERE id=?2",rusqlite::params![price,id]).map_err(|e|e.to_string())?;
+ }
+ tx.commit().map_err(|e|e.to_string())?;
+ Ok(products.len() as i64)
+}
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,restore_auto_backup,save_setting,get_settings,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,restore_auto_backup,save_setting,get_settings,recalculate_selling_prices,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
