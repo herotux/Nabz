@@ -269,3 +269,54 @@ body { font-size: 14px; line-height: 1.7; }
   .sidebar{position:fixed;top:0;bottom:0;height:100vh;height:100dvh;overflow:hidden}
   .topbar{position:sticky;top:0;z-index:18}
 }
+
+
+/* Simplified point-of-sale flow: large targets, plain labels, optional details. */
+.simple-sale-modal{width:min(760px,100%);padding:24px}
+.simple-sale-modal .modal-heading{margin-bottom:8px}
+.simple-sale-top{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 0 16px}
+.simple-sale-top b{display:block;font-size:16px;color:#29392f}
+.simple-sale-top p{margin:5px 0 0;color:#829087;font-size:12px}
+.simple-sale-items{display:grid;gap:9px}
+.simple-sale-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid #e5ece7;border-radius:12px;background:#fff}
+.simple-sale-product{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.simple-sale-product input{width:100%;height:44px;min-width:0;padding:0 12px;border:1px solid #dfe8e1;border-radius:9px;background:#fbfdfb;color:#2e3e34;font-size:15px}
+.simple-sale-product input:focus{outline:2px solid #8bc5a2;border-color:#8bc5a2}
+.simple-sale-product>span{font-size:12px;color:#78867d}
+.simple-sale-item-controls{display:flex;align-items:center;gap:9px;flex-shrink:0}
+.simple-qty{display:flex;align-items:center;gap:8px;padding:4px;border:1px solid #e3ebe5;border-radius:10px;background:#f8faf8}
+.simple-qty button{width:36px;height:36px;border:0;border-radius:8px;background:#e7f3eb;color:#16794c;font-size:23px;line-height:1;cursor:pointer}
+.simple-qty button:disabled{opacity:.35;cursor:not-allowed}
+.simple-qty b{min-width:24px;text-align:center;font-size:15px;color:#2d4034}
+.simple-remove{border:0;background:transparent;color:#a06b63;font-size:12px;padding:8px}
+.simple-add-item{width:100%;min-height:46px;margin-top:10px;border:1px dashed #8cbea0;border-radius:10px;background:#f5faf6;color:#18794d;font-size:14px;font-weight:700}
+.simple-sale-total{display:grid;gap:9px;margin-top:16px;padding:15px 16px;border:1px solid #dce9df;border-radius:12px;background:#f5faf6}
+.simple-sale-total>div{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#6e7d73;font-size:13px}
+.simple-sale-total b{color:#34463a;font-size:14px}
+.simple-sale-total .simple-grand-total{padding-top:10px;border-top:1px solid #dce8df}
+.simple-grand-total span{font-weight:700;color:#33483a}
+.simple-grand-total strong{font-size:24px;color:#14784b;font-variant-numeric:tabular-nums}
+.simple-grand-total small{font-size:12px;font-weight:500}
+.simple-payment{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:15px}
+.simple-payment>span{font-size:13px;font-weight:700;color:#526158}
+.simple-payment-options{display:flex;gap:8px;flex-wrap:wrap}
+.simple-payment-options button{min-width:92px;min-height:42px;padding:8px 14px;border:1px solid #dfe8e2;border-radius:9px;background:#fff;color:#56645b;font-size:13px;font-weight:600}
+.simple-payment-options button.selected{border-color:#219568;background:#eaf7ef;color:#137449;box-shadow:inset 0 0 0 1px #219568}
+.simple-details-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:15px;padding:12px 2px;border:0;border-top:1px solid #edf1ee;background:transparent;color:#4c6d58;text-align:right;font-size:13px}
+.simple-details-toggle span{font-size:19px}
+.simple-sale-details{padding:4px 0 8px}
+.simple-sale-footnote{margin:10px 0 0;color:#98a39b;font-size:11px;line-height:1.8}
+.invoice-mode-switch{display:flex;align-items:center;justify-content:space-between;padding:9px 0 4px;color:#738077;font-size:12px}
+.simple-sale-modal .modal-actions{padding-top:13px}
+@media(max-width:560px){
+ .simple-sale-modal{padding:15px}
+ .simple-sale-top{align-items:flex-start}
+ .simple-sale-top b{font-size:14px}
+ .simple-sale-item{align-items:stretch;flex-direction:column;gap:8px}
+ .simple-sale-item-controls{justify-content:space-between}
+ .simple-qty button{width:42px;height:40px}
+ .simple-payment{align-items:flex-start;flex-direction:column}
+ .simple-payment-options{width:100%}
+ .simple-payment-options button{flex:1;min-width:0}
+ .simple-grand-total strong{font-size:21px}
+}
