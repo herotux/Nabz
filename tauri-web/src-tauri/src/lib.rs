@@ -427,12 +427,13 @@ fn export_data(db:State<'_,Db>)->Result<Value,String>{
   "phone":r.get::<_,String>(3)?,"opening_balance":r.get::<_,i64>(4)?,"notes":r.get::<_,String>(5)?,
   "created_at":r.get::<_,String>(6)?,"customer_credit_balance":r.get::<_,i64>(7)?,"supplier_credit_balance":r.get::<_,i64>(8)?
 })))?;
- let products=collect_json_rows(&c,"SELECT id,name,code,barcode,buy_price,sell_price,quantity,min_quantity,average_cost,category,unit,wholesale_price,is_service,is_active FROM products",|r|Ok(json!({
+ let products=collect_json_rows(&c,"SELECT id,name,code,barcode,buy_price,sell_price,consumer_price,discount_type,discount_value,quantity,min_quantity,average_cost,category,unit,wholesale_price,is_service,is_active FROM products",|r|Ok(json!({
   "id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?,"code":r.get::<_,String>(2)?,
   "barcode":r.get::<_,String>(3)?,"buy_price":r.get::<_,i64>(4)?,"sell_price":r.get::<_,i64>(5)?,
-  "quantity":r.get::<_,i64>(6)?,"min_quantity":r.get::<_,i64>(7)?,"average_cost":r.get::<_,i64>(8)?,
-  "category":r.get::<_,String>(9)?,"unit":r.get::<_,String>(10)?,"wholesale_price":r.get::<_,i64>(11)?,
-  "is_service":r.get::<_,i64>(12)?,"is_active":r.get::<_,i64>(13)?
+  "consumer_price":r.get::<_,i64>(6)?,"discount_type":r.get::<_,String>(7)?,"discount_value":r.get::<_,i64>(8)?,
+  "quantity":r.get::<_,i64>(9)?,"min_quantity":r.get::<_,i64>(10)?,"average_cost":r.get::<_,i64>(11)?,
+  "category":r.get::<_,String>(12)?,"unit":r.get::<_,String>(13)?,"wholesale_price":r.get::<_,i64>(14)?,
+  "is_service":r.get::<_,i64>(15)?,"is_active":r.get::<_,i64>(16)?
 })))?;
  let invoices=collect_json_rows(&c,"SELECT id,number,kind,contact_id,contact_name,invoice_date,subtotal,discount,total,paid,notes,voided,credit_applied,idempotency_key FROM invoices",|r|Ok(json!({
   "id":r.get::<_,i64>(0)?,"number":r.get::<_,i64>(1)?,"kind":r.get::<_,String>(2)?,
@@ -729,10 +730,12 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
  for x in data["products"].as_array().unwrap(){
   let quantity=x["quantity"].as_i64().unwrap_or(0);let buy=x["buy_price"].as_i64().unwrap_or(0);
   let average=x.get("average_cost").and_then(Value::as_i64).unwrap_or(if quantity>0{buy}else{0});
-  tx.execute("INSERT INTO products(id,name,code,barcode,buy_price,sell_price,quantity,min_quantity,average_cost,category,unit,wholesale_price,is_service,is_active)
-   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+  tx.execute("INSERT INTO products(id,name,code,barcode,buy_price,sell_price,consumer_price,discount_type,discount_value,quantity,min_quantity,average_cost,category,unit,wholesale_price,is_service,is_active)
+   VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
    params![x["id"].as_i64(),x["name"].as_str().unwrap_or(""),x["code"].as_str().unwrap_or(""),
-    x["barcode"].as_str().unwrap_or(""),buy,x["sell_price"].as_i64().unwrap_or(0),quantity,
+    x["barcode"].as_str().unwrap_or(""),buy,x["sell_price"].as_i64().unwrap_or(0),
+    x.get("consumer_price").and_then(Value::as_i64).unwrap_or(0),x.get("discount_type").and_then(Value::as_str).unwrap_or("none"),
+    x.get("discount_value").and_then(Value::as_i64).unwrap_or(0),quantity,
     x["min_quantity"].as_i64().unwrap_or(0),average,x.get("category").and_then(Value::as_str).unwrap_or(""),
     x.get("unit").and_then(Value::as_str).unwrap_or("عدد"),x.get("wholesale_price").and_then(Value::as_i64).unwrap_or(0),
     x.get("is_service").and_then(Value::as_i64).unwrap_or(0),x.get("is_active").and_then(Value::as_i64).unwrap_or(1)]).map_err(|e|e.to_string())?;
