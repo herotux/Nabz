@@ -9,9 +9,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 [[ "${ID:-}" == "debian" || "${ID_LIKE:-}" == *debian* ]] || die "این نصب‌کننده برای Raspberry Pi OS / Debian طراحی شده است."
 [[ "${HOME:-}" && -d "$HOME" ]] || die "پوشه خانگی کاربر پیدا نشد."
 
-for cmd in sudo apt-get install; do
-  : 
-done
 command -v sudo >/dev/null 2>&1 || die "sudo نصب نیست."
 command -v apt-get >/dev/null 2>&1 || die "apt-get در دسترس نیست."
 [[ -x "$SCRIPT_DIR/bin/nabz" ]] || die "فایل اجرایی بسته پیدا نشد."
