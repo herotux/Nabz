@@ -14,7 +14,7 @@ describe('Persian digit normalization', () => {
 
 describe('Jalali date conversion', () => {
   it('converts Nowruz 1405 to its Gregorian date', () => {
-    expect(gregorianToJalali('2026-03-21')).toBe('1405/01/01');
+    expect(gregorianToJalali('2026-03-21')).toBe('۱۴۰۵/۰۱/۰۱');
     expect(jalaliToGregorian('۱۴۰۵/۰۱/۰۱')).toBe('2026-03-21');
   });
 
