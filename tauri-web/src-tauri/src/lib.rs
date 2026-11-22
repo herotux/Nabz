@@ -667,6 +667,17 @@ fn validate_backup(data:&Value)->Result<(),String>{
       ||row.get("amount").and_then(Value::as_i64).unwrap_or(0)<=0{return Err(format!("رکورد نامعتبر در بخش {key}"))}
   }
  }
+ let mut repaired_ids=HashSet::new();
+ for row in backup_optional_array(data,"historical_cost_repairs"){
+  let id=row.get("id").and_then(Value::as_i64).unwrap_or(0);
+  let item_id=row.get("invoice_item_id").and_then(Value::as_i64).unwrap_or(0);
+  let cost=row.get("repaired_unit_cost").and_then(Value::as_i64).unwrap_or(-1);
+  if id<=0||!repaired_ids.insert(id)||!item_ids.contains(&item_id)||cost<0
+   ||row.get("source").and_then(Value::as_str).unwrap_or("").trim().is_empty()
+   ||!row.get("created_at").and_then(Value::as_str).is_some(){
+   return Err("سابقهٔ اصلاح بهای تاریخی در فایل پشتیبان معتبر نیست".into())
+  }
+ }
  for row in backup_optional_array(data,"inventory_adjustments"){
   if !product_ids.contains(&row.get("product_id").and_then(Value::as_i64).unwrap_or(0))
    ||row.get("delta").and_then(Value::as_i64).unwrap_or(0)==0
