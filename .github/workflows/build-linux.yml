@@ -1,11 +1,6 @@
-name: Build Linux installers
+name: Build legacy Linux packages (manual only)
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
   workflow_dispatch:
-
 permissions:
   contents: write
 
@@ -31,60 +26,10 @@ jobs:
           cp README.md LICENSE dist/nabz/
           cp assets/Vazirmatn.ttf assets/OFL.txt dist/nabz/
           tar -C dist -czf Nabz-linux-x86_64.tar.gz nabz
-      - name: Prepare AppDir
-        run: |
-          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/scalable/apps AppDir/usr/share
-          install -m 0755 target/release/nabz AppDir/usr/bin/nabz
-          cp packaging/nabz.desktop AppDir/nabz.desktop
-          cp packaging/nabz.desktop AppDir/usr/share/applications/nabz.desktop
-          cp assets/Vazirmatn.ttf AppDir/usr/share/nabz-Vazirmatn.ttf
-          cp assets/OFL.txt AppDir/usr/share/OFL-Vazirmatn.txt
-          cp assets/nabz.svg AppDir/nabz.svg
-          rsvg-convert -w 256 -h 256 assets/nabz.svg -o AppDir/nabz.png
-          cp assets/nabz.svg AppDir/usr/share/icons/hicolor/scalable/apps/nabz.svg
-          cat > AppDir/AppRun <<'EOF'
-          #!/bin/sh
-          HERE="$(dirname "$(readlink -f "$0")")"
-          exec "$HERE/usr/bin/nabz" "$@"
-          EOF
-          chmod +x AppDir/AppRun
-      - name: Download AppImage tooling
-        run: |
-          curl -fL --retry 3 -o appimagetool.AppImage https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool.AppImage
-      - name: Build AppImage
-        env:
-          ARCH: x86_64
-        run: ./appimagetool.AppImage --appimage-extract-and-run AppDir Nabz-x86_64.AppImage
-      - name: Prepare Flatpak build dependencies
-        run: |
-          cargo generate-lockfile
-          git clone --depth 1 https://github.com/flatpak/flatpak-builder-tools.git /tmp/flatpak-builder-tools
-          python3 -m pip install --user tomlkit aiohttp
-          python3 /tmp/flatpak-builder-tools/cargo/flatpak-cargo-generator.py Cargo.lock -o flatpak/cargo-sources.json
-          mkdir -p flatpak-source
-          cp Cargo.toml Cargo.lock flatpak-source/
-          cp -r src assets packaging flatpak-source/
-          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
-      - name: Build Flatpak bundle
-        run: |
-          flatpak-builder --force-clean --repo=flatpak-repo flatpak-build flatpak/io.github.herotux.Nabz.yml
-          flatpak build-bundle flatpak-repo Nabz-x86_64.flatpak io.github.herotux.Nabz
-      - name: Upload build artifacts
+      - name: Upload legacy archive
         uses: actions/upload-artifact@v4
         with:
-          name: nabz-linux-x86_64
-          path: |
-            Nabz-x86_64.AppImage
-            Nabz-x86_64.flatpak
-            Nabz-linux-x86_64.tar.gz
-      - name: Publish release assets for version tags
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            Nabz-x86_64.AppImage
-            Nabz-x86_64.flatpak
-            Nabz-linux-x86_64.tar.gz
-          generate_release_notes: true
+          name: nabz-legacy-linux-x86_64
+          path: Nabz-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
