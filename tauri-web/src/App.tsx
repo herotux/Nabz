@@ -505,7 +505,7 @@ function PrintingPage({notify,products,settings}:{notify:(s:string)=>void;produc
    return '<section class="a4-sheet"'+(index===pages.length-1?'':' style="break-after:page"')+'>'+cells+'</section>';
   }).join('');
   const html='<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>اتیکت قیمت کالاها</title><style>'+printFontFaceCss+
-   '@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:210mm;background:#fff;color:#17251d;font-family:Vazirmatn,Shabnam,Vazir,'Noto Sans Arabic',Tahoma,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+   '@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:210mm;background:#fff;color:#17251d;font-family:Vazirmatn,Shabnam,Vazir,\'Noto Sans Arabic\',Tahoma,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
    '.a4-sheet{width:210mm;height:297mm;padding:8.5mm 5mm;display:grid;grid-template-columns:repeat(4,50mm);grid-template-rows:repeat(7,40mm);gap:0;overflow:hidden;break-after:page;page-break-after:always}'+
    '.a4-sheet:last-child{break-after:auto;page-break-after:auto}.price-label{position:relative;width:50mm;height:40mm;border:.4mm solid #155b46;border-radius:2mm;padding:0;display:flex;flex-direction:column;justify-content:flex-start;gap:0;overflow:hidden;text-align:right;background:#fff}'+ 
    '.price-label-header{background:#fff;color:#155b46;font-size:8pt;font-weight:800;line-height:1.3;padding:1.5mm 2mm;min-height:7mm;border-top:2mm solid #155b46;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+ 
