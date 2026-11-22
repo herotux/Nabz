@@ -356,7 +356,15 @@ body { font-size: 14px; line-height: 1.7; }
  .simple-sale-searchbox input{font-size:15px}
 }
 
-\n/* Touch category filters and paginated product grid for fast POS */\n.simple-product-categories{display:flex;gap:7px;overflow-x:auto;padding:2px 1px 7px;scrollbar-width:thin}\n.simple-product-categories button{flex:0 0 auto;border:1px solid #e0e9e3;border-radius:999px;padding:8px 13px;background:#fff;color:#607267;font-size:12px;font-weight:600;cursor:pointer}\n.simple-product-categories button.active{border-color:#238954;background:#eaf7ef;color:#147447;box-shadow:inset 0 0 0 1px #238954}\n.simple-product-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;color:#718077;font-size:11px}\n.simple-product-pagination button{min-width:70px;min-height:36px;border:1px solid #dfe8e2;border-radius:8px;background:#fff;color:#4e6657;font-weight:700}\n.simple-product-pagination button:disabled{opacity:.4}\n
+
+/* Touch category filters and paginated product grid for fast POS */
+.simple-product-categories{display:flex;gap:7px;overflow-x:auto;padding:2px 1px 7px;scrollbar-width:thin}
+.simple-product-categories button{flex:0 0 auto;border:1px solid #e0e9e3;border-radius:999px;padding:8px 13px;background:#fff;color:#607267;font-size:12px;font-weight:600;cursor:pointer}
+.simple-product-categories button.active{border-color:#238954;background:#eaf7ef;color:#147447;box-shadow:inset 0 0 0 1px #238954}
+.simple-product-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;color:#718077;font-size:11px}
+.simple-product-pagination button{min-width:70px;min-height:36px;border:1px solid #dfe8e2;border-radius:8px;background:#fff;color:#4e6657;font-weight:700}
+.simple-product-pagination button:disabled{opacity:.4}
+
 
 /* Desktop/non-touch POS accessibility: keyboard focus, predictable tab order and shortcut feedback. */
 .simple-sale-modal :focus-visible{outline:3px solid #2a985c!important;outline-offset:2px!important;box-shadow:0 0 0 3px #2a985c22!important}
