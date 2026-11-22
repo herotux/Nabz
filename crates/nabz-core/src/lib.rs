@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub const APP_DATA_DIRECTORY: &str = "com.herotux.nabz";
 pub const DATABASE_FILE: &str = "nabz.sqlite3";
-pub const SCHEMA_VERSION: i64 = 15;
+pub const SCHEMA_VERSION: i64 = 16;
 
 /// Normalize Persian and English contact roles consistently across application instances.
 pub fn normalize_contact_kind(raw: &str) -> Option<&'static str> {
@@ -898,6 +898,28 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             }
         }
         tx.pragma_update(None, "user_version", 15).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if version < 16 {
+        let tx = connection.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS historical_cost_repairs(
+               id INTEGER PRIMARY KEY,
+               invoice_item_id INTEGER NOT NULL UNIQUE REFERENCES invoice_items(id),
+               previous_unit_cost INTEGER,
+               repaired_unit_cost INTEGER NOT NULL CHECK(repaired_unit_cost>=0),
+               source TEXT NOT NULL,
+               created_at TEXT NOT NULL DEFAULT(datetime('now','localtime'))
+             );
+             CREATE TRIGGER IF NOT EXISTS historical_cost_repairs_no_update
+               BEFORE UPDATE ON historical_cost_repairs
+               BEGIN SELECT RAISE(ABORT,'historical cost repair audit is immutable'); END;
+             CREATE TRIGGER IF NOT EXISTS historical_cost_repairs_no_delete
+               BEFORE DELETE ON historical_cost_repairs
+               BEGIN SELECT RAISE(ABORT,'historical cost repair audit is immutable'); END;"
+        ).map_err(|e| format!("ایجاد سابقهٔ اصلاح بهای تاریخی ناموفق بود: {e}"))?;
+        tx.pragma_update(None, "user_version", 16).map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
     }
 
