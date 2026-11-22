@@ -31,6 +31,8 @@ type InvoiceItemDetail = {id:number;product_id:number|null;item_name:string;quan
 type InvoiceDetail = {invoice:{id:number;number:number;kind:'sale'|'purchase';contact_id:number|null;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string;voided:boolean;credit_applied:number};items:InvoiceItemDetail[];payments:{id:number;amount:number;method:string;date:string;notes:string;allocated:number}[];returns:{id:number;date:string;amount:number;credit_refund:number;notes:string;kind:string}[];refunds:{id:number;date:string;amount:number;method:string;notes:string;kind:string}[];void:{id:number;date:string;cash_refund:number;credit_refund:number;notes:string}|null};
 
 
+const printFontFaceCss = `@font-face{font-family:Shabnam;src:url('${new URL('./assets/fonts/Shabnam.ttf',import.meta.url).href}') format('truetype');font-weight:400}@font-face{font-family:Shabnam;src:url('${new URL('./assets/fonts/Shabnam-Bold.ttf',import.meta.url).href}') format('truetype');font-weight:700}@font-face{font-family:Vazir;src:url('${new URL('./assets/fonts/Vazir-Regular.ttf',import.meta.url).href}') format('truetype');font-weight:400}@font-face{font-family:Vazir;src:url('${new URL('./assets/fonts/Vazir-Bold.ttf',import.meta.url).href}') format('truetype');font-weight:700}`;
+
 const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string}[] = [
   {id:'dashboard',label:'نمای کلی',icon:LayoutDashboard,group:'مدیریت'},
   {id:'contacts',label:'طرف‌حساب‌ها',icon:Users,group:'مدیریت'},
@@ -299,6 +301,37 @@ function App(){
     try{await invoke('restore_auto_backup',{name});await refreshAutoBackups();notify('بازیابی پشتیبان محلی با موفقیت انجام شد.');await load();}
     catch(e){notify('بازیابی پشتیبان محلی ناموفق بود: '+String(e))}
   };
+  const importProductsCsv=async(rows:Record<string,string>[])=>{
+    if(!rows.length)return;
+    if(rows.length>2000){notify('برای جلوگیری از واردسازی اشتباه، هر بار حداکثر ۲۰۰۰ ردیف وارد کن.');return}
+    const read=(row:Record<string,string>,key:string)=>String(row[key]??'').trim();
+    const amount=(value:string)=>{const parsed=Number(normalizedNumber(value||'0'));return Number.isSafeInteger(parsed)&&parsed>=0?parsed:0};
+    if(!window.confirm('تعداد '+money(rows.length)+' ردیف از فایل CSV خوانده شده است. کالاهای دارای کد تکراری به‌روزرسانی می‌شوند؛ موجودی کالاهای موجود تغییر نمی‌کند. ادامه؟'))return;
+    setBusy(true);
+    let imported=0;let skipped=0;const errors:string[]=[];
+    try{
+      const existing=await invoke<Product[]>('list_products');
+      const byCode=new Map(existing.map(product=>[product.code,product]));
+      for(let index=0;index<rows.length;index++){
+        const row=rows[index];const name=read(row,'نام کالا');const code=read(row,'کد کالا');
+        if(!name||!code){skipped++;errors.push('ردیف '+money(index+2)+': نام یا کد کالا خالی است.');continue}
+        const current=byCode.get(code);
+        const isService=read(row,'نوع')==='خدمت';
+        const payload={...(current?{id:current.id}:{}),name,code,barcode:read(row,'بارکد'),qty:isService?0:current?current.quantity:amount(read(row,'موجودی')),buy:amount(read(row,'آخرین قیمت خرید')),consumer_price:amount(read(row,'قیمت مصرف‌کننده روی بسته')),sell:amount(read(row,'قیمت فروش')),discount_type:(['none','percent','fixed'].includes(read(row,'نوع تخفیف'))?read(row,'نوع تخفیف'):'none'),discount_value:amount(read(row,'مقدار تخفیف')),min:amount(read(row,'حداقل موجودی')),category:read(row,'دسته‌بندی'),unit:read(row,'واحد')||'عدد',wholesale:amount(read(row,'قیمت عمده')),is_service:isService};
+        try{
+          const id=await invoke<number>('save_product',{payload});
+          const active=read(row,'وضعیت')!=='غیرفعال';
+          if((current?.is_active??true)!==active)await invoke('set_product_active',{productId:id,active});
+          byCode.set(code,{id,name,code,barcode:payload.barcode,quantity:payload.qty,buy_price:payload.buy,average_cost:current?.average_cost??0,sell_price:payload.sell,consumer_price:payload.consumer_price,discount_type:payload.discount_type as Product['discount_type'],discount_value:payload.discount_value,min_quantity:payload.min,category:payload.category,unit:payload.unit,wholesale_price:payload.wholesale,is_service:payload.is_service,is_active:active});
+          imported++;
+        }catch(e){skipped++;errors.push('ردیف '+money(index+2)+' ('+name+'): '+String(e))}
+      }
+      await load();
+      notify(money(imported)+' کالا وارد/به‌روزرسانی شد'+(skipped?' · '+money(skipped)+' ردیف رد شد':'')+'.');
+      if(errors.length)console.warn('Nabz CSV import warnings',errors.slice(0,30));
+    }catch(e){notify('واردسازی کالاها ناموفق بود: '+String(e))}
+    finally{setBusy(false)}
+  };
   const printInvoice=async(id:number)=>{
     const w=window.open('','_blank','width=900,height=700');
     if(!w){notify('مرورگر اجازه بازکردن پنجره چاپ را نداد. پنجره‌های بازشو را برای برنامه فعال کن.');return}
@@ -309,9 +342,9 @@ function App(){
       const pageSize=paper==='A5'?'A5':paper==='80mm'?'80mm auto':paper==='58mm'?'58mm auto':'A4';
       const compact=paper==='80mm'||paper==='58mm';
       const shopName=escapeHtml(data.shop.shop_name||'نبض'),shopPhone=escapeHtml(data.shop.shop_phone||''),shopAddress=escapeHtml(data.shop.shop_address||''),shopTax=escapeHtml(data.shop.shop_tax||'');
-      w.document.write(`<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>فاکتور ${escapeHtml(data.invoice.number)}</title><style>
+      w.document.write(`<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>فاکتور ${escapeHtml(data.invoice.number)}</title><style>${printFontFaceCss}
         @page{size:${pageSize};margin:${compact?'3mm':'10mm'}}
-        body{font-family:Tahoma,sans-serif;padding:${compact?'0':'10px'};color:#182536;font-size:${compact?'10px':'12px'}}
+        body{font-family:Shabnam,Vazir,Tahoma,sans-serif;padding:${compact?'0':'10px'};color:#182536;font-size:${compact?'10px':'12px'}}
         h1{font-size:${compact?'15px':'22px'};margin:0 0 6px}
         h2{font-size:${compact?'12px':'18px'}}
         table{width:100%;border-collapse:collapse;margin-top:${compact?'10px':'24px'}}
@@ -374,7 +407,7 @@ function App(){
         {page==='contacts'&&<RecordsPage title="طرف‌حساب‌ها" subtitle="مدیریت مشتریان، تأمین‌کنندگان و مانده حساب آن‌ها" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('contact')} onDelete={id=>removeRecord('contacts',id)} onEdit={openContactEdit} onView={viewContactLedger} columns={['نام طرف‌حساب','شماره تماس','مانده حساب','نوع','تاریخ ثبت']} />}
         {page==='invoices'&&<><InvoiceDraftsPanel drafts={invoiceDrafts} onResume={resumeInvoiceDraft} onDelete={deleteInvoiceDraft}/><RecordsPage title="فاکتورها" subtitle="فاکتورهای فروش و خرید ثبت‌شده در فروشگاه" records={filteredInvoices} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('sale')} onDelete={id=>removeRecord('invoices',id)} onPrint={printInvoice} onView={viewInvoice} columns={['شرح فاکتور','نوع','مبلغ کل','وضعیت','تاریخ']} extra={<><select className="invoice-filter" aria-label="نوع فاکتور" value={invoiceKindFilter} onChange={e=>setInvoiceKindFilter(e.target.value)}><option value="all">همه انواع</option><option value="sale">فروش</option><option value="purchase">خرید</option></select><select className="invoice-filter" aria-label="وضعیت فاکتور" value={invoiceStatusFilter} onChange={e=>setInvoiceStatusFilter(e.target.value)}><option value="all">همه وضعیت‌ها</option><option value="unpaid">پرداخت‌نشده</option><option value="partial">پرداخت جزئی</option><option value="settled">تسویه</option><option value="void">باطل‌شده</option></select><JalaliDateField label="از تاریخ" value={invoiceDateFrom} onChange={setInvoiceDateFrom} todayValue={isoToday}/><JalaliDateField label="تا تاریخ" value={invoiceDateTo} onChange={setInvoiceDateTo} todayValue={isoToday}/><button className="secondary-btn" onClick={()=>openEntry('purchase')}><Plus size={15}/> خرید جدید</button></>} /></>}
         {page==='payments'&&<RecordsPage title="دریافت و پرداخت" subtitle="ثبت و پیگیری دریافت وجه و پرداخت به تأمین‌کنندگان" records={filteredRecords} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('receipt')} columns={['طرف‌حساب','نوع عملیات','مبلغ','روش','تاریخ']} extra={<><button className="secondary-btn" onClick={()=>openEntry('payment')}><ArrowUpRight size={15}/> ثبت پرداخت</button></>} />}
-        {page==='products'&&<ProductsPage products={filteredProducts} movements={movements} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('product')} onEdit={openProductEdit} onToggleActive={toggleProductActive} onAdjust={adjustProductStock} onPrintLabel={printProductLabel}/> }
+        {page==='products'&&<ProductsPage products={filteredProducts} movements={movements} query={query} setQuery={setQuery} busy={busy} onAdd={()=>openEntry('product')} onEdit={openProductEdit} onToggleActive={toggleProductActive} onAdjust={adjustProductStock} onPrintLabel={printProductLabel} onImportCsv={importProductsCsv}/> }
         {page==='reports'&&<ReportsPage/>}
         {page==='printing'&&<PrintingPage notify={notify} products={filteredProducts} settings={settings}/>}
         {page==='settings'&&<SettingsPage settings={settings} setSettings={setSettings} onSave={saveSettings} onBackup={backup} onRestore={restore} autoBackups={autoBackups} onNativeBackup={()=>createNativeBackup(true)} onRestoreNative={restoreNative}/>}
@@ -459,23 +492,25 @@ function PrintingPage({notify,products,settings}:{notify:(s:string)=>void;produc
   if(invalid){notify('تخفیف ثبت‌شده برای کالا معتبر نیست: '+invalid.name+'؛ ابتدا مشخصات کالا را اصلاح کن.');return}
   const pages:Array<typeof rows>=[];
   for(let i=0;i<rows.length;i+=28)pages.push(rows.slice(i,i+28));
+  const shopTitle=escapeHtml(settings.shop_name||'فروشگاه خواربار');
   const pageMarkup=pages.map((page,index)=>{
    const cells=Array.from({length:28},(_,i)=>{
     const item=page[i];
     if(!item)return '<article class="price-label empty"></article>';
     const p=item.product;
     const labelAmount=(amount:number)=>money(amount*(settings.currency_unit==='rial'?10:1));
-    const priceLine=hasProductDiscount(p)?'<div class="price-line discount"><span>قیمت با تخفیف</span><strong>'+labelAmount(productFinalPrice(p))+' <small>'+unit+'</small></strong></div>':'<div class="price-line consumer"><span>قیمت مصرف‌کننده</span><strong>'+labelAmount(p.sell_price)+' <small>'+unit+'</small></strong></div>';
-    return '<article class="price-label"><div class="price-label-name">'+escapeHtml(p.name)+'</div>'+priceLine+'</article>';
+    const priceLine=hasProductDiscount(p)?'<div class="price-line discount"><span>قیمت با تخفیف</span><strong>'+labelAmount(productFinalPrice(p))+' <small>'+unit+'</small></strong><del>'+labelAmount(p.sell_price)+'</del></div>':'<div class="price-line consumer"><span>قیمت مصرف‌کننده</span><strong>'+labelAmount(p.consumer_price||p.sell_price)+' <small>'+unit+'</small></strong></div>';
+    return '<article class="price-label"><div class="price-label-header">'+shopTitle+'</div><div class="price-label-name">'+escapeHtml(p.name)+'</div>'+priceLine+'</article>';
    }).join('');
    return '<section class="a4-sheet"'+(index===pages.length-1?'':' style="break-after:page"')+'>'+cells+'</section>';
   }).join('');
-  const html='<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>اتیکت قیمت کالاها</title><style>'+
-   '@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:210mm;background:#fff;color:#17251d;font-family:Vazirmatn,Tahoma,"Noto Sans Arabic",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+  const html='<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>اتیکت قیمت کالاها</title><style>'+printFontFaceCss+
+   '@page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:210mm;background:#fff;color:#17251d;font-family:Shabnam,Vazir,Tahoma,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
    '.a4-sheet{width:210mm;height:297mm;padding:8.5mm 5mm;display:grid;grid-template-columns:repeat(4,50mm);grid-template-rows:repeat(7,40mm);gap:0;overflow:hidden;break-after:page;page-break-after:always}'+
-   '.a4-sheet:last-child{break-after:auto;page-break-after:auto}.price-label{width:50mm;height:40mm;border:.25mm dashed #aebbb2;padding:2.2mm 2.5mm;display:flex;flex-direction:column;justify-content:center;gap:2mm;overflow:hidden;text-align:right;background:#fff}'+
-   '.price-label-name{font-size:10pt;font-weight:700;line-height:1.5;text-align:center;max-height:9mm;overflow:hidden;color:#1c3025;margin-bottom:.5mm}'+
-   '.price-line{display:flex;align-items:center;justify-content:space-between;gap:1mm;white-space:nowrap;line-height:1.4}.price-line span{font-size:7pt;color:#637269}.price-line strong{font-size:9pt;font-weight:800;color:#1d3327}.price-line small{font-size:6pt;font-weight:500;color:#65756a}.price-line.discount{border-top:.2mm solid #e4ebe6;padding-top:1.3mm}.price-line.discount strong{color:#138454}.empty{background:#fff}'+
+   '.a4-sheet:last-child{break-after:auto;page-break-after:auto}.price-label{width:50mm;height:40mm;border:.35mm solid #155b46;border-radius:2mm;padding:0;display:flex;flex-direction:column;justify-content:flex-start;gap:0;overflow:hidden;text-align:right;background:#fff}'+
+   '.price-label-header{background:#155b46;color:#fff;font-size:8pt;font-weight:800;line-height:1.3;padding:1.5mm 2mm;min-height:6.5mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
+   '.price-label-name{font-size:9pt;font-weight:700;line-height:1.45;text-align:right;max-height:10mm;overflow:hidden;color:#1c3025;margin:0;padding:1.5mm 2mm 1mm;border-bottom:.2mm solid #dce5df}'+
+   '.price-line{display:flex;align-items:center;justify-content:space-between;gap:1mm;white-space:nowrap;line-height:1.35;margin:1.5mm 1.5mm 0;padding:1.5mm 2mm;border-radius:1.2mm;border:.2mm solid #d5e8dc;background:#edf7f1}.price-line span{font-size:7pt;color:#456b56}.price-line strong{font-size:9pt;font-weight:800;color:#155b46}.price-line small{font-size:6pt;font-weight:500;color:#65756a}.price-line.discount{background:#fff1eb;border-color:#f0d5c9}.price-line.discount span{color:#a75a43}.price-line.discount strong{color:#b84f35}.price-line del{font-size:7pt;color:#b17a6b}.empty{background:#fff}'+
    '@media screen{body{background:#eef2ee}.a4-sheet{margin:8mm auto;background:#fff;box-shadow:0 2mm 8mm #20332822}}'+
    '</style></head><body>'+pageMarkup+'</body></html>';
   printDocument(html);
@@ -488,7 +523,7 @@ function PrintingPage({notify,products,settings}:{notify:(s:string)=>void;produc
  <div className="price-label-table"><div className="price-label-table-head"><span>انتخاب</span><span>نام کالا</span><span>قیمت فروش / مصرف‌کننده</span><span>قیمت با تخفیف</span><span>تعداد</span></div>
  {labelProducts.map(p=><div className="price-label-product" key={p.id}><label><input type="checkbox" checked={selectedLabelIds.includes(p.id)} onChange={e=>setSelectedLabelIds(old=>e.target.checked?[...old,p.id]:old.filter(id=>id!==p.id))}/></label><strong>{p.name}</strong><span>{priceText(p.sell_price)}</span><span>{hasProductDiscount(p)?priceText(productFinalPrice(p)):'—'}</span><input aria-label={'تعداد اتیکت '+p.name} type="text" inputMode="numeric" dir="rtl" value={persianDigits(copies[p.id]||'1')} onChange={e=>setCopies(old=>({...old,[p.id]:normalizedNumber(e.target.value)}))}/></div>)}
  {!labelProducts.length&&<p>کالای فعالی برای چاپ اتیکت وجود ندارد.</p>}</div>
- {selectedLabelProducts.length>0&&<div className="price-label-preview"><div className="surface-heading"><div><h3>پیش‌نمایش اتیکت</h3><p>ابعاد هر اتیکت ۵۰×۴۰ میلی‌متر است؛ هر صفحه A4 شامل ۲۸ جایگاه (۴ ستون × ۷ ردیف) می‌شود.</p></div></div><div className="price-label-preview-grid">{selectedLabelProducts.slice(0,4).map(p=><article className="price-label-preview-card" key={p.id}><b>{p.name}</b>{hasProductDiscount(p)?<div><span>قیمت با تخفیف</span><strong>{priceText(productFinalPrice(p))}</strong></div>:<div><span>قیمت مصرف‌کننده</span><strong>{priceText(p.sell_price)}</strong></div>}</article>)}</div></div>}
+ {selectedLabelProducts.length>0&&<div className="price-label-preview"><div className="surface-heading"><div><h3>پیش‌نمایش اتیکت</h3><p>ابعاد هر اتیکت ۵۰×۴۰ میلی‌متر است؛ هر صفحه A4 شامل ۲۸ جایگاه (۴ ستون × ۷ ردیف) می‌شود.</p></div></div><div className="price-label-preview-grid">{selectedLabelProducts.slice(0,4).map(p=><article className="price-label-preview-card" key={p.id}><div className="price-label-preview-header">{settings.shop_name||'فروشگاه خواربار'}</div><b>{p.name}</b>{hasProductDiscount(p)?<div className="discount"><span>قیمت با تخفیف</span><strong>{priceText(productFinalPrice(p))}</strong><del>{priceText(p.sell_price)}</del></div>:<div><span>قیمت مصرف‌کننده</span><strong>{priceText(p.consumer_price||p.sell_price)}</strong></div>}</article>)}</div></div>}
  </section>
  <section className="surface settings-card batch-label-panel"><div className="surface-heading"><div><h2>چاپ گروهی بارکد کالا</h2><p>چند کالا را انتخاب کن تا برچسب‌های Code128 در یک برگه A4 چیده شوند.</p></div><span>{selectedIds.length} انتخاب</span></div><div className="backup-actions"><button className="secondary-btn" onClick={()=>setSelectedIds(printable.map(p=>p.id))}>انتخاب همه نتایج</button><button className="secondary-btn" onClick={()=>setSelectedIds([])}>پاک‌کردن انتخاب</button><button className="primary-btn" disabled={!selectedIds.some(id=>printable.some(p=>p.id===id))} onClick={printSelected}><Printer size={16}/> چاپ برچسب‌های انتخاب‌شده</button></div><div className="batch-product-list">{printable.map(p=><label key={p.id} className="batch-product-row"><input type="checkbox" checked={selectedIds.includes(p.id)} onChange={e=>setSelectedIds(old=>e.target.checked?[...old,p.id]:old.filter(id=>id!==p.id))}/><span>{p.name}<small>{p.barcode||p.code}</small></span></label>)}{!printable.length&&<p>کالای فعال دارای کد یا بارکد برای چاپ وجود ندارد.</p>}</div>{products.length>200&&<small>برای جلوگیری از کندشدن رابط، حداکثر ۲۰۰ نتیجه نخست نمایش داده می‌شود؛ از جست‌وجوی بالای برنامه برای محدودکردن فهرست استفاده کن.</small>}</section></>;
 }
@@ -547,7 +582,7 @@ function InvoiceReturnModal({detail,onClose,onSubmit}:{detail:InvoiceDetail;onCl
   const selected=entered.map(x=>({invoice_item_id:x.invoice_item_id,item:x.item,qty:x.qty}));
   setBusy(true);try{await onSubmit(method,selected)}finally{setBusy(false)}
  };
- return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)onClose()}}><section className="entry-modal invoice-action-modal"><div className="modal-heading"><div><span className="eyebrow">{inv.kind==='sale'?'برگشت از فروش':'مرجوعی خرید'}</span><h2>فاکتور شماره {money(inv.number)}</h2></div><button className="icon-btn" disabled={busy} onClick={onClose}><X size={20}/></button></div><p className="invoice-payment-hint">ردیف‌های کالایی و خدماتی فروش قابل برگشت‌اند؛ برگشت خدمت فقط مبلغ فاکتور و بازپرداخت را اصلاح می‌کند و اثری بر انبار ندارد. مرجوعی خرید فقط برای کالاهای انباری است.</p><div className="return-line-list">{rows.map(x=>{const returned=inv.kind==='sale'?x.sales_returned:x.purchase_returned;const remaining=x.quantity-returned;return <label className="return-line" key={x.id}><span><b>{x.item_name}</b><small>{x.product_id===null?'خدمت · بدون اثر بر موجودی':'کالا · دارای گردش انبار'} · اولیه {money(x.quantity)} · قبلاً برگشته {money(returned)} · قابل برگشت {money(remaining)}</small></span><input aria-label={'تعداد برگشتی '+x.item_name} type="number" min="0" max={remaining} value={quantities[x.id]||''} placeholder="۰" onChange={e=>setQuantities(old=>({...old,[x.id]:e.target.value}))}/></label>})}{!rows.length&&<p className="empty-cell">ردیف قابل برگشتی برای این فاکتور باقی نمانده است.</p>}</div><label className="field-label">روش بازپرداخت نقدی<select value={method} onChange={e=>setMethod(e.target.value)}><option value="cash">نقدی</option><option value="card">کارت‌خوان</option><option value="transfer">انتقال بانکی</option></select></label><div className="modal-actions"><button className="secondary-btn" disabled={busy} onClick={onClose}>انصراف</button><button className="primary-btn" disabled={busy||!rows.length} onClick={submit}>ثبت برگشت</button></div></section></div>;
+ return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)onClose()}}><section className="entry-modal invoice-action-modal"><div className="modal-heading"><div><span className="eyebrow">{inv.kind==='sale'?'برگشت از فروش':'مرجوعی خرید'}</span><h2>فاکتور شماره {money(inv.number)}</h2></div><button className="icon-btn" disabled={busy} onClick={onClose}><X size={20}/></button></div><p className="invoice-payment-hint">ردیف‌های کالایی و خدماتی فروش قابل برگشت‌اند؛ برگشت خدمت فقط مبلغ فاکتور و بازپرداخت را اصلاح می‌کند و اثری بر انبار ندارد. مرجوعی خرید فقط برای کالاهای انباری است.</p><div className="return-line-list">{rows.map(x=>{const returned=inv.kind==='sale'?x.sales_returned:x.purchase_returned;const remaining=x.quantity-returned;return <label className="return-line" key={x.id}><span><b>{x.item_name}</b><small>{x.product_id===null?'خدمت · بدون اثر بر موجودی':'کالا · دارای گردش انبار'} · اولیه {money(x.quantity)} · قبلاً برگشته {money(returned)} · قابل برگشت {money(remaining)}</small></span><input aria-label={'تعداد برگشتی '+x.item_name} type="text" inputMode="numeric" dir="rtl" value={persianDigits(quantities[x.id]||'')} placeholder="۰" onChange={e=>setQuantities(old=>({...old,[x.id]:normalizedNumber(e.target.value)}))}/></label>})}{!rows.length&&<p className="empty-cell">ردیف قابل برگشتی برای این فاکتور باقی نمانده است.</p>}</div><label className="field-label">روش بازپرداخت نقدی<select value={method} onChange={e=>setMethod(e.target.value)}><option value="cash">نقدی</option><option value="card">کارت‌خوان</option><option value="transfer">انتقال بانکی</option></select></label><div className="modal-actions"><button className="secondary-btn" disabled={busy} onClick={onClose}>انصراف</button><button className="primary-btn" disabled={busy||!rows.length} onClick={submit}>ثبت برگشت</button></div></section></div>;
 }
 function InvoicePaymentModal({detail,onClose,onSubmit}:{detail:InvoiceDetail;onClose:()=>void;onSubmit:(p:{amount:number;method:string;date:string;notes:string})=>Promise<void>}){
  const inv=detail.invoice;const outstanding=Math.max(0,inv.total-inv.paid);
