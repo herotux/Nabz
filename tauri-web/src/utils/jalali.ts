@@ -31,7 +31,7 @@ export function formatJalaliDate(iso: string): string {
     .map((value, index) => new Intl.NumberFormat('fa-IR', {
       useGrouping: false,
       minimumIntegerDigits: index === 0 ? 4 : 2,
-    }).format(Number(value)))
+    }).format(Number(latinDigits(value))))
     .join('/');
 }
 
