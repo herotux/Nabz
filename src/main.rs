@@ -1473,7 +1473,7 @@ fn normalize_digit(c: char) -> char {
 }
 
 fn html_escape_label(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\\'', "&#39;")
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace("'", "&#39;")
 }
 fn create_price_labels_html(selected: &[(business::Product, i32)]) -> Result<PathBuf, String> {
     let mut labels = String::new();
