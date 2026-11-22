@@ -1,0 +1,252 @@
+name: Build selected Nabz packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Choose exactly which package(s) to build"
+        required: true
+        type: choice
+        default: desktop-slint
+        options:
+          - desktop-slint
+          - desktop-tauri
+          - raspberry-slint
+          - raspberry-tauri
+          - all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nabz-packages-${{ github.ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  desktop-slint:
+    if: inputs.target == 'desktop-slint' || inputs.target == 'all'
+    name: Desktop / Slint / x86_64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: slint-native
+      - name: Install Slint Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig1-dev libssl-dev
+      - name: Build Slint desktop binary
+        run: |
+          set -euxo pipefail
+          bash scripts/fetch-font.sh
+          cargo build --release --manifest-path slint-native/Cargo.toml
+      - name: Package desktop Slint
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/nabz
+          install -m 0755 slint-native/target/release/nabz-slint dist/nabz/nabz-slint
+          cp assets/Vazirmatn.ttf assets/OFL.txt dist/nabz/
+          cat > dist/nabz/install.sh <<'INSTALL'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+          APP_DIR="/opt/nabz-slint"
+          install -d -m 0755 "$APP_DIR"
+          install -m 0755 "$HERE/nabz-slint" "$APP_DIR/nabz-slint"
+          install -m 0644 "$HERE/Vazirmatn.ttf" "$APP_DIR/Vazirmatn.ttf"
+          install -d -m 0755 /usr/local/share/applications
+          cat > /usr/local/share/applications/nabz-slint.desktop <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=Nabz (Slint)
+          Comment=Persian shop accounting
+          Exec=$APP_DIR/nabz-slint
+          Icon=applications-office
+          Terminal=false
+          Categories=Office;Finance;
+          EOF
+          echo "Installed. Launch Nabz (Slint) from the applications menu."
+          INSTALL
+          chmod 0755 dist/nabz/install.sh
+          tar -C dist -czf Nabz-Slint-linux-x86_64.tar.gz nabz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Slint-linux-x86_64
+          path: Nabz-Slint-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  desktop-tauri:
+    if: inputs.target == 'desktop-tauri' || inputs.target == 'all'
+    name: Desktop / Tauri / x86_64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev libxdo-dev libfuse2 patchelf
+      - name: Ensure valid app icon
+        run: |
+          python3 - <<'PY'
+          import struct, zlib
+          from pathlib import Path
+          size = 256
+          rows = []
+          for y in range(size):
+              row = bytearray([0])
+              for x in range(size):
+                  edge = min(x, y, size - 1 - x, size - 1 - y)
+                  bg = (min(20 + x // 32, 28), min(112 + y // 12, 140), min(170 + x // 16, 195), 255)
+                  if edge < 10:
+                      bg = (18, 92, 148, 255)
+                  mark = (62 <= x <= 91 and 62 <= y <= 190) or (165 <= x <= 194 and 62 <= y <= 190)
+                  mark = mark or (62 <= x <= 194 and abs(y - (190 - (x - 62) * 128 / 132)) <= 14)
+                  row.extend((245, 249, 255, 255) if mark else bg)
+              rows.append(bytes(row))
+          def chunk(kind, data):
+              return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+          png = b"\\x89PNG\\r\\n\\x1a\\n"
+          png += chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+          png += chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
+          png += chunk(b"IEND", b"")
+          Path("tauri-web/src-tauri/icons/icon.png").write_bytes(png)
+          PY
+      - name: Build Tauri desktop installers
+        working-directory: tauri-web
+        run: |
+          npm install
+          npm run tauri build -- --bundles deb,appimage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Tauri-linux-x86_64
+          path: |
+            tauri-web/src-tauri/target/release/bundle/deb/*.deb
+            tauri-web/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+  raspberry-slint:
+    if: inputs.target == 'raspberry-slint' || inputs.target == 'all'
+    name: Raspberry Pi / Slint / ARM64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: slint-native
+      - name: Install Slint Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig1-dev libssl-dev
+      - name: Build Slint ARM64 binary
+        run: |
+          set -euxo pipefail
+          bash scripts/fetch-font.sh
+          cargo build --release --manifest-path slint-native/Cargo.toml
+      - name: Package Raspberry Pi Slint
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/nabz
+          install -m 0755 slint-native/target/release/nabz-slint dist/nabz/nabz-slint
+          cp assets/Vazirmatn.ttf assets/OFL.txt dist/nabz/
+          cat > dist/nabz/install.sh <<'INSTALL'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+          APP_DIR="/opt/nabz-slint"
+          install -d -m 0755 "$APP_DIR"
+          install -m 0755 "$HERE/nabz-slint" "$APP_DIR/nabz-slint"
+          install -m 0644 "$HERE/Vazirmatn.ttf" "$APP_DIR/Vazirmatn.ttf"
+          install -d -m 0755 /usr/local/share/applications
+          cat > /usr/local/share/applications/nabz-slint.desktop <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=Nabz (Slint)
+          Comment=Persian shop accounting
+          Exec=$APP_DIR/nabz-slint
+          Icon=applications-office
+          Terminal=false
+          Categories=Office;Finance;
+          EOF
+          echo "Installed. Launch Nabz (Slint) from the applications menu."
+          INSTALL
+          chmod 0755 dist/nabz/install.sh
+          cat > dist/nabz/README.txt <<'GUIDE'
+          Nabz Slint for Raspberry Pi OS 64-bit (ARM64)
+          Runtime dependencies:
+            sudo apt update
+            sudo apt install -y libx11-6 libxcb1 libxcb-shape0 libxcb-xfixes0 libxkbcommon0 libwayland-client0 libegl1 libfontconfig1
+          Install:
+            tar -xzf Nabz-Slint-raspberry-pi-aarch64.tar.gz
+            cd nabz
+            sudo ./install.sh
+          Run: /opt/nabz-slint/nabz-slint
+          Back up your database before testing. The Slint UI is still under development.
+          GUIDE
+          tar -C dist -czf Nabz-Slint-raspberry-pi-aarch64.tar.gz nabz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Slint-raspberry-pi-aarch64
+          path: Nabz-Slint-raspberry-pi-aarch64.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  raspberry-tauri:
+    if: inputs.target == 'raspberry-tauri' || inputs.target == 'all'
+    name: Raspberry Pi / Tauri / ARM64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri ARM64 Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev libxdo-dev patchelf
+      - name: Ensure valid app icon
+        run: |
+          python3 - <<'PY'
+          import struct, zlib
+          from pathlib import Path
+          size = 256
+          rows = []
+          for y in range(size):
+              row = bytearray([0])
+              for x in range(size):
+                  edge = min(x, y, size - 1 - x, size - 1 - y)
+                  bg = (min(20 + x // 32, 28), min(112 + y // 12, 140), min(170 + x // 16, 195), 255)
+                  if edge < 10:
+                      bg = (18, 92, 148, 255)
+                  mark = (62 <= x <= 91 and 62 <= y <= 190) or (165 <= x <= 194 and 62 <= y <= 190)
+                  mark = mark or (62 <= x <= 194 and abs(y - (190 - (x - 62) * 128 / 132)) <= 14)
+                  row.extend((245, 249, 255, 255) if mark else bg)
+              rows.append(bytes(row))
+          def chunk(kind, data):
+              return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+          png = b"\\x89PNG\\r\\n\\x1a\\n"
+          png += chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+          png += chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
+          png += chunk(b"IEND", b"")
+          Path("tauri-web/src-tauri/icons/icon.png").write_bytes(png)
+          PY
+      - name: Build Tauri Raspberry Pi ARM64 package
+        working-directory: tauri-web
+        run: |
+          npm install
+          npm run tauri build -- --bundles deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Tauri-raspberry-pi-aarch64
+          path: tauri-web/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 30
