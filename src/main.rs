@@ -61,6 +61,8 @@ struct NabzApp {
     product_stock: String,
     business_scan: String,
     business_products: Vec<business::Product>,
+    label_counts: std::collections::BTreeMap<i64, i32>,
+    label_search: String,
     business_basket: Vec<business::BasketItem>,
     purchase_product_id: i64,
     purchase_quantity: String,
@@ -130,7 +132,9 @@ impl NabzApp {
             product_sale_price: "0".into(),
             product_stock: "0".into(),
             business_scan: String::new(),
-            business_products: vec![],
+            business_products: vec[],
+            label_counts: std::collections::BTreeMap::new(),
+            label_search: String::new(),
             business_basket: vec![],
             purchase_product_id: 0,
             purchase_quantity: "1".into(),
@@ -315,6 +319,7 @@ impl eframe::App for NabzApp {
                         (3, "مشتریان و تأمین‌کنندگان", ph::USERS),
                         (6, "دریافت و پرداخت", ph::ARROWS_LEFT_RIGHT),
                         (4, "هزینه‌ها و گزارش", ph::CHART_BAR),
+                        (7, "اتیکت قیمت", ph::TAG),
                     ] {
                         let active = if index == 6 { !self.show_business } else { self.show_business && self.business_tab == index };
                         let button = egui::Button::new(
@@ -994,6 +999,52 @@ impl eframe::App for NabzApp {
                             Err(e) => self.business_status = format!("خواندن طرف حساب‌ها ناموفق بود: {e}"),
                         }
                         }
+                        if self.business_tab == 7 {
+                        ui.heading(RichText::new("چاپ اتیکت قیمت کالا").strong());
+                        ui.label("کالاها را جست‌وجو کن و تعداد برچسب هر کالا را با + و − تعیین کن. قالب چاپ ۴ ستون × ۷ ردیف روی A4 است.");
+                        ui.horizontal(|ui| {
+                            ui.label("جست‌وجو:");
+                            ui.add(egui::TextEdit::singleline(&mut self.label_search).hint_text("نام کالا یا بارکد").desired_width(260.0));
+                            if ui.button("پاک کردن تعدادها").clicked() { self.label_counts.clear(); }
+                        });
+                        ui.separator();
+                        let filter = self.label_search.to_lowercase();
+                        let products = self.business_products.clone();
+                        egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
+                            egui::Grid::new("label_products_grid").striped(true).show(ui, |ui| {
+                                ui.label("کالا"); ui.label("قیمت مصرف‌کننده"); ui.label("تعداد اتیکت"); ui.end_row();
+                                for p in products.iter().filter(|p| filter.is_empty() || p.name.to_lowercase().contains(&filter) || p.barcode.contains(&filter)) {
+                                    ui.label(&p.name);
+                                    ui.label(format!("{} تومان", money(p.sale_price)));
+                                    let qty = self.label_counts.entry(p.id).or_insert(0);
+                                    ui.horizontal(|ui| {
+                                        if ui.small_button("−").clicked() { *qty = (*qty - 1).max(0); }
+                                        ui.label(qty.to_string());
+                                        if ui.small_button("+").clicked() { *qty = (*qty + 1).min(99); }
+                                    });
+                                    ui.end_row();
+                                }
+                            });
+                        });
+                        let selected_count: i32 = self.label_counts.values().sum();
+                        ui.label(format!("تعداد اتیکت انتخاب‌شده: {selected_count}"));
+                        if ui.button(RichText::new("پیش‌نمایش و چاپ / ذخیره PDF").strong()).clicked() {
+                            let selected: Vec<_> = products.iter().filter_map(|p| {
+                                let count = *self.label_counts.get(&p.id).unwrap_or(&0);
+                                (count > 0).then_some((p.clone(), count))
+                            }).collect();
+                            if selected.is_empty() { self.business_status = "حداقل تعداد اتیکت یک کالا را مشخص کن.".into(); }
+                            else {
+                                let result = create_price_labels_html(&selected);
+                                self.business_status = match result {
+                                    Ok(path) => { let _ = std::process::Command::new("xdg-open").arg(&path).spawn(); format!("صفحه چاپ اتیکت باز شد: {}", path.display()) }
+                                    Err(e) => format!("ساخت اتیکت ناموفق بود: {e}")
+                                };
+                            }
+                        }
+                        ui.label("در پنجره بازشده، چاپ (Ctrl+P) را بزن؛ مقصد چاپگر یا Save as PDF را انتخاب کن. اگر تعداد اتیکت‌ها از ۲۸ بیشتر باشد، صفحات خودکار ادامه می‌یابند.");
+                        }
+
                         if self.business_tab == 4 {
                         ui.heading(RichText::new("هزینه‌های فروشگاه"));
                         let field_width = ui.available_width().min(520.0).max(160.0);
@@ -1419,6 +1470,35 @@ fn normalize_digit(c: char) -> char {
         '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
         other => other,
     }
+}
+
+fn html_escape_label(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\\'', "&#39;")
+}
+fn create_price_labels_html(selected: &[(business::Product, i32)]) -> Result<PathBuf, String> {
+    let mut labels = String::new();
+    for (p, count) in selected {
+        for _ in 0..*count {
+            let name = html_escape_label(&p.name);
+            let price = persian_digits(&money(p.sale_price));
+            labels.push_str(&format!("<article class='label'><header>فروشگاه خواربار</header><div class='name'>نام کالا: {name}</div><div class='price'>قیمت مصرف‌کننده: <b>{price}</b> تومان</div></article>"));
+        }
+    }
+    let html = format!(r#"<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>اتیکت قیمت</title><style>
+    @page {{ size:A4 portrait; margin:7mm; }} * {{box-sizing:border-box}} body{{font-family:Vazirmatn,Tahoma,sans-serif;margin:0;color:#173d32}}
+    .sheet{{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:36mm;gap:2mm}}
+    .label{{border:1px solid #195e49;border-radius:3mm;overflow:hidden;display:flex;flex-direction:column;page-break-inside:avoid}}
+    header{{background:#195e49;color:white;text-align:right;font-size:10pt;font-weight:bold;padding:2mm}}
+    .name{{font-size:10pt;font-weight:bold;padding:2.5mm 2mm;border-bottom:1px solid #777;min-height:13mm}}
+    .price{{margin:2mm;background:#eaf5ef;border:1px solid #c4dfd0;border-radius:2mm;padding:2.5mm;font-size:9pt;font-weight:bold}}
+    @media screen{{body{{background:#ddd;padding:10mm}}.sheet{{background:white;padding:7mm;max-width:210mm;margin:auto}}}}
+    </style></head><body><main class="sheet">{labels}</main></body></html>"#);
+    let base = data_path()?;
+    let dir = base.parent().ok_or("مسیر داده معتبر نیست")?.join("exports");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("nabz-price-labels-{}.html", Local::now().format("%Y%m%d-%H%M%S")));
+    std::fs::write(&path, html).map_err(|e| e.to_string())?;
+    Ok(path)
 }
 
 fn data_path() -> Result<PathBuf, String> {
