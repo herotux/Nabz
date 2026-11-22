@@ -16,7 +16,7 @@ const money=(n:number)=>new Intl.NumberFormat('fa-IR').format(Number.isFinite(n)
 const persianDigits=(value:string)=>String(value??'').replace(/\d/g,d=>'۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 const normalizedNumber=(value:string)=>latinDigits(value).replace(/[٬,\s]/g,'');
 function parseCsv(content:string):string[][]{
- const firstLine=content.split(/\r?\n/,1)[0]||'';const delimiters=[',',';','\\t'];
+ const firstLine=content.split(/\r?\n/,1)[0]||'';const delimiters=[',',';','\t'];
  let delimiter=',';let best=-1;for(const candidate of delimiters){let count=0;let quoted=false;for(let i=0;i<firstLine.length;i++){if(firstLine[i]==='"')quoted=!quoted;else if(!quoted&&firstLine[i]===candidate)count++;}if(count>best){best=count;delimiter=candidate;}}
  const rows:string[][]=[];let row:string[]=[];let field='';let quoted=false;
  for(let i=0;i<content.length;i++){const ch=content[i];if(quoted){if(ch==='"'&&content[i+1]==='"'){field+='"';i++;}else if(ch==='"')quoted=false;else field+=ch;continue;}
