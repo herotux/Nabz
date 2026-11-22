@@ -39,14 +39,36 @@ chmod +x Nabz-x86_64.AppImage
 
 طرح نسخهٔ فروشگاهی سبک شامل کالا و بارکد، قیمت خرید و فروش، موجودی و هشدار کمبود، خرید از تأمین‌کننده، فروش سریع، برگشت کالا، حساب مشتری/تأمین‌کننده، هزینه‌های مغازه، گزارش سود، پشتیبان‌گیری، **چاپ فاکتور روی فیش‌زن ۵۸/۸۰ میلی‌متری و چاپگر A4، تولید و چاپ برچسب بارکد، و اسکنر USB** در [مشخصات نسخهٔ کسب‌وکار](docs/business-edition.md) ثبت شده است. این سند نقشهٔ راه است. نسخهٔ فعلی اکنون کالا و فروش بارکدی، ثبت خرید و ورود موجودی، ثبت طرف‌حساب، ثبت هزینهٔ فروشگاه، خلاصهٔ گزارش، خروجی CSV فروش‌ها و پشتیبان‌گیری محلی را دارد؛ سایر امکانات سند هنوز در صف توسعه‌اند.
 
-## نسخهٔ Raspberry Pi
+## نسخهٔ Raspberry Pi (فقط ۶۴ بیتی)
 
-از workflow جداگانهٔ [Build Raspberry Pi packages](https://github.com/herotux/Nabz/actions/workflows/build-raspberry-pi.yml) دو آرشیو ARM ساخته می‌شود:
+Workflow [Build Raspberry Pi 64-bit package](https://github.com/herotux/Nabz/actions/workflows/build-raspberry-pi.yml) فقط خروجی ARM64 می‌سازد:
 
-- `Nabz-linux-aarch64-unknown-linux-gnu.tar.gz` — برای Raspberry Pi OS نسخهٔ ۶۴ بیتی.
-- `Nabz-linux-armv7-unknown-linux-gnueabihf.tar.gz` — برای Raspberry Pi OS نسخهٔ ۳۲ بیتی.
+- `Nabz-linux-aarch64-unknown-linux-gnu.tar.gz` — مخصوص Raspberry Pi OS نسخهٔ ۶۴ بیتی (aarch64).
 
-پس از موفقیت workflow، آرشیو مناسب را از بخش **Artifacts** همان اجرای GitHub Actions دریافت و روی رزبری پای استخراج کن. این‌ها بسته‌های قابل‌حمل هستند، نه فایل AppImage یا بستهٔ Flatpak. ساخت برای ARM با شبیه‌سازی معماری انجام می‌شود؛ اجرای نهایی باید روی مدل رزبری پای و نسخهٔ Raspberry Pi OS مقصد آزمایش شود.
+پس از موفقیت اجرای workflow:
+1. در GitHub وارد مخزن و بخش **Actions** شو.
+2. اجرای موفق **Build Raspberry Pi 64-bit package** را باز کن.
+3. از بخش **Artifacts** فایل `Nabz-linux-aarch64-unknown-linux-gnu` را دریافت کن.
+4. آرشیو را به رزبری پای منتقل و استخراج کن:
+   ```bash
+   tar -xzf Nabz-linux-aarch64-unknown-linux-gnu.tar.gz
+   cd nabz
+   ```
+5. وابستگی‌های زمان اجرا را نصب کن:
+   ```bash
+   sudo apt update
+   sudo apt install -y libx11-6 libxcb1 libxcb-shape0 libxcb-xfixes0 libxkbcommon0 libwayland-client0 libegl1 libfontconfig1
+   ```
+6. نصب را انجام بده:
+   ```bash
+   sudo ./install.sh
+   ```
+7. از منوی برنامه‌ها **Nabz** را اجرا کن یا در ترمینال بزن:
+   ```bash
+   /opt/nabz-slint/nabz-slint
+   ```
+
+اطلاعات برنامه به‌صورت پیش‌فرض در `~/.local/share/com.herotux.nabz.webprototype/nabz.sqlite3` ذخیره می‌شود. قبل از استفاده از اطلاعات واقعی، از دیتابیس نسخهٔ پشتیبان بگیر و فعلاً برنامه را روی کپی دیتابیس آزمایش کن؛ نسخهٔ Slint هنوز نمونهٔ اولیه است. این خروجی آرشیو قابل‌حمل ARM64 است، نه AppImage یا بستهٔ deb.
 
 ## ساخت از سورس
 نیازمندی‌ها: Rust stable و وابستگی‌های توسعهٔ لینوکس برای `eframe`.
