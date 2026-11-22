@@ -19,7 +19,7 @@ function parseCsv(content:string):string[][]{
  const rows:string[][]=[];let row:string[]=[];let field='';let quoted=false;
  for(let i=0;i<content.length;i++){const ch=content[i];if(quoted){if(ch==='"'&&content[i+1]==='"'){field+='"';i++}else if(ch==='"')quoted=false;else field+=ch;continue;}
   if(ch==='"'){quoted=true;continue;}if(ch===','){row.push(field);field='';continue;}if(ch==='\n'){row.push(field.replace(/\r$/,''));if(row.some(v=>v.trim()))rows.push(row);row=[];field='';continue;}field+=ch;}
- row.push(field.replace(/\\r$/,''));if(row.some(v=>v.trim()))rows.push(row);return rows;
+ row.push(field.replace(/\r$/,''));if(row.some(v=>v.trim()))rows.push(row);return rows;
 }
 const today=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{day:'numeric',month:'long',year:'numeric'}).format(new Date());
 const localIso=(date:Date)=>date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');
