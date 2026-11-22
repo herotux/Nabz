@@ -1,7 +1,9 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  base: process.env.GITHUB_ACTIONS ? "/Nabz/" : "/",
+  // Relative asset URLs work both in Tauri's local asset protocol and when
+  // the web build is hosted below a repository path (for example /Nabz/).
+  base: "./",
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
