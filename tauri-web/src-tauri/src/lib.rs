@@ -119,6 +119,7 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
  let discount_value=num(&payload,"discount_value");
  let is_service=payload.get("is_service").and_then(Value::as_bool).unwrap_or(false);
  if consumer_price<0 || discount_value<0 { return Err("قیمت مصرف‌کننده و تخفیف نمی‌توانند منفی باشند".into()) }
+ if !is_service && input.buy_price<=0 { return Err("قیمت خرید کالا الزامی است و باید بیشتر از صفر باشد".into()) }
  let mode:String=c.query_row("SELECT value FROM settings WHERE key='selling_price_mode'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"manual".into());
  if mode=="auto" {
   let basis:String=c.query_row("SELECT value FROM settings WHERE key='selling_price_basis'",[],|r|r.get(0)).optional().map_err(|e|e.to_string())?.unwrap_or_else(||"buy".into());
