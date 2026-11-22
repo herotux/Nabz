@@ -1,9 +1,9 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  // Tauri serves the bundled frontend from the application origin root.
-  // GitHub Pages is the only build that should use the repository subpath.
-  base: process.env.TAURI_ENV_PLATFORM ? "/" : process.env.GITHUB_ACTIONS ? "/Nabz/" : "/",
+  // Relative asset URLs work both in Tauri's local asset protocol and when
+  // the web build is hosted below a repository path (for example /Nab/).
+  base: "./",
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
