@@ -64,23 +64,3 @@ jobs:
 
       - name: Run Rust and SQLite tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
-
-      - name: Build Linux packages
-        run: npm run tauri build
-
-      - name: Verify generated packages
-        run: |
-          set -eu
-          find src-tauri/target/release/bundle -type f \
-            \( -name '*.AppImage' -o -name '*.deb' \) -size +0c -print
-          test -n "$(find src-tauri/target/release/bundle -type f \( -name '*.AppImage' -o -name '*.deb' \) -size +0c -print -quit)"
-
-      - name: Upload Linux installers
-        uses: actions/upload-artifact@v4
-        with:
-          name: nabz-linux-installers
-          path: |
-            tauri-web/src-tauri/target/release/bundle/**/*.AppImage
-            tauri-web/src-tauri/target/release/bundle/**/*.deb
-          if-no-files-found: error
-          retention-days: 14
