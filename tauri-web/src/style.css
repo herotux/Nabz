@@ -397,3 +397,5 @@ body { font-size: 14px; line-height: 1.7; }
 .price-label-preview-card>div.discount span{color:#a75a43}
 .price-label-preview-card>div.discount strong{color:#b84f35}
 .price-label-preview-card del{font-size:8px;color:#b17a6b;white-space:nowrap}
+
+.price-label-preview-card>.price-label-preview-header{margin:0;width:100%;border:0;border-radius:7px 7px 0 0;background:#155b46;color:#fff;padding:7px 9px;font-size:10px;font-weight:800;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
