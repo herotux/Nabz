@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { gregorianToJalali, jalaliMonths, jalaliParts, jalaliToGregorian, jalaliWeekdays } from '../../utils/jalali';
 
-const money = (n:number) => new Intl.NumberFormat('fa-IR').format(Number.isFinite(n) ? n : 0);
+const money = (n:number) => new Intl.NumberFormat('fa-IR',{useGrouping:false}).format(Number.isFinite(n) ? n : 0);
 
 export function JalaliDateField({value,onChange,label,todayValue}:{value:string;onChange:(v:string)=>void;label:string;todayValue:string}){
  const selected=jalaliParts(value);
