@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-arm64:
-    name: Build for 64-bit Raspberry Pi OS
+    name: Build Slint for 64-bit Raspberry Pi OS
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -21,26 +21,70 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential pkg-config libx11-dev libxkbcommon-dev libwayland-dev \
-            libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+            libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libfontconfig1-dev libssl-dev
 
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Build and package
+      - name: Build and package Slint native app
         run: |
           set -euxo pipefail
+          cd slint-native
           rustc -vV
-          bash scripts/fetch-font.sh
+          bash ../scripts/fetch-font.sh
           cargo build --release
-          mkdir -p dist/nabz
-          install -m 0755 target/release/nabz dist/nabz/nabz
-          cp README.md LICENSE dist/nabz/
-          cp assets/Vazirmatn.ttf assets/OFL.txt dist/nabz/
-          tar -C dist -czf Nabz-linux-aarch64-unknown-linux-gnu.tar.gz nabz
+          mkdir -p ../dist/nabz
+          install -m 0755 target/release/nabz-slint ../dist/nabz/nabz-slint
+          cp ../README.md ../LICENSE ../dist/nabz/
+          cp ../assets/Vazirmatn.ttf ../assets/OFL.txt ../dist/nabz/
+          cat > ../dist/nabz/install.sh <<'INSTALL'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+          APP_DIR="/opt/nabz-slint"
+          install -d -m 0755 "$APP_DIR"
+          install -m 0755 "$HERE/nabz-slint" "$APP_DIR/nabz-slint"
+          install -m 0644 "$HERE/Vazirmatn.ttf" "$APP_DIR/Vazirmatn.ttf"
+          install -d -m 0755 /usr/local/share/applications
+          cat > /usr/local/share/applications/nabz-slint.desktop <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=Nabz
+          Comment=Persian shop accounting
+          Exec=$APP_DIR/nabz-slint
+          Icon=applications-office
+          Terminal=false
+          Categories=Office;Finance;
+          EOF
+          echo "Nabz Slint installed. Launch it from the applications menu or run: $APP_DIR/nabz-slint"
+          INSTALL
+          chmod 0755 ../dist/nabz/install.sh
+          cat > ../dist/nabz/README-RASPBERRY-PI.txt <<'GUIDE'
+          Nabz Slint - Raspberry Pi OS 64-bit
+          ===================================
+          Install runtime libraries (Debian/Raspberry Pi OS):
+            sudo apt update
+            sudo apt install -y libx11-6 libxcb1 libxcb-shape0 libxcb-xfixes0 libxkbcommon0 libwayland-client0 libegl1 libfontconfig1
 
-      - name: Upload Raspberry Pi package
+          Install:
+            tar -xzf Nabz-linux-aarch64-unknown-linux-gnu.tar.gz
+            cd nabz
+            sudo ./install.sh
+
+          Run:
+            nabz-slint
+
+          The SQLite database is stored under:
+            ~/.local/share/com.herotux.nabz.webprototype/nabz.sqlite3
+
+          Before using real accounting data, back it up. This Slint build is still a prototype.
+          GUIDE
+          tar -C ../dist -czf ../Nabz-linux-aarch64-unknown-linux-gnu.tar.gz nabz
+
+      - name: Upload Raspberry Pi 64-bit package
         uses: actions/upload-artifact@v4
         with:
           name: Nabz-linux-aarch64-unknown-linux-gnu
