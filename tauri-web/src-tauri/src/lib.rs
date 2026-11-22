@@ -958,7 +958,6 @@ fn list_expenses_command(from:String,to:String,db:State<'_,Db>)->Result<Vec<Valu
  Ok(rows.into_iter().map(|x|json!({"id":x.id,"category":x.category,"description":x.description,"amount":x.amount,"date":x.date})).collect())
 }
 #[tauri::command]
-#[tauri::command]
 fn historical_cost_repair_preview(db:State<'_,Db>)->Result<Vec<Value>,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
  let mut st=c.prepare(
@@ -1054,6 +1053,7 @@ fn apply_historical_cost_repairs(invoice_item_ids:Vec<i64>,db:State<'_,Db>)->Res
  Ok(json!({"repaired":repaired}))
 }
 
+#[tauri::command]
 fn profit_loss_report_command(from:String,to:String,db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
  let x=profit_loss_report(&c,&from,&to)?;
