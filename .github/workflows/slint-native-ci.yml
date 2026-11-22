@@ -32,11 +32,3 @@ jobs:
         run: cargo check --manifest-path slint-native/Cargo.toml
       - name: Run native accounting and migration tests
         run: cargo test --manifest-path slint-native/Cargo.toml
-      - name: Build release binary
-        run: cargo build --release --manifest-path slint-native/Cargo.toml
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: nabz-slint-linux-x86_64
-          path: slint-native/target/release/nabz-slint
-          if-no-files-found: error
