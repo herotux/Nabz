@@ -9,6 +9,7 @@ import type { RecordRow } from '../../types';
 type ReportTrend = {date:string;total:number};
 type ReportProduct = {name:string;code:string;quantity:number};
 type HistoricalCostCandidate = {invoice_item_id:number;invoice_number:number;date:string;item_name:string;quantity:number;returned_quantity:number;unit_price:number;line_total:number;proposed_unit_cost:number|null;eligible:boolean;reason:string|null};
+type HistoricalCostAudit = {id:number;invoice_item_id:number;invoice_number:number;invoice_date:string;item_name:string;unit_cost:number;source:string;created_at:string};
 type ReportData = {start_date:string;end_date:string;sales_total:number;purchases_total:number;receipts_total:number;payments_total:number;sales_returns_total:number;purchase_returns_total:number;sales_count:number;purchases_count:number;cost_of_goods_sold:number;gross_profit:number;expenses_total:number;net_profit:number;uncosted_sales:number;inventory_value:number;customer_balance:number;supplier_balance:number;low_stock_count:number;daily_sales:ReportTrend[];top_products:ReportProduct[];expenses_are_store_wide:boolean};
 const money=(n:number)=>new Intl.NumberFormat('fa-IR').format(Number.isFinite(n)?n:0);
 const localIso=(date:Date)=>date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');
@@ -52,11 +53,18 @@ export function ReportsPage(){
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
  const [costCandidates,setCostCandidates]=useState<HistoricalCostCandidate[]>([]);
+ const [costAudit,setCostAudit]=useState<HistoricalCostAudit[]>([]);
  const [costRepairBusy,setCostRepairBusy]=useState(false);
  const [costRepairMessage,setCostRepairMessage]=useState('');
  const loadCostCandidates=async()=>{
   setCostRepairBusy(true);setCostRepairMessage('');
-  try{setCostCandidates(await invoke<HistoricalCostCandidate[]>('historical_cost_repair_preview'))}
+  try{
+   const [preview,audit]=await Promise.all([
+    invoke<HistoricalCostCandidate[]>('historical_cost_repair_preview'),
+    invoke<HistoricalCostAudit[]>('historical_cost_repair_history')
+   ]);
+   setCostCandidates(preview);setCostAudit(audit);
+  }
   catch(e){setCostRepairMessage('دریافت فهرست بهای تاریخی ناموفق بود: '+String(e))}
   finally{setCostRepairBusy(false)}
  };
@@ -125,7 +133,12 @@ export function ReportsPage(){
     {!costCandidates.length&&<tr><td colSpan={5} className="empty-cell">ردیف فاقد بهای تاریخی پیدا نشد.</td></tr>}
    </tbody></table></div>
    <div className="report-note"><Activity size={18}/><div><b>مبنای بازسازی</b><p>بهای پیشنهادی از میانگین بهای موزون ذخیره‌شده پیش از ثبت همان فروش گرفته می‌شود؛ قیمت خرید فعلی کالا یا اطلاعات حدسی استفاده نمی‌شود. ردیف‌های فاقد این snapshot فقط گزارش می‌شوند و دست‌نخورده می‌مانند.</p></div></div>
-   <button className="primary-btn" disabled={costRepairBusy||!costCandidates.some(x=>x.eligible)} onClick={()=>void applyCostRepairs()}> {costRepairBusy?'در حال انجام…':'ثبت اصلاح برای ردیف‌های قابل اعتماد ('+money(costCandidates.filter(x=>x.eligible).length)+')'}</button>
+   <button className="primary-btn" disabled={costRepairBusy||!costCandidates.some(x=>x.eligible)} onClick={()=>void applyCostRepairs()}>{costRepairBusy?'در حال انجام…':'ثبت اصلاح برای ردیف‌های قابل اعتماد ('+money(costCandidates.filter(x=>x.eligible).length)+')'}</button>
+   <div className="surface-heading"><div><h2>سابقه اصلاحات</h2><p>۱۰۰ اصلاح اخیر؛ این سوابق در پایگاه داده نگهداری و غیرقابل ویرایش هستند.</p></div></div>
+   <div className="table-wrap"><table className="data-table"><thead><tr><th>فاکتور</th><th>کالا</th><th>بهای ثبت‌شده</th><th>زمان اصلاح</th></tr></thead><tbody>
+    {costAudit.map(x=><tr key={x.id}><td>#{money(x.invoice_number)}</td><td>{x.item_name}</td><td>{money(x.unit_cost)} تومان</td><td>{x.created_at}</td></tr>)}
+    {!costAudit.length&&<tr><td colSpan={4} className="empty-cell">هنوز اصلاحی ثبت نشده است.</td></tr>}
+   </tbody></table></div>
   </section>
   <div className="report-analysis-grid">
    <section className="surface report-analysis-card"><div className="surface-heading"><div><h2>روند روزانه فروش</h2><p>بر اساس تاریخ فاکتور؛ روزهای بدون فروش هم نمایش داده می‌شوند</p></div><b>{money(trend.reduce((sum,x)=>sum+x.total,0))} تومان</b></div><div className="report-trend-chart"><div className="chart-grid"><i/><i/><i/><i/></div><svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d={path+' L100 100 L0 100 Z'} fill="#159b6714"/><path d={path||'M0 92 L100 92'} fill="none" stroke="#159b67" strokeWidth="1.8" vectorEffect="non-scaling-stroke"/>{coords.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="1.2" fill="#fff" stroke="#159b67" strokeWidth=".8" vectorEffect="non-scaling-stroke"/>)}</svg></div><div className="report-trend-labels">{trend.filter((_,i)=>i===0||i===trend.length-1||i%Math.max(1,Math.floor(trend.length/6))===0).map(p=><span key={p.date}>{formatJalaliDate(p.date)}</span>)}</div></section>
