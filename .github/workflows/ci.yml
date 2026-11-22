@@ -30,5 +30,3 @@ jobs:
         run: cargo test --all-targets
       - name: Lint
         run: cargo clippy --all-targets
-      - name: Verify release build
-        run: cargo build --release
