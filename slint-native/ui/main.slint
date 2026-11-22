@@ -10,23 +10,23 @@ component SummaryCard inherits Rectangle {
     in property <string> value;
     in property <color> accent;
     background: #ffffff;
-    border-color: #e4e7ec;
+    border-color: #e9edf0;
     border-width: 1px;
     border-radius: 12px;
     min-height: 118px;
     VerticalLayout {
         padding: 18px;
         spacing: 12px;
-        Text { text: title; color: #667085; font-size: 14px; horizontal-alignment: right; }
+        Text { text: title; color: #87919c; font-size: 14px; horizontal-alignment: right; }
         Text { text: value; color: accent; font-size: 22px; font-weight: 700; horizontal-alignment: right; }
     }
 }
 
 export component MainWindow inherits Window {
     title: "نبض | حسابداری فروشگاهی";
-    width: 1220px;
-    height: 820px;
-    background: #f4f6f8;
+    width: 1440px;
+    height: 900px;
+    background: #f7f8fa;
 
     in-out property <string> active-page: "داشبورد";
     in-out property <string> status-message: "آماده";
@@ -102,11 +102,11 @@ export component MainWindow inherits Window {
         spacing: 0px;
         Rectangle {
             background: #ffffff;
-            height: 70px;
+            height: 74px;
             HorizontalLayout {
                 padding-left: 22px; padding-right: 22px;
                 alignment: center; spacing: 14px;
-                Text { text: "نبض"; color: #18864b; font-size: 27px; font-weight: 700; }
+                Text { text: "نبض"; color: #159b67; font-size: 27px; font-weight: 700; }
                 Text { text: "حسابداری فروشگاهی"; color: #344054; font-size: 16px; horizontal-stretch: 1; horizontal-alignment: right; }
                 Button { text: "تازه‌سازی"; clicked => { root.refresh-requested(); } }
             }
@@ -114,27 +114,10 @@ export component MainWindow inherits Window {
         HorizontalLayout {
             spacing: 0px;
             Rectangle {
-                width: 190px; background: #ffffff;
-                VerticalLayout {
-                    padding: 12px; spacing: 7px;
-                    Text { text: "منوی اصلی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
-                    Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; root.refresh-requested(); } }
-                    Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
-                    Button { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; root.refresh-requested(); } }
-                    Button { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; root.refresh-requested(); } }
-                    Button { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; root.refresh-requested(); } }
-                    Button { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; root.refresh-requested(); } }
-                    Button { text: "چاپ و بارکد"; clicked => { root.active-page = "چاپ و بارکد"; } }
-                    Button { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; root.refresh-requested(); } }
-                    Rectangle { background: transparent; vertical-stretch: 1; }
-                    Text { text: root.status-message; color: #667085; font-size: 11px; wrap: word-wrap; horizontal-alignment: right; }
-                }
-            }
-            Rectangle {
                 background: #f4f6f8; horizontal-stretch: 1;
                 VerticalLayout {
-                    padding: 22px; spacing: 16px;
-                    Text { text: root.active-page; color: #101828; font-size: 25px; font-weight: 700; horizontal-alignment: right; }
+                    padding: 30px; spacing: 20px;
+                    Text { text: root.active-page; color: #202a35; font-size: 25px; font-weight: 700; horizontal-alignment: right; }
 
                     if root.active-page == "داشبورد": VerticalLayout {
                         spacing: 14px;
@@ -154,7 +137,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 spacing: 8px;
                                 Text { text: "اطلاعات پایگاه داده"; color: #101828; font-size: 17px; font-weight: 600; horizontal-alignment: right; }
-                                Text { text: "طرف‌حساب: " + root.contacts-count + "    کالا: " + root.products-count + "    فاکتور: " + root.invoices-count; color: #475467; font-size: 15px; horizontal-alignment: right; }
+                                Text { text: "طرف‌حساب: " + root.contacts-count + "    کالا: " + root.products-count + "    فاکتور: " + root.invoices-count; color: #59656f; font-size: 15px; horizontal-alignment: right; }
                                 Text { text: "داده‌ها از SQLite محلی خوانده می‌شوند؛ این رابط بومی است و مرورگر داخلی ندارد."; color: #667085; font-size: 13px; wrap: word-wrap; horizontal-alignment: right; }
                             }
                         }
@@ -163,7 +146,7 @@ export component MainWindow inherits Window {
                     if root.active-page == "طرف‌حساب‌ها": VerticalLayout {
                         spacing: 10px;
                         Rectangle {
-                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 10px; padding: 12px;
+                            background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 12px; padding: 12px;
                             VerticalLayout {
                                 spacing: 7px;
                                 Text { text: "ثبت طرف‌حساب"; color: #101828; font-size: 16px; font-weight: 600; horizontal-alignment: right; }
@@ -294,7 +277,7 @@ export component MainWindow inherits Window {
                         background: #ffffff; border-color: #e4e7ec; border-width: 1px; border-radius: 12px; padding: 20px;
                         VerticalLayout { spacing: 12px;
                             Text { text: "گزارش زنده از پایگاه داده"; color: #101828; font-size: 18px; font-weight: 600; horizontal-alignment: right; }
-                            Text { text: "فروش امروز: " + root.sales-today; color: #16834a; font-size: 16px; horizontal-alignment: right; }
+                            Text { text: "فروش امروز: " + root.sales-today; color: #159b67; font-size: 16px; horizontal-alignment: right; }
                             Text { text: "دریافت امروز: " + root.receipts-today; color: #2876c7; font-size: 16px; horizontal-alignment: right; }
                             Text { text: "ماندهٔ مشتریان: " + root.customer-balance; color: #c47a16; font-size: 16px; horizontal-alignment: right; }
                             Text { text: "ارزش موجودی: " + root.inventory-value; color: #6941c6; font-size: 16px; horizontal-alignment: right; }
@@ -320,6 +303,23 @@ export component MainWindow inherits Window {
                             Text { text: "تنظیمات این نسخه در SQLite ذخیره می‌شوند."; color: #667085; font-size: 13px; horizontal-alignment: right; }
                         }
                     }
+                }
+            }
+            Rectangle {
+                width: 258px; background: #ffffff;
+                VerticalLayout {
+                    padding: 18px; spacing: 10px;
+                    Text { text: "منوی اصلی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
+                    Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; root.refresh-requested(); } }
+                    Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
+                    Button { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; root.refresh-requested(); } }
+                    Button { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; root.refresh-requested(); } }
+                    Button { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; root.refresh-requested(); } }
+                    Button { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; root.refresh-requested(); } }
+                    Button { text: "چاپ و بارکد"; clicked => { root.active-page = "چاپ و بارکد"; } }
+                    Button { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; root.refresh-requested(); } }
+                    Rectangle { background: transparent; vertical-stretch: 1; }
+                    Text { text: root.status-message; color: #667085; font-size: 11px; wrap: word-wrap; horizontal-alignment: right; }
                 }
             }
         }
