@@ -31,7 +31,7 @@ type InvoiceItemDetail = {id:number;product_id:number|null;item_name:string;quan
 type InvoiceDetail = {invoice:{id:number;number:number;kind:'sale'|'purchase';contact_id:number|null;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string;voided:boolean;credit_applied:number};items:InvoiceItemDetail[];payments:{id:number;amount:number;method:string;date:string;notes:string;allocated:number}[];returns:{id:number;date:string;amount:number;credit_refund:number;notes:string;kind:string}[];refunds:{id:number;date:string;amount:number;method:string;notes:string;kind:string}[];void:{id:number;date:string;cash_refund:number;credit_refund:number;notes:string}|null};
 
 
-const printFontFaceCss = `@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap');`;
+const printFontFaceCss = `@font-face{font-family:Vazirmatn;src:url('${new URL('./fonts/Vazirmatn.woff2',window.location.href).href}') format('woff2');font-style:normal;font-weight:100 900;font-display:swap}`;
 
 const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string}[] = [
   {id:'dashboard',label:'نمای کلی',icon:LayoutDashboard,group:'مدیریت'},
