@@ -1054,6 +1054,17 @@ fn apply_historical_cost_repairs(invoice_item_ids:Vec<i64>,db:State<'_,Db>)->Res
 }
 
 #[tauri::command]
+fn apply_manual_historical_cost_repairs(items:Vec<Value>,db:State<'_,Db>)->Result<Value,String>{
+ if items.is_empty(){return Err("بهای دستی برای حداقل یک ردیف وارد کنید.".into())}
+ if items.len()>5000{return Err("در هر نوبت حداکثر ۵۰۰۰ ردیف قابل اصلاح است.".into())}
+ let mut normalized=Vec::new();let mut seen=std::collections::HashSet::new();
+ for item in items { let id=item.get("invoiceItemId").and_then(Value::as_i64).ok_or("شناسه ردیف نامعتبر است")?;let cost=item.get("unitCost").and_then(Value::as_i64).ok_or("بهای دستی باید عدد صحیح باشد")?;if id<=0||cost<0{return Err("شناسه یا بهای دستی نامعتبر است".into())}if !seen.insert(id){return Err("ردیف تکراری در درخواست وجود دارد".into())}normalized.push((id,cost)); }
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;let mut repaired=0;
+ for (id,cost) in normalized {let row:Option<(String,String,i64,Option<i64>)>=tx.query_row("SELECT i.kind,ii.item_name,ii.quantity,ii.unit_cost FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE ii.id=?1 AND i.voided=0",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(|e|e.to_string())?;let Some((kind,name,qty,current))=row else{return Err(format!("ردیف {id} پیدا نشد یا فاکتور باطل است"))};if kind!="sale"||name.starts_with("خدمت:")||qty<=0{return Err(format!("ردیف «{name}» قابل اصلاح نیست"))}if current.is_some(){return Err(format!("ردیف «{name}» قبلاً بهای تمام‌شده دارد"))}let changed=tx.execute("UPDATE invoice_items SET unit_cost=?1 WHERE id=?2 AND unit_cost IS NULL",params![cost,id]).map_err(|e|e.to_string())?;if changed!=1{return Err("ردیف هم‌زمان تغییر کرده؛ عملیات لغو شد".into())}tx.execute("INSERT INTO historical_cost_repairs(invoice_item_id,previous_unit_cost,repaired_unit_cost,source) VALUES(?1,NULL,?2,'manual: user-entered historical cost')",params![id,cost]).map_err(|e|e.to_string())?;repaired+=1; }
+ tx.commit().map_err(|e|e.to_string())?;Ok(json!({"repaired":repaired}))
+}
+
+#[tauri::command]
 fn profit_loss_report_command(from:String,to:String,db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
  let x=profit_loss_report(&c,&from,&to)?;
@@ -1354,7 +1365,7 @@ fn recalculate_selling_prices(db:State<'_,Db>)->Result<i64,String>{
 }
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,historical_cost_repair_preview,historical_cost_repair_history,apply_historical_cost_repairs,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,restore_auto_backup,save_setting,get_settings,recalculate_selling_prices,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,historical_cost_repair_preview,historical_cost_repair_history,apply_historical_cost_repairs,apply_manual_historical_cost_repairs,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,restore_auto_backup,save_setting,get_settings,recalculate_selling_prices,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
