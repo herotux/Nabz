@@ -38,7 +38,8 @@ export function formatJalaliDate(iso: string): string {
 export function gregorianToJalali(iso: string): string {
   if (!iso) return '';
   const parts = jalaliParts(iso);
-  return parts.year + '/' + String(parts.month).padStart(2, '0') + '/' + String(parts.day).padStart(2, '0');
+  const digits = new Intl.NumberFormat('fa-IR', { useGrouping: false });
+  return [parts.year, parts.month, parts.day].map(value => digits.format(value).padStart(2, '۰')).join('/');
 }
 
 export function jalaliToGregorian(raw: string): string | null {
