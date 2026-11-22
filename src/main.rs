@@ -132,7 +132,7 @@ impl NabzApp {
             product_sale_price: "0".into(),
             product_stock: "0".into(),
             business_scan: String::new(),
-            business_products: vec[],
+            business_products: vec![],
             label_counts: std::collections::BTreeMap::new(),
             label_search: String::new(),
             business_basket: vec![],
