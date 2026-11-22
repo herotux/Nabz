@@ -929,6 +929,82 @@ fn list_expenses_command(from:String,to:String,db:State<'_,Db>)->Result<Vec<Valu
  Ok(rows.into_iter().map(|x|json!({"id":x.id,"category":x.category,"description":x.description,"amount":x.amount,"date":x.date})).collect())
 }
 #[tauri::command]
+#[tauri::command]
+fn historical_cost_repair_preview(db:State<'_,Db>)->Result<Vec<Value>,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let mut st=c.prepare(
+  "SELECT ii.id,i.number,i.invoice_date,ii.item_name,ii.quantity,ii.unit_price,ii.line_total,
+          ii.product_id,ii.average_cost_before,
+          COALESCE((SELECT SUM(sri.quantity) FROM sales_return_items sri WHERE sri.invoice_item_id=ii.id),0),
+          (SELECT COUNT(*) FROM historical_cost_repairs hcr WHERE hcr.invoice_item_id=ii.id)
+   FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
+   WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NULL
+     AND ii.item_name NOT LIKE 'خدمت:%'
+   ORDER BY i.invoice_date,i.number,ii.id"
+ ).map_err(|e|e.to_string())?;
+ let rows=st.query_map([],|r|{
+  let id=r.get::<_,i64>(0)?;
+  let number=r.get::<_,i64>(1)?;
+  let date=r.get::<_,String>(2)?;
+  let name=r.get::<_,String>(3)?;
+  let quantity=r.get::<_,i64>(4)?;
+  let unit_price=r.get::<_,i64>(5)?;
+  let line_total=r.get::<_,i64>(6)?;
+  let product_id=r.get::<_,Option<i64>>(7)?;
+  let historical_average=r.get::<_,Option<i64>>(8)?;
+  let returned=r.get::<_,i64>(9)?;
+  let audited=r.get::<_,i64>(10)? > 0;
+  let reason=if audited {Some("این ردیف قبلاً اصلاح شده است".to_string())}
+    else if product_id.is_none(){Some("شناسه کالای این ردیف ثبت نشده است".to_string())}
+    else if historical_average.is_none(){Some("میانگین بهای تاریخی پیش از فروش ذخیره نشده است؛ قابل بازسازی مطمئن نیست".to_string())}
+    else if historical_average.unwrap_or(0)<0 {Some("بهای تاریخی نامعتبر است".to_string())}
+    else if returned<0 || returned>quantity {Some("مقدار مرجوعی با تعداد فاکتور سازگار نیست".to_string())}
+    else {None};
+  Ok(json!({
+   "invoice_item_id":id,"invoice_number":number,"date":date,"item_name":name,
+   "quantity":quantity,"returned_quantity":returned,"unit_price":unit_price,"line_total":line_total,
+   "proposed_unit_cost":if reason.is_none(){historical_average}else{None},
+   "eligible":reason.is_none(),"reason":reason
+  }))
+ }).map_err(|e|e.to_string())?;
+ rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
+}
+
+#[tauri::command]
+fn apply_historical_cost_repairs(invoice_item_ids:Vec<i64>,db:State<'_,Db>)->Result<Value,String>{
+ if invoice_item_ids.is_empty(){return Err("حداقل یک ردیف قابل اصلاح انتخاب کنید.".into())}
+ if invoice_item_ids.len()>5000{return Err("در هر نوبت حداکثر ۵۰۰۰ ردیف قابل اصلاح است.".into())}
+ let mut ids=invoice_item_ids;
+ ids.sort_unstable();ids.dedup();
+ if ids.iter().any(|id|*id<=0){return Err("شناسه ردیف فاکتور نامعتبر است.".into())}
+ let mut c=db.0.lock().map_err(|e|e.to_string())?;
+ let tx=c.transaction().map_err(|e|e.to_string())?;
+ let mut repaired=0_i64;
+ for id in ids {
+  let row:Option<(String,String,i64,Option<i64>,Option<i64>)>=tx.query_row(
+   "SELECT i.kind,ii.item_name,ii.quantity,ii.unit_cost,ii.average_cost_before
+    FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE ii.id=?1 AND i.voided=0",
+   [id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
+  ).optional().map_err(|e|e.to_string())?;
+  let Some((kind,name,quantity,current_cost,average_before))=row else{return Err(format!("ردیف فاکتور {id} پیدا نشد یا فاکتور آن باطل شده است."))};
+  if kind!="sale" || name.starts_with("خدمت:"){return Err(format!("ردیف «{name}» فروش کالای قابل اصلاح نیست."))}
+  if current_cost.is_some(){return Err(format!("ردیف «{name}» قبلاً بهای تمام‌شده دارد؛ هیچ تغییری اعمال نشد."))}
+  if quantity<=0{return Err(format!("تعداد ردیف «{name}» معتبر نیست."))}
+  let cost=average_before.ok_or_else(||format!("ردیف «{name}» snapshot میانگین بهای تاریخی ندارد؛ هیچ تغییری اعمال نشد."))?;
+  if cost<0{return Err(format!("بهای تاریخی ردیف «{name}» نامعتبر است."))}
+  let changed=tx.execute("UPDATE invoice_items SET unit_cost=?1 WHERE id=?2 AND unit_cost IS NULL AND average_cost_before=?3",params![cost,id,cost]).map_err(|e|e.to_string())?;
+  if changed!=1{return Err(format!("ردیف «{name}» هم‌زمان تغییر کرده است؛ عملیات لغو شد."))}
+  tx.execute(
+   "INSERT INTO historical_cost_repairs(invoice_item_id,previous_unit_cost,repaired_unit_cost,source)
+    VALUES(?1,NULL,?2,'average_cost_before: میانگین موزون ذخیره‌شده پیش از فروش')",
+   params![id,cost]
+  ).map_err(|e|e.to_string())?;
+  repaired+=1;
+ }
+ tx.commit().map_err(|e|e.to_string())?;
+ Ok(json!({"repaired":repaired}))
+}
+
 fn profit_loss_report_command(from:String,to:String,db:State<'_,Db>)->Result<Value,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
  let x=profit_loss_report(&c,&from,&to)?;
@@ -1229,7 +1305,7 @@ fn recalculate_selling_prices(db:State<'_,Db>)->Result<i64,String>{
 }
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,restore_auto_backup,save_setting,get_settings,recalculate_selling_prices,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,historical_cost_repair_preview,apply_historical_cost_repairs,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,restore_auto_backup,save_setting,get_settings,recalculate_selling_prices,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
