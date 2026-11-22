@@ -55,6 +55,8 @@ export function ReportsPage(){
  const [costCandidates,setCostCandidates]=useState<HistoricalCostCandidate[]>([]);
  const [costAudit,setCostAudit]=useState<HistoricalCostAudit[]>([]);
  const [costRepairBusy,setCostRepairBusy]=useState(false);
+ const [manualCosts,setManualCosts]=useState<Record<number,string>>({});
+ const [reportVersion,setReportVersion]=useState(0);
  const [costRepairMessage,setCostRepairMessage]=useState('');
  const loadCostCandidates=async()=>{
   setCostRepairBusy(true);setCostRepairMessage('');
@@ -68,16 +70,25 @@ export function ReportsPage(){
   catch(e){setCostRepairMessage('دریافت فهرست بهای تاریخی ناموفق بود: '+String(e))}
   finally{setCostRepairBusy(false)}
  };
- const applyCostRepairs=async()=>{
-  const ids=costCandidates.filter(x=>x.eligible).map(x=>x.invoice_item_id);
-  if(!ids.length)return;
-  if(!window.confirm('بهای تاریخی '+money(ids.length)+' ردیف بر اساس میانگین موزون ذخیره‌شده پیش از فروش ثبت شود؟ این عملیات در سابقهٔ اصلاحات ثبت می‌شود و قابل برگشت خودکار نیست.'))return;
+ const applyManualCostRepairs=async()=>{
+  const items=costCandidates.flatMap(x=>{
+   const raw=(manualCosts[x.invoice_item_id]||'').trim();
+   if(!raw)return [];
+   if(!/^\d+$/.test(raw))throw new Error('بهای واردشده برای «'+x.item_name+'» باید عدد صحیح و نامنفی باشد.');
+   const unitCost=Number(raw);
+   if(!Number.isSafeInteger(unitCost))throw new Error('بهای واردشده برای «'+x.item_name+'» خارج از محدوده مجاز است.');
+   return [{invoiceItemId:x.invoice_item_id,unitCost}];
+  });
+  if(!items.length){setCostRepairMessage('برای اصلاح، بهای تاریخی حداقل یک ردیف را وارد کن.');return;}
+  if(!window.confirm('بهای تاریخی '+money(items.length)+' ردیف با مقادیر دستی واردشده ذخیره شود؟ این تغییر در سابقه اصلاحات ثبت می‌شود.'))return;
   setCostRepairBusy(true);setCostRepairMessage('');
   try{
-   const result=await invoke<{repaired:number}>('apply_historical_cost_repairs',{invoiceItemIds:ids});
-   setCostRepairMessage(result.repaired+' ردیف با موفقیت اصلاح شد. گزارش را دوباره بارگذاری کن.');
+   const result=await invoke<{repaired:number}>('apply_manual_historical_cost_repairs',{items});
+   setCostRepairMessage(result.repaired+' ردیف با بهای دستی ثبت شد.');
+   setManualCosts({});
    await loadCostCandidates();
-  }catch(e){setCostRepairMessage('اصلاح انجام نشد: '+String(e))}
+   setReportVersion(v=>v+1);
+  }catch(e){setCostRepairMessage('ثبت بهای دستی انجام نشد: '+String(e))}
   finally{setCostRepairBusy(false)}
  };
  useEffect(()=>{let active=true;invoke<RecordRow[]>('list_records',{kind:'contacts'}).then(v=>{if(active)setContacts(v)}).catch(e=>{if(active)setError(String(e))});return()=>{active=false}},[]);
@@ -89,7 +100,7 @@ export function ReportsPage(){
    .catch(e=>{if(active){setReport(null);setError(String(e))}})
    .finally(()=>{if(active)setBusy(false)});
   return ()=>{active=false};
- },[start,end,contactId]);
+ },[start,end,contactId,reportVersion]);
  const preset=(days:number)=>{const e=new Date();const s=new Date(e);s.setDate(s.getDate()-(days-1));setStart(localIso(s));setEnd(localIso(e))};
  const thisMonth=()=>{const d=new Date();setStart(localIso(new Date(d.getFullYear(),d.getMonth(),1)));setEnd(localIso(d))};
  const value=(key:keyof ReportData)=>Number(report?.[key]??0);
@@ -125,15 +136,15 @@ export function ReportsPage(){
   <div className="report-grid report-grid-expanded">{tiles.map(x=><div className="surface report-tile" key={x.label}><span>{x.label}</span><b>{money(x.value)} <small>{x.unit||'تومان'}</small></b></div>)}</div>
   {report&&report.uncosted_sales>0&&<div className="report-warning"><Activity size={18}/><div><b>سود ناخالص کامل نیست</b><p>برای مبلغ {money(report.uncosted_sales)} تومان از فروش کالاها، بهای خرید در زمان فروش ثبت نشده است؛ بنابراین این مبلغ در محاسبه بهای تمام‌شده و سود ناخالص وارد نشده. قیمت خرید فعلی کالا را نمی‌توان با اطمینان جایگزین قیمت تاریخی کرد.</p></div></div>}
   <section className="surface report-analysis-card historical-cost-repair">
-   <div className="surface-heading"><div><h2>بررسی و تکمیل بهای تاریخی فروش</h2><p>فقط ردیف‌هایی قابل اصلاح‌اند که میانگین بهای موزون پیش از فروش در همان فاکتور ذخیره شده باشد.</p></div><button className="secondary-btn" disabled={costRepairBusy} onClick={()=>void loadCostCandidates()}>{costRepairBusy?'در حال بررسی…':'بررسی دوباره'}</button></div>
+   <div className="surface-heading"><div><h2>بررسی و تکمیل بهای تاریخی فروش</h2><p>برای هر ردیف، بهای خرید در زمان فروش را خودت وارد کن؛ هیچ قیمت فعلی یا مقدار پیشنهادی به‌صورت خودکار ثبت نمی‌شود.</p></div><button className="secondary-btn" disabled={costRepairBusy} onClick={()=>void loadCostCandidates()}>{costRepairBusy?'در حال بررسی…':'بررسی دوباره'}</button></div>
    {costRepairMessage&&<div className="report-range-info">{costRepairMessage}</div>}
-   <div className="report-range-info">قابل اصلاح: {money(costCandidates.filter(x=>x.eligible).length)} ردیف · غیرقابل بازسازی مطمئن: {money(costCandidates.filter(x=>!x.eligible).length)} ردیف</div>
-   <div className="table-wrap"><table className="data-table"><thead><tr><th>فاکتور / تاریخ</th><th>کالا</th><th>تعداد</th><th>بهای پیشنهادی هر واحد</th><th>وضعیت</th></tr></thead><tbody>
-    {costCandidates.map(x=><tr key={x.invoice_item_id}><td>#{money(x.invoice_number)}<small>{formatJalaliDate(x.date)}</small></td><td>{x.item_name}</td><td>{money(x.quantity)}</td><td>{x.eligible?money(x.proposed_unit_cost||0)+' تومان':'—'}</td><td>{x.eligible?'قابل اصلاح':(x.reason||'غیرقابل اصلاح')}</td></tr>)}
-    {!costCandidates.length&&<tr><td colSpan={5} className="empty-cell">ردیف فاقد بهای تاریخی پیدا نشد.</td></tr>}
+   <div className="report-range-info">نیازمند تکمیل: {money(costCandidates.length)} ردیف · مبلغ دستی واردشده: {money(costCandidates.filter(x=>(manualCosts[x.invoice_item_id]||'').trim()!=='').length)} ردیف</div>
+   <div className="table-wrap"><table className="data-table"><thead><tr><th>فاکتور / تاریخ</th><th>کالا</th><th>تعداد</th><th>بهای پیشنهادی (صرفاً راهنما)</th><th>بهای تاریخی دستی (تومان)</th><th>وضعیت</th></tr></thead><tbody>
+    {costCandidates.map(x=><tr key={x.invoice_item_id}><td>#{money(x.invoice_number)}<small>{formatJalaliDate(x.date)}</small></td><td>{x.item_name}</td><td>{money(x.quantity)}</td><td>{x.proposed_unit_cost!==null&&x.proposed_unit_cost!==undefined?money(x.proposed_unit_cost)+' تومان':'—'}</td><td><input aria-label={'بهای تاریخی '+x.item_name} type="number" min="0" step="1" inputMode="numeric" placeholder="مبلغ را وارد کن" value={manualCosts[x.invoice_item_id]??''} onChange={e=>setManualCosts(v=>({...v,[x.invoice_item_id]:e.target.value}))} /></td><td>{x.eligible?'دارای پیشنهاد محاسباتی':'نیازمند ورود دستی'}</td></tr>)}
+    {!costCandidates.length&&<tr><td colSpan={6} className="empty-cell">ردیف فاقد بهای تاریخی پیدا نشد.</td></tr>}
    </tbody></table></div>
-   <div className="report-note"><Activity size={18}/><div><b>مبنای بازسازی</b><p>بهای پیشنهادی از میانگین بهای موزون ذخیره‌شده پیش از ثبت همان فروش گرفته می‌شود؛ قیمت خرید فعلی کالا یا اطلاعات حدسی استفاده نمی‌شود. ردیف‌های فاقد این snapshot فقط گزارش می‌شوند و دست‌نخورده می‌مانند.</p></div></div>
-   <button className="primary-btn" disabled={costRepairBusy||!costCandidates.some(x=>x.eligible)} onClick={()=>void applyCostRepairs()}>{costRepairBusy?'در حال انجام…':'ثبت اصلاح برای ردیف‌های قابل اعتماد ('+money(costCandidates.filter(x=>x.eligible).length)+')'}</button>
+   <div className="report-note"><Activity size={18}/><div><b>نحوه ورود بهای تاریخی</b><p>مبلغ را برای هر ردیف به‌صورت دستی و بر حسب تومان وارد کن. ستون پیشنهاد فقط برای مقایسه است و تا وقتی خودت مبلغی وارد نکنی، هیچ بهایی ثبت نمی‌شود. قیمت خرید فعلی کالا جایگزین بهای تاریخی نخواهد شد.</p></div></div>
+   <button className="primary-btn" disabled={costRepairBusy||!costCandidates.some(x=>(manualCosts[x.invoice_item_id]||'').trim()!=='')} onClick={()=>void applyManualCostRepairs()}>{costRepairBusy?'در حال ثبت…':'ثبت بهای دستی ردیف‌های واردشده ('+money(costCandidates.filter(x=>(manualCosts[x.invoice_item_id]||'').trim()!=='').length)+')'}</button>
    <div className="surface-heading"><div><h2>سابقه اصلاحات</h2><p>۱۰۰ اصلاح اخیر؛ این سوابق در پایگاه داده نگهداری و غیرقابل ویرایش هستند.</p></div></div>
    <div className="table-wrap"><table className="data-table"><thead><tr><th>فاکتور</th><th>کالا</th><th>بهای ثبت‌شده</th><th>زمان اصلاح</th></tr></thead><tbody>
     {costAudit.map(x=><tr key={x.id}><td>#{money(x.invoice_number)}</td><td>{x.item_name}</td><td>{money(x.unit_cost)} تومان</td><td>{x.created_at}</td></tr>)}
