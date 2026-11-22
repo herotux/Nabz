@@ -31,7 +31,7 @@ type InvoiceItemDetail = {id:number;product_id:number|null;item_name:string;quan
 type InvoiceDetail = {invoice:{id:number;number:number;kind:'sale'|'purchase';contact_id:number|null;contact_name:string;invoice_date:string;subtotal:number;discount:number;total:number;paid:number;notes:string;voided:boolean;credit_applied:number};items:InvoiceItemDetail[];payments:{id:number;amount:number;method:string;date:string;notes:string;allocated:number}[];returns:{id:number;date:string;amount:number;credit_refund:number;notes:string;kind:string}[];refunds:{id:number;date:string;amount:number;method:string;notes:string;kind:string}[];void:{id:number;date:string;cash_refund:number;credit_refund:number;notes:string}|null};
 
 
-const printFontFaceCss = `@font-face{font-family:Shabnam;src:url('${new URL('./assets/fonts/Shabnam.ttf',import.meta.url).href}') format('truetype');font-weight:400}@font-face{font-family:Shabnam;src:url('${new URL('./assets/fonts/Shabnam-Bold.ttf',import.meta.url).href}') format('truetype');font-weight:700}@font-face{font-family:Vazir;src:url('${new URL('./assets/fonts/Vazir-Regular.ttf',import.meta.url).href}') format('truetype');font-weight:400}@font-face{font-family:Vazir;src:url('${new URL('./assets/fonts/Vazir-Bold.ttf',import.meta.url).href}') format('truetype');font-weight:700}`;
+const printFontFaceCss = `@import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');`;
 
 const navigation: {id:Page;label:string;icon:typeof LayoutDashboard;group:string}[] = [
   {id:'dashboard',label:'نمای کلی',icon:LayoutDashboard,group:'مدیریت'},
@@ -259,7 +259,7 @@ function App(){
     const value=p.barcode||p.code;
     const w=window.open('','_blank','width=520,height=420');
     if(!w){notify('پنجره چاپ مسدود است؛ اجازه بازشدن پنجره را فعال کن.');return}
-    w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>'+printFontFaceCss+'body{font-family:Shabnam,Vazir,Tahoma,sans-serif;padding:22px;text-align:center;color:#18251e}h1{font-size:18px;margin:4px 0 12px}svg{width:100%;height:110px}p{font:12px monospace;letter-spacing:1px;margin:8px}small{color:#66736a}@page{size:auto;margin:6mm}</style><h1>'+escapeHtml(p.name)+'</h1><svg id="product-label-code"></svg><p>'+escapeHtml(value)+'</p><small>'+escapeHtml(p.code)+'</small></html>');
+    w.document.write('<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>برچسب کالا</title><style>'+printFontFaceCss+'body{font-family:Vazirmatn,Shabnam,Vazir,'Noto Sans Arabic',Tahoma,sans-serif;padding:22px;text-align:center;color:#18251e}h1{font-size:18px;margin:4px 0 12px}svg{width:100%;height:110px}p{font:12px monospace;letter-spacing:1px;margin:8px}small{color:#66736a}@page{size:auto;margin:6mm}</style><h1>'+escapeHtml(p.name)+'</h1><svg id="product-label-code"></svg><p>'+escapeHtml(value)+'</p><small>'+escapeHtml(p.code)+'</small></html>');
     w.document.close();
     try{const svg=w.document.getElementById('product-label-code') as unknown as SVGSVGElement;JsBarcode(svg,value,{format:'CODE128',displayValue:false,lineColor:'#1d2c24',width:2,height:76,margin:8});w.focus();w.print()}
     catch(e){w.close();notify('ساخت بارکد برچسب ناموفق بود: '+String(e))}
