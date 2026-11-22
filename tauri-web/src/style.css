@@ -423,3 +423,36 @@ input,select,textarea{font-variant-numeric:normal}
 .price-label-preview-card>div strong{font-size:13px;font-weight:900}
 .price-label-preview-card>div{margin:7px 7px 0;padding:7px;border:1px solid #d5e8dc;border-radius:6px;background:#edf7f1;width:calc(100% - 14px)}
 @media(max-width:560px){.dashboard-attention{align-items:flex-start;flex-wrap:wrap}.dashboard-attention-copy{flex:1 1 calc(100% - 55px)}.dashboard-attention>.secondary-btn{margin-right:50px}}
+
+
+/* Unified RTL form-control system: consistent sizing, typography and alignment. */
+:root{--control-height:42px;--control-radius:9px;--control-border:#dce6df;--control-focus:#278b55}
+.field-label{display:flex;flex-direction:column;align-items:stretch;gap:7px;min-width:0;width:100%;color:#405448;font-size:12px;font-weight:700;line-height:1.7;text-align:right}
+.field-label>input:not([type=checkbox]):not([type=radio]),.field-label>select,.field-label>textarea,
+.field-label input:not([type=checkbox]):not([type=radio]),.field-label select,.field-label textarea,
+.invoice-line>input,.invoice-filter,.stock-select,.jalali-input-row>input{
+ box-sizing:border-box;width:100%;min-width:0;min-height:var(--control-height);height:var(--control-height);
+ padding:0 12px;border:1px solid var(--control-border);border-radius:var(--control-radius);
+ background:#fff;color:#263b2e;font-family:Vazirmatn,Shabnam,Vazir,'Noto Sans Arabic',Tahoma,sans-serif;
+ font-size:13px;font-weight:500;line-height:1.5;text-align:right;direction:rtl;
+}
+.field-label select,.invoice-filter,.stock-select{padding-left:34px;cursor:pointer;text-align:right;text-align-last:right}
+.field-label input::placeholder,.invoice-line>input::placeholder{color:#9aa69e;font-weight:400;opacity:1}
+.field-label input:focus,.field-label select:focus,.field-label textarea:focus,.invoice-line>input:focus,.invoice-filter:focus,.stock-select:focus,.jalali-input-row>input:focus{outline:0;border-color:var(--control-focus);box-shadow:0 0 0 3px #278b5518}
+.field-label select option,.invoice-filter option,.stock-select option{font-family:inherit;font-size:13px;text-align:right;direction:rtl}
+.form-two,.form-three{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;width:100%;min-width:0}
+.form-three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.jalali-date-field{position:relative;min-width:0}
+.jalali-input-row{display:flex;align-items:stretch;gap:6px;width:100%;min-width:0}
+.jalali-input-row>input{flex:1;text-align:center;direction:ltr;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.calendar-trigger{flex:0 0 var(--control-height);width:var(--control-height);height:var(--control-height);display:grid;place-items:center;border:1px solid var(--control-border);border-radius:var(--control-radius);background:#f8fbf8;color:#456b53}
+.jalali-calendar{z-index:80;max-width:min(320px,calc(100vw - 40px));font-family:Vazirmatn,Shabnam,Vazir,'Noto Sans Arabic',Tahoma,sans-serif;direction:rtl;text-align:right}
+.jalali-calendar button,.jalali-calendar b,.jalali-calendar span{font-family:inherit}
+.jalali-calendar .calendar-grid button{font-size:13px;text-align:center}
+.date-hint{font-size:10px;line-height:1.6;text-align:right}
+.invoice-line{min-width:0}
+.invoice-line>input:first-child{direction:rtl;text-align:right}
+.invoice-line>input[aria-label="تعداد"],.invoice-line>input[aria-label="قیمت واحد"]{text-align:center}
+.search-box input,.simple-sale-searchbox input{direction:rtl;text-align:right;font-family:inherit}
+@media(max-width:700px){.form-three{grid-template-columns:repeat(2,minmax(0,1fr))}.form-two{gap:10px}}
+@media(max-width:460px){.form-two,.form-three{grid-template-columns:minmax(0,1fr)}.field-label{font-size:12px}.field-label input,.field-label select,.field-label textarea{font-size:14px}}
