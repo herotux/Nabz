@@ -971,6 +971,26 @@ fn historical_cost_repair_preview(db:State<'_,Db>)->Result<Vec<Value>,String>{
 }
 
 #[tauri::command]
+fn historical_cost_repair_history(db:State<'_,Db>)->Result<Vec<Value>,String>{
+ let c=db.0.lock().map_err(|e|e.to_string())?;
+ let mut st=c.prepare(
+  "SELECT hcr.id,hcr.invoice_item_id,i.number,i.invoice_date,ii.item_name,
+          hcr.repaired_unit_cost,hcr.source,hcr.created_at
+   FROM historical_cost_repairs hcr
+   JOIN invoice_items ii ON ii.id=hcr.invoice_item_id
+   JOIN invoices i ON i.id=ii.invoice_id
+   ORDER BY hcr.id DESC LIMIT 100"
+ ).map_err(|e|e.to_string())?;
+ let rows=st.query_map([],|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"invoice_item_id":r.get::<_,i64>(1)?,
+  "invoice_number":r.get::<_,i64>(2)?,"invoice_date":r.get::<_,String>(3)?,
+  "item_name":r.get::<_,String>(4)?,"unit_cost":r.get::<_,i64>(5)?,
+  "source":r.get::<_,String>(6)?,"created_at":r.get::<_,String>(7)?
+ }))).map_err(|e|e.to_string())?;
+ rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
+}
+
+#[tauri::command]
 fn apply_historical_cost_repairs(invoice_item_ids:Vec<i64>,db:State<'_,Db>)->Result<Value,String>{
  if invoice_item_ids.is_empty(){return Err("حداقل یک ردیف قابل اصلاح انتخاب کنید.".into())}
  if invoice_item_ids.len()>5000{return Err("در هر نوبت حداکثر ۵۰۰۰ ردیف قابل اصلاح است.".into())}
@@ -1305,7 +1325,7 @@ fn recalculate_selling_prices(db:State<'_,Db>)->Result<i64,String>{
 }
 #[tauri::command] fn save_setting(key:String,value:String,db:State<'_,Db>)->Result<(),String>{let c=db.0.lock().map_err(|e|e.to_string())?;c.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value]).map_err(|e|e.to_string())?;Ok(())}
 #[tauri::command] fn get_settings(db:State<'_,Db>)->Result<std::collections::HashMap<String,String>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let mut s=c.prepare("SELECT key,value FROM settings").map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;rows.collect::<Result<_,_>>().map_err(|e|e.to_string())}
-#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,historical_cost_repair_preview,apply_historical_cost_repairs,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,restore_auto_backup,save_setting,get_settings,recalculate_selling_prices,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
+#[cfg_attr(mobile,tauri::mobile_entry_point)] pub fn run(){tauri::Builder::default().setup(|app|{let c=nabz_core::open_database().map_err(std::io::Error::other)?;app.manage(Db(Mutex::new(c)));Ok(())}).invoke_handler(tauri::generate_handler![app_version,db_status,dashboard_summary,reports_summary,export_data,restore_data,list_records,list_products,delete_record,save_contact,save_product,save_invoice,save_invoice_payment,save_invoice_draft,list_invoice_drafts,get_invoice_draft,delete_invoice_draft,save_payment,return_sale_invoice,return_purchase_invoice,void_invoice,get_invoice_detail,adjust_inventory_command,set_product_active,inventory_movements_command,inventory_valuation_command,create_expense_command,list_expenses_command,profit_loss_report_command,historical_cost_repair_preview,historical_cost_repair_history,apply_historical_cost_repairs,get_invoice_print,get_contact_ledger,list_auto_backups,create_auto_backup,restore_auto_backup,save_setting,get_settings,recalculate_selling_prices,sales_trend,reports_period]).run(tauri::generate_context!()).expect("error while running Nabz");}
 
 
 #[cfg(test)]
