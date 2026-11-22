@@ -22,6 +22,24 @@ component SummaryCard inherits Rectangle {
     }
 }
 
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    callback selected();
+    height: 42px;
+    border-radius: 9px;
+    background: active ? #eaf6ef : #ffffff;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        spacing: 9px;
+        Text { text: label; color: active ? #12885b : #697580; font-size: 14px; font-weight: active ? 700 : 400; horizontal-stretch: 1; horizontal-alignment: right; }
+        Rectangle { width: 6px; height: 6px; border-radius: 3px; background: active ? #159b67 : transparent; }
+    }
+    TouchArea { clicked => { root.selected(); } }
+}
+
 export component MainWindow inherits Window {
     title: "نبض | حسابداری فروشگاهی";
     width: 1440px;
@@ -309,15 +327,16 @@ export component MainWindow inherits Window {
                 width: 258px; background: #ffffff;
                 VerticalLayout {
                     padding: 18px; spacing: 10px;
-                    Text { text: "منوی اصلی"; color: #667085; font-size: 12px; horizontal-alignment: right; }
-                    Button { text: "داشبورد"; clicked => { root.active-page = "داشبورد"; root.refresh-requested(); } }
-                    Button { text: "طرف‌حساب‌ها"; clicked => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
-                    Button { text: "کالا و انبار"; clicked => { root.active-page = "کالا و انبار"; root.refresh-requested(); } }
-                    Button { text: "فاکتورها"; clicked => { root.active-page = "فاکتورها"; root.refresh-requested(); } }
-                    Button { text: "دریافت و پرداخت"; clicked => { root.active-page = "دریافت و پرداخت"; root.refresh-requested(); } }
-                    Button { text: "گزارش‌ها"; clicked => { root.active-page = "گزارش‌ها"; root.refresh-requested(); } }
-                    Button { text: "چاپ و بارکد"; clicked => { root.active-page = "چاپ و بارکد"; } }
-                    Button { text: "تنظیمات"; clicked => { root.active-page = "تنظیمات"; root.refresh-requested(); } }
+                    Text { text: "فروشگاه من"; color: #202a35; font-size: 14px; font-weight: 700; horizontal-alignment: right; }
+                    Text { text: "مدیریت"; color: #a0a9b2; font-size: 11px; horizontal-alignment: right; }
+                    NavItem { label: "داشبورد"; active: root.active-page == "داشبورد"; selected => { root.active-page = "داشبورد"; root.refresh-requested(); } }
+                    NavItem { label: "طرف‌حساب‌ها"; active: root.active-page == "طرف‌حساب‌ها"; selected => { root.active-page = "طرف‌حساب‌ها"; root.refresh-requested(); } }
+                    NavItem { label: "کالا و انبار"; active: root.active-page == "کالا و انبار"; selected => { root.active-page = "کالا و انبار"; root.refresh-requested(); } }
+                    NavItem { label: "فاکتورها"; active: root.active-page == "فاکتورها"; selected => { root.active-page = "فاکتورها"; root.refresh-requested(); } }
+                    NavItem { label: "دریافت و پرداخت"; active: root.active-page == "دریافت و پرداخت"; selected => { root.active-page = "دریافت و پرداخت"; root.refresh-requested(); } }
+                    NavItem { label: "گزارش‌ها"; active: root.active-page == "گزارش‌ها"; selected => { root.active-page = "گزارش‌ها"; root.refresh-requested(); } }
+                    NavItem { label: "چاپ و بارکد"; active: root.active-page == "چاپ و بارکد"; selected => { root.active-page = "چاپ و بارکد"; root.refresh-requested(); } }
+                    NavItem { label: "تنظیمات"; active: root.active-page == "تنظیمات"; selected => { root.active-page = "تنظیمات"; root.refresh-requested(); } }
                     Rectangle { background: transparent; vertical-stretch: 1; }
                     Text { text: root.status-message; color: #667085; font-size: 11px; wrap: word-wrap; horizontal-alignment: right; }
                 }
