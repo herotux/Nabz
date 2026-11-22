@@ -452,6 +452,11 @@ fn export_data(db:State<'_,Db>)->Result<Value,String>{
   "line_total":r.get::<_,i64>(6)?,"unit_cost":r.get::<_,Option<i64>>(7)?,
   "quantity_before":r.get::<_,Option<i64>>(8)?,"average_cost_before":r.get::<_,Option<i64>>(9)?,"buy_price_before":r.get::<_,Option<i64>>(10)?
 })))?;
+ let historical_cost_repairs=collect_json_rows(&c,"SELECT id,invoice_item_id,previous_unit_cost,repaired_unit_cost,source,created_at FROM historical_cost_repairs",|r|Ok(json!({
+  "id":r.get::<_,i64>(0)?,"invoice_item_id":r.get::<_,i64>(1)?,
+  "previous_unit_cost":r.get::<_,Option<i64>>(2)?,"repaired_unit_cost":r.get::<_,i64>(3)?,
+  "source":r.get::<_,String>(4)?,"created_at":r.get::<_,String>(5)?
+})))?;
  let payments=collect_json_rows(&c,"SELECT id,kind,contact_id,contact_name,amount,method,payment_date,notes FROM payments",|r|Ok(json!({
   "id":r.get::<_,i64>(0)?,"kind":r.get::<_,String>(1)?,"contact_id":r.get::<_,Option<i64>>(2)?,
   "contact_name":r.get::<_,String>(3)?,"amount":r.get::<_,i64>(4)?,"method":r.get::<_,String>(5)?,
@@ -505,7 +510,7 @@ fn export_data(db:State<'_,Db>)->Result<Value,String>{
 })))?;
  Ok(json!({
   "format":"nabz-backup-v2","contacts":contacts,"products":products,"invoices":invoices,
-  "invoice_items":invoice_items,"payments":payments,"invoice_voids":invoice_voids,
+  "invoice_items":invoice_items,"historical_cost_repairs":historical_cost_repairs,"payments":payments,"invoice_voids":invoice_voids,
   "payment_allocations":payment_allocations,"settings":settings,
   "sales_returns":sales_returns,"sales_return_items":sales_return_items,"sales_refunds":sales_refunds,
   "purchase_returns":purchase_returns,"purchase_return_items":purchase_return_items,"purchase_refunds":purchase_refunds,
@@ -522,7 +527,7 @@ fn validate_backup(data:&Value)->Result<(),String>{
  for key in ["contacts","products","invoices","invoice_items","payments","settings"]{
   if !data.get(key).and_then(Value::as_array).is_some(){return Err(format!("ساختار پشتیبان ناقص است: {key}"))}
  }
- let optional_keys=["sales_returns","sales_return_items","sales_refunds","purchase_returns","purchase_return_items","purchase_refunds","inventory_adjustments","expenses","invoice_voids","payment_allocations","invoice_drafts"];
+ let optional_keys=["sales_returns","sales_return_items","sales_refunds","purchase_returns","purchase_return_items","purchase_refunds","inventory_adjustments","historical_cost_repairs","expenses","invoice_voids","payment_allocations","invoice_drafts"];
  for key in optional_keys{
   if data.get(key).is_some()&&!data[key].is_array(){return Err(format!("ساختار بخش {key} در پشتیبان معتبر نیست"))}
  }
@@ -710,12 +715,14 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
  tx.execute_batch(
   "DROP TRIGGER IF EXISTS inventory_adjustments_no_update;
    DROP TRIGGER IF EXISTS inventory_adjustments_no_delete;
+   DROP TRIGGER IF EXISTS historical_cost_repairs_no_update;
+   DROP TRIGGER IF EXISTS historical_cost_repairs_no_delete;
    DROP TRIGGER IF EXISTS trg_products_active_barcode_unique_insert;
    DROP TRIGGER IF EXISTS trg_products_active_barcode_unique_update;
    DELETE FROM payment_allocations; DELETE FROM invoice_voids;
    DELETE FROM sales_return_items; DELETE FROM sales_refunds; DELETE FROM sales_returns;
    DELETE FROM purchase_return_items; DELETE FROM purchase_refunds; DELETE FROM purchase_returns;
-   DELETE FROM inventory_adjustments; DELETE FROM expenses;
+   DELETE FROM historical_cost_repairs; DELETE FROM inventory_adjustments; DELETE FROM expenses;
    DELETE FROM invoice_items; DELETE FROM payments; DELETE FROM invoices;
    DELETE FROM products; DELETE FROM contacts; DELETE FROM settings;"
  ).map_err(|e|e.to_string())?;
@@ -821,6 +828,13 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
    params![x["id"].as_i64(),x["invoice_id"].as_i64(),x["return_id"].as_i64(),x["refund_date"].as_str().unwrap_or(""),
     x["amount"].as_i64().unwrap_or(0),x["method"].as_str().unwrap_or("cash"),x["notes"].as_str().unwrap_or("")]).map_err(|e|e.to_string())?;
  }
+ for x in backup_optional_array(&data,"historical_cost_repairs"){
+  tx.execute("INSERT INTO historical_cost_repairs(id,invoice_item_id,previous_unit_cost,repaired_unit_cost,source,created_at)
+   VALUES(?1,?2,?3,?4,?5,?6)",
+   params![x["id"].as_i64(),x["invoice_item_id"].as_i64(),x.get("previous_unit_cost").and_then(Value::as_i64),
+    x["repaired_unit_cost"].as_i64(),x["source"].as_str().unwrap_or(""),x["created_at"].as_str().unwrap_or("")])
+   .map_err(|e|e.to_string())?;
+ }
  for x in backup_optional_array(&data,"inventory_adjustments"){
   tx.execute("INSERT INTO inventory_adjustments(id,product_id,product_name,previous_quantity,new_quantity,delta,reason,created_at)
    VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
@@ -842,6 +856,10 @@ fn restore_data(data:Value,db:State<'_,Db>)->Result<(),String>{
    BEFORE UPDATE OF barcode,is_active ON products WHEN NEW.is_active=1 AND NEW.barcode<>'' AND (NEW.barcode<>OLD.barcode OR NEW.is_active<>OLD.is_active) AND EXISTS(
     SELECT 1 FROM products WHERE barcode=NEW.barcode AND is_active=1 AND id<>NEW.id
    ) BEGIN SELECT RAISE(ABORT,'بارکد کالای فعال تکراری است'); END;
+   CREATE TRIGGER IF NOT EXISTS historical_cost_repairs_no_update BEFORE UPDATE ON historical_cost_repairs
+   BEGIN SELECT RAISE(ABORT,'historical cost repair audit is immutable'); END;
+   CREATE TRIGGER IF NOT EXISTS historical_cost_repairs_no_delete BEFORE DELETE ON historical_cost_repairs
+   BEGIN SELECT RAISE(ABORT,'historical cost repair audit is immutable'); END;
    CREATE TRIGGER IF NOT EXISTS inventory_adjustments_no_update BEFORE UPDATE ON inventory_adjustments
    BEGIN SELECT RAISE(ABORT,'inventory adjustment history is immutable'); END;
    CREATE TRIGGER IF NOT EXISTS inventory_adjustments_no_delete BEFORE DELETE ON inventory_adjustments
