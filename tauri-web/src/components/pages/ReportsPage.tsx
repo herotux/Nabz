@@ -71,18 +71,18 @@ export function ReportsPage(){
   finally{setCostRepairBusy(false)}
  };
  const applyManualCostRepairs=async()=>{
-  const items=costCandidates.flatMap(x=>{
-   const raw=(manualCosts[x.invoice_item_id]||'').trim();
-   if(!raw)return [];
-   if(!/^\d+$/.test(raw))throw new Error('بهای واردشده برای «'+x.item_name+'» باید عدد صحیح و نامنفی باشد.');
-   const unitCost=Number(raw);
-   if(!Number.isSafeInteger(unitCost))throw new Error('بهای واردشده برای «'+x.item_name+'» خارج از محدوده مجاز است.');
-   return [{invoiceItemId:x.invoice_item_id,unitCost}];
-  });
-  if(!items.length){setCostRepairMessage('برای اصلاح، بهای تاریخی حداقل یک ردیف را وارد کن.');return;}
-  if(!window.confirm('بهای تاریخی '+money(items.length)+' ردیف با مقادیر دستی واردشده ذخیره شود؟ این تغییر در سابقه اصلاحات ثبت می‌شود.'))return;
-  setCostRepairBusy(true);setCostRepairMessage('');
   try{
+   const items=costCandidates.flatMap(x=>{
+    const raw=(manualCosts[x.invoice_item_id]||'').trim();
+    if(!raw)return [];
+    if(!/^\d+$/.test(raw))throw new Error('بهای واردشده برای «'+x.item_name+'» باید عدد صحیح و نامنفی باشد.');
+    const unitCost=Number(raw);
+    if(!Number.isSafeInteger(unitCost))throw new Error('بهای واردشده برای «'+x.item_name+'» خارج از محدوده مجاز است.');
+    return [{invoiceItemId:x.invoice_item_id,unitCost}];
+   });
+   if(!items.length){setCostRepairMessage('برای اصلاح، بهای تاریخی حداقل یک ردیف را وارد کن.');return;}
+   if(!window.confirm('بهای تاریخی '+money(items.length)+' ردیف با مقادیر دستی واردشده ذخیره شود؟ این تغییر در سابقه اصلاحات ثبت می‌شود.'))return;
+   setCostRepairBusy(true);setCostRepairMessage('');
    const result=await invoke<{repaired:number}>('apply_manual_historical_cost_repairs',{items});
    setCostRepairMessage(result.repaired+' ردیف با بهای دستی ثبت شد.');
    setManualCosts({});
