@@ -108,7 +108,9 @@ jobs:
         run: |
           npm run build
           test -s dist/index.html
-          test -n "$(find dist/assets -maxdepth 1 -type f -name '*.ttf' -size +100k -print -quit)"
+          test -s dist/index.html
+          test -s public/fonts/Vazirmatn.woff2
+          test -s dist/fonts/Vazirmatn.woff2
 
       - name: Run Rust and SQLite tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
