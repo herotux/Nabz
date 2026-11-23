@@ -53,7 +53,7 @@ fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{
   low_stock_count:q("SELECT COUNT(*) FROM products WHERE is_active=1 AND is_service=0 AND quantity<=min_quantity")?,
  })
 }
-#[tauri::command] fn list_records(kind:String,db:State<'_,Db>)->Result<Vec<Record>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let sql=match kind.as_str(){"contacts"=>"SELECT id,name,phone,opening_balance,kind,datetime(created_at) FROM contacts ORDER BY id DESC","products"=>"SELECT id,name,code,quantity,sell_price,'موجود', '' FROM products ORDER BY id DESC","invoices"=>"SELECT id,'فاکتور #'||number||' · '||contact_name,kind,total,CASE WHEN voided=1 THEN 'باطل‌شده' WHEN paid>=total THEN 'تسویه' WHEN paid>0 THEN 'پرداخت جزئی' ELSE 'پرداخت‌نشده' END,invoice_date FROM invoices ORDER BY invoice_date DESC,number DESC","payments"=>"SELECT id,contact_name,kind,amount,method,payment_date FROM payments ORDER BY id DESC",_=>return Err("فهرست نامعتبر است".into())};let mut s=c.prepare(sql).map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Record{id:r.get(0)?,name:r.get(1)?,detail:r.get(2)?,amount:r.get(3)?,status:r.get(4)?,date:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
+#[tauri::command] fn list_records(kind:String,db:State<'_,Db>)->Result<Vec<Record>,String>{let c=db.0.lock().map_err(|e|e.to_string())?;let sql=match kind.as_str(){"contacts"=>"SELECT id,name,phone,opening_balance,kind,datetime(created_at) FROM contacts ORDER BY id DESC","products"=>"SELECT id,name,code,quantity,sell_price,'موجود', '' FROM products ORDER BY id DESC","invoices"=>"SELECT id,'فاکتور #'||number||' · '||contact_name,kind,total,CASE WHEN voided=1 THEN 'باطل‌شده' WHEN paid>=total THEN 'تسویه' WHEN paid>0 THEN 'پرداخت جزئی' ELSE 'پرداخت‌نشده' END,invoice_date FROM invoices ORDER BY invoice_date DESC,number DESC","payments"=>"SELECT p.id,p.contact_name,p.kind,p.amount,p.method,p.payment_date FROM payments p WHERE NOT EXISTS (SELECT 1 FROM payment_allocations pa JOIN invoices i ON i.id=pa.invoice_id WHERE pa.payment_id=p.id AND i.voided=1) ORDER BY p.id DESC",_=>return Err("فهرست نامعتبر است".into())};let mut s=c.prepare(sql).map_err(|e|e.to_string())?;let rows=s.query_map([],|r|Ok(Record{id:r.get(0)?,name:r.get(1)?,detail:r.get(2)?,amount:r.get(3)?,status:r.get(4)?,date:r.get(5)?})).map_err(|e|e.to_string())?;rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())}
 #[tauri::command] fn list_products(db:State<'_,Db>)->Result<Vec<ProductRecord>,String>{
  let c=db.0.lock().map_err(|e|e.to_string())?;
  let mut s=c.prepare("SELECT id,name,code,barcode,quantity,buy_price,average_cost,sell_price,consumer_price,discount_type,discount_value,min_quantity,category,unit,wholesale_price,is_service,is_active FROM products ORDER BY is_active DESC,name COLLATE NOCASE,id DESC").map_err(|e|e.to_string())?;
@@ -1093,7 +1093,7 @@ fn contact_ledger_with_connection(id:i64,c:&Connection)->Result<Value,String>{
   for row in rows{entries.push(row.map_err(|e|e.to_string())?);}
  }
  {
-  let mut st=c.prepare("SELECT id,kind,payment_date,amount,method,notes FROM payments WHERE contact_id=?1 ORDER BY payment_date,id").map_err(|e|e.to_string())?;
+  let mut st=c.prepare("SELECT p.id,p.kind,p.payment_date,p.amount,p.method,p.notes FROM payments p WHERE p.contact_id=?1 AND NOT EXISTS (SELECT 1 FROM payment_allocations pa JOIN invoices i ON i.id=pa.invoice_id WHERE pa.payment_id=p.id AND i.voided=1) ORDER BY p.payment_date,p.id").map_err(|e|e.to_string())?;
   let rows=st.query_map([id],|r|{
    let kind=r.get::<_,String>(1)?;
    let amount=r.get::<_,i64>(3)?;
@@ -1147,9 +1147,10 @@ fn contact_ledger_with_connection(id:i64,c:&Connection)->Result<Value,String>{
   let rows=st.query_map([id],|r|{
    let kind=r.get::<_,String>(2)?;
    let amount=r.get::<_,i64>(7)?;
-   let debit=if kind=="purchase"{amount}else{0};
+   let cash_refund=r.get::<_,i64>(4)?;
+   let debit=if kind=="purchase"{amount}else{cash_refund};
    let credit=if kind=="sale"{amount}else{0};
-   Ok(json!({"id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"kind":kind,"date":r.get::<_,String>(3)?,"amount":amount,"debit":debit,"credit":credit,"cash_refund":r.get::<_,i64>(4)?,"credit_refund":r.get::<_,i64>(5)?,"notes":r.get::<_,String>(6)?}))
+   Ok(json!({"id":r.get::<_,i64>(0)?,"invoice_id":r.get::<_,i64>(1)?,"kind":kind,"date":r.get::<_,String>(3)?,"amount":amount,"debit":debit,"credit":credit,"cash_refund":cash_refund,"credit_refund":r.get::<_,i64>(5)?,"notes":r.get::<_,String>(6)?}))
   }).map_err(|e|e.to_string())?;
   rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
  };
@@ -1963,4 +1964,36 @@ mod accounting_tests {
   let violations:i64=c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|r|r.get(0)).unwrap();
   assert_eq!(violations,0);
  }
+ #[test]
+ fn voided_cash_sale_receipt_is_hidden_from_active_lists_and_ledger_nets_to_zero() {
+  let mut c=database();
+  let invoice=save_invoice_with_connection(json!({
+   "kind":"sale","customer":"Ali","payment_status":"paid","method":"cash",
+   "items":[{"item":"PEN","qty":1,"price":20}],
+   "discount":0,"date":"2026-11-18"
+  }),&mut c).unwrap();
+  let payment_id=scalar(&c,"SELECT id FROM payments WHERE kind='receipt'");
+  core_void_invoice(&mut c,invoice).unwrap();
+
+  let active_payment_count:i64=c.query_row(
+   "SELECT COUNT(*) FROM payments p
+    WHERE NOT EXISTS (
+     SELECT 1 FROM payment_allocations pa
+     JOIN invoices i ON i.id=pa.invoice_id
+     WHERE pa.payment_id=p.id AND i.voided=1
+    )",[],|r|r.get(0)
+  ).unwrap();
+  assert_eq!(active_payment_count,0);
+  assert_eq!(scalar(&c,&format!("SELECT COUNT(*) FROM payments WHERE id={payment_id}")),1);
+
+  let contact_id=scalar(&c,"SELECT id FROM contacts WHERE name='Ali'");
+  let ledger=contact_ledger_with_connection(contact_id,&c).unwrap();
+  let entries=ledger["entries"].as_array().unwrap();
+  assert!(!entries.iter().any(|row|row["entry_type"]=="payment"));
+  let void_entry=ledger["invoice_voids"].as_array().unwrap().first().unwrap();
+  assert_eq!(void_entry["debit"].as_i64(),Some(20));
+  assert_eq!(void_entry["credit"].as_i64(),Some(20));
+  assert_eq!(void_entry["cash_refund"].as_i64(),Some(20));
+ }
+
 }
