@@ -64,7 +64,21 @@ fn dashboard_summary(db:State<'_,Db>)->Result<Summary,String>{
 fn delete_record(kind:String,id:i64,db:State<'_,Db>)->Result<(),String>{
  let mut c=db.0.lock().map_err(|e|e.to_string())?;let tx=c.transaction().map_err(|e|e.to_string())?;
  match kind.as_str(){
-  "contacts"=>{let n:i64=tx.query_row("SELECT (SELECT COUNT(*) FROM invoices WHERE contact_id=?1)+(SELECT COUNT(*) FROM payments WHERE contact_id=?1)",[id],|r|r.get(0)).map_err(|e|e.to_string())?;if n>0{return Err("این طرف‌حساب سابقه فاکتور یا دریافت/پرداخت دارد و حذف نمی‌شود.".into())}tx.execute("DELETE FROM contacts WHERE id=?1",[id]).map_err(|e|e.to_string())?;},
+  "contacts"=>{
+   let state:Option<(i64,i64,i64,i64)>=tx.query_row(
+    "SELECT opening_balance,customer_credit_balance,supplier_credit_balance,
+      (SELECT COUNT(*) FROM invoices WHERE contact_id=contacts.id)+
+      (SELECT COUNT(*) FROM payments WHERE contact_id=contacts.id)+
+      (SELECT COUNT(*) FROM payment_allocations WHERE contact_id=contacts.id)
+     FROM contacts WHERE id=?1",[id],
+    |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+   ).optional().map_err(|e|e.to_string())?;
+   let (opening,customer_credit,supplier_credit,history)=state.ok_or("طرف‌حساب پیدا نشد")?;
+   if opening!=0||customer_credit!=0||supplier_credit!=0||history>0 {
+    return Err("این طرف‌حساب مانده، اعتبار یا سابقهٔ مالی دارد و حذف نمی‌شود؛ ابتدا مانده را از مسیر حسابداری تسویه و صفر کنید.".into());
+   }
+   tx.execute("DELETE FROM contacts WHERE id=?1",[id]).map_err(|e|e.to_string())?;
+  },
   "products"=>{let quantity:Option<i64>=tx.query_row("SELECT quantity FROM products WHERE id=?1",[id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;let quantity=quantity.ok_or("کالا پیدا نشد")?;if quantity!=0{return Err("برای غیرفعال‌سازی، ابتدا موجودی کالا را به صفر برسانید؛ سوابق کالا حذف نمی‌شوند.".into())}tx.execute("UPDATE products SET is_active=0 WHERE id=?1",[id]).map_err(|e|e.to_string())?;},
   "invoices"=>return Err("فاکتور حذف نمی‌شود تا سابقهٔ مالی و انبار باقی بماند؛ از عملیات ابطال امن استفاده کنید.".into()),
   _=>return Err("حذف این نوع رکورد برای جلوگیری از آسیب به گردش مالی مجاز نیست.".into())
@@ -152,10 +166,13 @@ fn save_product_with_connection(payload:Value,c:&Connection)->Result<i64,String>
   if duplicate>0{return Err("این بارکد قبلاً برای کالای دیگری ثبت شده است".into())}
  }
  if let Some(id)=payload.get("id").and_then(Value::as_i64) {
-  let old_service:i64=c.query_row("SELECT is_service FROM products WHERE id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
+  let (old_service,old_quantity):(i64,i64)=c.query_row("SELECT is_service,quantity FROM products WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|e|e.to_string())?;
   if (old_service!=0)!=is_service {
    let history:i64=c.query_row("SELECT COUNT(*) FROM invoice_items WHERE product_id=?1",[id],|r|r.get(0)).map_err(|e|e.to_string())?;
    if history>0{return Err("نوع کالا/خدمت پس از ثبت سابقه فاکتور قابل تغییر نیست".into())}
+   if is_service && old_quantity!=0 {
+    return Err("کالای دارای موجودی را نمی‌توان به خدمت تبدیل کرد؛ ابتدا موجودی را از مسیر اصلاح موجودی انبار صفر کنید.".into());
+   }
   }
  }
  let id=core_save_product(c,payload.get("id").and_then(Value::as_i64),&input)?;
