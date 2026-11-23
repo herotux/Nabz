@@ -1964,4 +1964,36 @@ mod accounting_tests {
   let violations:i64=c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|r|r.get(0)).unwrap();
   assert_eq!(violations,0);
  }
+ #[test]
+ fn voided_cash_sale_receipt_is_hidden_from_active_lists_and_ledger_nets_to_zero() {
+  let mut c=database();
+  let invoice=save_invoice_with_connection(json!({
+   "kind":"sale","customer":"Ali","payment_status":"paid","method":"cash",
+   "items":[{"item":"PEN","qty":1,"price":20}],
+   "discount":0,"date":"2026-11-18"
+  }),&mut c).unwrap();
+  let payment_id=scalar(&c,"SELECT id FROM payments WHERE kind='receipt'");
+  core_void_invoice(&mut c,invoice).unwrap();
+
+  let active_payment_count:i64=c.query_row(
+   "SELECT COUNT(*) FROM payments p
+    WHERE NOT EXISTS (
+     SELECT 1 FROM payment_allocations pa
+     JOIN invoices i ON i.id=pa.invoice_id
+     WHERE pa.payment_id=p.id AND i.voided=1
+    )",[],|r|r.get(0)
+  ).unwrap();
+  assert_eq!(active_payment_count,0);
+  assert_eq!(scalar(&c,&format!("SELECT COUNT(*) FROM payments WHERE id={payment_id}")),1);
+
+  let contact_id=scalar(&c,"SELECT id FROM contacts WHERE name='Ali'");
+  let ledger=contact_ledger_with_connection(contact_id,&c).unwrap();
+  let entries=ledger["entries"].as_array().unwrap();
+  assert!(!entries.iter().any(|row|row["entry_type"]=="payment"));
+  let void_entry=ledger["invoice_voids"].as_array().unwrap().first().unwrap();
+  assert_eq!(void_entry["debit"].as_i64(),Some(20));
+  assert_eq!(void_entry["credit"].as_i64(),Some(20));
+  assert_eq!(void_entry["cash_refund"].as_i64(),Some(20));
+ }
+
 }
