@@ -813,19 +813,19 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
 
     let items = {
         let mut statement = tx.prepare(
-            "SELECT product_id,item_name,quantity,unit_price,unit_cost,quantity_before,average_cost_before,buy_price_before
+            "SELECT id,product_id,item_name,quantity,unit_price,unit_cost,quantity_before,average_cost_before,buy_price_before
              FROM invoice_items WHERE invoice_id=?1 ORDER BY id"
         ).map_err(|e| e.to_string())?;
         let rows = statement.query_map([invoice_id], |r| Ok((
-            r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?,
-            r.get::<_, i64>(3)?, r.get::<_, Option<i64>>(4)?, r.get::<_, Option<i64>>(5)?,
-            r.get::<_, Option<i64>>(6)?, r.get::<_, Option<i64>>(7)?
+            r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?,
+            r.get::<_, i64>(4)?, r.get::<_, Option<i64>>(5)?, r.get::<_, Option<i64>>(6)?,
+            r.get::<_, Option<i64>>(7)?, r.get::<_, Option<i64>>(8)?
         ))).map_err(|e| e.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
     };
     if items.is_empty() { return Err("فاکتور ردیف ندارد؛ ابطال خودکار ممکن نیست".into()); }
 
-    for (product_id, item_name, quantity, unit_price, unit_cost, quantity_before, average_cost_before, buy_price_before) in items.into_iter().rev() {
+    for (item_id, product_id, item_name, quantity, unit_price, unit_cost, quantity_before, average_cost_before, buy_price_before) in items.into_iter().rev() {
         if quantity <= 0 { return Err(format!("تعداد نامعتبر برای «{item_name}»؛ ابطال لغو شد")); }
         let Some(product_id) = product_id else {
             if kind == "sale" && item_name.starts_with("خدمت:") { continue; }
@@ -898,14 +898,8 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
         }
         // Persist reconstructed legacy snapshots so subsequent audits see complete data.
         tx.execute(
-            "UPDATE invoice_items SET quantity_before=COALESCE(quantity_before,?1),
-                average_cost_before=COALESCE(average_cost_before,?2),
-                buy_price_before=COALESCE(buy_price_before,?3)
-             WHERE invoice_id=?4 AND product_id=?5 AND item_name=?6
-               AND quantity=?7 AND quantity_before IS NULL OR
-                   (invoice_id=?4 AND product_id=?5 AND item_name=?6 AND quantity=?7
-                    AND (average_cost_before IS NULL OR buy_price_before IS NULL))",
-            params![previous_quantity, previous_average, previous_buy_price, invoice_id, product_id, item_name, quantity]
+            "UPDATE invoice_items SET quantity_before=?1,average_cost_before=?2,buy_price_before=?3 WHERE id=?4",
+            params![previous_quantity, previous_average, previous_buy_price, item_id]
         ).map_err(|e| e.to_string())?;
         tx.execute("UPDATE products SET quantity=?1,average_cost=?2,buy_price=?3 WHERE id=?4",
             params![previous_quantity, previous_average, previous_buy_price, product_id]).map_err(|e| e.to_string())?;
