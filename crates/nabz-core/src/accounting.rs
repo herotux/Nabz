@@ -1445,9 +1445,9 @@ mod tests {
              FROM payment_allocations WHERE invoice_id=?1",[invoice],|r|Ok((r.get(0)?,r.get(1)?))
         ).unwrap();
         assert_eq!(allocations_before,(60,40));
+        let invoice_item_id:i64=connection.query_row("SELECT id FROM invoice_items WHERE invoice_id=?1",[invoice],|r|r.get(0)).unwrap();
         let (returned,refund)=return_sale_items(&mut connection,invoice,&[ReturnLineInput{
-            invoice_item_id:Some(connection.query_row("SELECT id FROM invoice_items WHERE invoice_id=?1",[invoice],|r|r.get(0)).unwrap()),
-            product_lookup:String::new(),quantity:1,
+            invoice_item_id:Some(invoice_item_id),product_lookup:String::new(),quantity:1,
         }],"cash").unwrap();
         assert_eq!((returned,refund),(50,50));
         let (paid,credit):(i64,i64)=connection.query_row("SELECT paid,credit_applied FROM invoices WHERE id=?1",[invoice],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
@@ -1457,7 +1457,7 @@ mod tests {
              FROM payment_allocations WHERE invoice_id=?1",[invoice],|r|Ok((r.get(0)?,r.get(1)?))
         ).unwrap();
         assert_eq!((paid,credit),(50,20));
-        assert_eq!(allocations_after,(10,20));
+        assert_eq!(allocations_after,(10,40));
         assert_eq!(paid,allocations_after.0+allocations_after.1);
         assert_eq!(contact,1);
         assert_eq!(product,1);
