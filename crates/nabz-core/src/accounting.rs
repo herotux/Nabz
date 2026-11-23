@@ -541,6 +541,19 @@ pub fn create_invoice_with_payment_split_idempotent(
         ).map_err(|e| e.to_string())?;
     }
 
+    // Hard control: every newly created inventory line must carry all four
+    // historical values required by reporting, returns, and safe voiding.
+    let incomplete_snapshots: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM invoice_items
+         WHERE invoice_id=?1 AND product_id IS NOT NULL
+           AND (unit_cost IS NULL OR quantity_before IS NULL
+                OR average_cost_before IS NULL OR buy_price_before IS NULL)",
+        [invoice_id], |row| row.get(0)
+    ).map_err(|e| e.to_string())?;
+    if incomplete_snapshots != 0 {
+        return Err("ثبت فاکتور متوقف شد: اسنپ‌شات تاریخی یکی از ردیف‌های انبار کامل نیست؛ هیچ تغییری ذخیره نشد.".into());
+    }
+
     tx.commit().map_err(|e| e.to_string())?;
     Ok(invoice_id)
 }
@@ -2176,6 +2189,47 @@ mod tests {
         let rows:i64=c.query_row("SELECT COUNT(*) FROM sales_return_items WHERE invoice_item_id IN (?1,?2)",rusqlite::params![item_ids[0],item_ids[1]],|r|r.get(0)).unwrap();
         assert_eq!(result,(100,0));
         assert_eq!((stock,total,rows),(7,150,2));
+    }
+ 
+    #[test]
+    fn legacy_sale_with_missing_inventory_snapshots_can_be_safely_voided_once() {
+        let mut connection = database();
+        create_contact(&connection, &ContactInput {
+            name: "مشتری اصلاح فاکتور قدیمی".into(), kind: "customer".into(),
+            phone: String::new(), opening_balance: 0, notes: String::new(),
+        }).unwrap();
+        create_product(&connection, &ProductInput {
+            name: "کالای قدیمی", code: "LEGACY-VOID", barcode: String::new(),
+            buy_price: 10, sell_price: 20, quantity: 5, min_quantity: 0,
+        }).unwrap();
+        let invoice = create_invoice(&mut connection, &InvoiceInput {
+            kind: "sale".into(), contact_name: "مشتری اصلاح فاکتور قدیمی".into(),
+            date: "2026-11-20".into(), discount: 0, paid: 0, method: "cash".into(),
+            notes: String::new(), lines: vec![InvoiceLineInput {
+                product_lookup: "LEGACY-VOID".into(), quantity: 2, unit_price: 20,
+            }],
+        }).unwrap();
+        connection.execute(
+            "UPDATE invoice_items SET unit_cost=NULL,quantity_before=NULL,
+             average_cost_before=NULL,buy_price_before=NULL WHERE invoice_id=?1",
+            [invoice],
+        ).unwrap();
+
+        void_invoice(&mut connection, invoice).unwrap();
+
+        let state: (i64,i64,i64,i64) = connection.query_row(
+            "SELECT p.quantity,p.average_cost,p.buy_price,i.voided
+             FROM products p JOIN invoice_items ii ON ii.product_id=p.id
+             JOIN invoices i ON i.id=ii.invoice_id WHERE i.id=?1",
+            [invoice], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)),
+        ).unwrap();
+        assert_eq!(state, (5,10,10,1));
+        let repaired: (Option<i64>,Option<i64>,Option<i64>) = connection.query_row(
+            "SELECT quantity_before,average_cost_before,buy_price_before
+             FROM invoice_items WHERE invoice_id=?1",
+            [invoice], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+        ).unwrap();
+        assert_eq!(repaired, (Some(5),Some(10),Some(10)));
     }
 
 }
