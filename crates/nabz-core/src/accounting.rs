@@ -831,11 +831,9 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
             if kind == "sale" && item_name.starts_with("خدمت:") { continue; }
             return Err(format!("ردیف «{item_name}» شناسهٔ انبار ندارد؛ ابطال امن ممکن نیست"));
         };
-        let previous_quantity = quantity_before.ok_or_else(|| format!("نسخهٔ قدیمی ردیف «{item_name}» snapshot موجودی ندارد؛ ابطال خودکار امن نیست"))?;
-        let previous_average = average_cost_before.ok_or_else(|| format!("نسخهٔ قدیمی ردیف «{item_name}» snapshot بهای میانگین ندارد؛ ابطال خودکار امن نیست"))?;
-        let previous_buy_price = buy_price_before.ok_or_else(|| format!("نسخهٔ قدیمی ردیف «{item_name}» snapshot قیمت خرید ندارد؛ ابطال خودکار امن نیست"))?;
-        let historical_unit_cost = unit_cost.ok_or_else(|| format!("ردیف «{item_name}» snapshot بهای تمام‌شده ندارد؛ ابطال خودکار امن نیست"))?;
-
+        // A sale's COGS snapshot is used by profit reports, not by inventory reversal.
+        // Missing sale stock snapshots may be reconstructed only at void time, and only
+        // when no later invoice, adjustment, or return touched this product.
         let later_invoice_movements: i64 = tx.query_row(
             "SELECT COUNT(*) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
              WHERE ii.product_id=?1 AND i.id>?2 AND i.voided=0",
@@ -859,6 +857,31 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
             |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
         ).optional().map_err(|e| e.to_string())?
             .ok_or(format!("کالای «{item_name}» پیدا نشد؛ ابطال امن ممکن نیست"))?;
+
+        // For legacy sales, sale creation never changes average_cost or buy_price.
+        // With all later movements ruled out, the current state is therefore the
+        // exact post-sale state. Reconstruct the pre-sale quantity by adding this
+        // line back. Iterating invoice lines in reverse also handles duplicate items.
+        let previous_quantity = match quantity_before {
+            Some(value) => value,
+            None if kind == "sale" => current_quantity.checked_add(quantity)
+                .ok_or("بازسازی snapshot موجودی بیش از ظرفیت عددی است")?,
+            None => return Err(format!("نسخهٔ قدیمی ردیف «{item_name}» snapshot موجودی ندارد؛ ابطال امن ممکن نیست")),
+        };
+        let previous_average = match average_cost_before {
+            Some(value) => value,
+            None if kind == "sale" => current_average,
+            None => return Err(format!("نسخهٔ قدیمی ردیف «{item_name}» snapshot بهای میانگین ندارد؛ ابطال امن ممکن نیست")),
+        };
+        let previous_buy_price = match buy_price_before {
+            Some(value) => value,
+            None if kind == "sale" => current_buy_price,
+            None => return Err(format!("نسخهٔ قدیمی ردیف «{item_name}» snapshot قیمت خرید ندارد؛ ابطال امن ممکن نیست")),
+        };
+        let historical_unit_cost = if kind == "purchase" {
+            Some(unit_cost.ok_or_else(|| format!("ردیف «{item_name}» snapshot بهای تمام‌شده ندارد؛ ابطال خودکار امن نیست"))?)
+        } else { None };
+
         let expected_quantity = if kind == "sale" {
             previous_quantity.checked_sub(quantity).ok_or("snapshot موجودی فروش نامعتبر است")?
         } else {
@@ -867,12 +890,23 @@ pub fn void_invoice(connection: &mut Connection, invoice_id: i64) -> Result<(), 
         let expected_average = if kind == "sale" {
             previous_average
         } else {
-            weighted_average_cost(previous_quantity, previous_average, quantity, historical_unit_cost)?
+            weighted_average_cost(previous_quantity, previous_average, quantity, historical_unit_cost.unwrap())?
         };
         let expected_buy_price = if kind == "sale" { previous_buy_price } else { unit_price };
         if current_quantity != expected_quantity || current_average != expected_average || current_buy_price != expected_buy_price {
             return Err(format!("موجودی یا بهای خرید «{item_name}» بعد از فاکتور تغییر کرده؛ ابطال امن متوقف شد"));
         }
+        // Persist reconstructed legacy snapshots so subsequent audits see complete data.
+        tx.execute(
+            "UPDATE invoice_items SET quantity_before=COALESCE(quantity_before,?1),
+                average_cost_before=COALESCE(average_cost_before,?2),
+                buy_price_before=COALESCE(buy_price_before,?3)
+             WHERE invoice_id=?4 AND product_id=?5 AND item_name=?6
+               AND quantity=?7 AND quantity_before IS NULL OR
+                   (invoice_id=?4 AND product_id=?5 AND item_name=?6 AND quantity=?7
+                    AND (average_cost_before IS NULL OR buy_price_before IS NULL))",
+            params![previous_quantity, previous_average, previous_buy_price, invoice_id, product_id, item_name, quantity]
+        ).map_err(|e| e.to_string())?;
         tx.execute("UPDATE products SET quantity=?1,average_cost=?2,buy_price=?3 WHERE id=?4",
             params![previous_quantity, previous_average, previous_buy_price, product_id]).map_err(|e| e.to_string())?;
     }
