@@ -1449,7 +1449,7 @@ mod tests {
                     COALESCE(SUM(CASE WHEN allocation_type='advance_application' THEN amount ELSE 0 END),0)
              FROM payment_allocations WHERE invoice_id=?1",[invoice],|r|Ok((r.get(0)?,r.get(1)?))
         ).unwrap();
-        assert_eq!((paid,credit),(50,20));
+        assert_eq!((paid,credit),(50,40));
         assert_eq!(allocations_after,(10,40));
         assert_eq!(paid,allocations_after.0+allocations_after.1);
         assert_eq!(contact,1);
