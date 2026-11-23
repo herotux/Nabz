@@ -2199,7 +2199,7 @@ mod tests {
             phone: String::new(), opening_balance: 0, notes: String::new(),
         }).unwrap();
         create_product(&connection, &ProductInput {
-            name: "کالای قدیمی", code: "LEGACY-VOID", barcode: String::new(),
+            name: "کالای قدیمی".into(), code: "LEGACY-VOID".into(), barcode: String::new(),
             buy_price: 10, sell_price: 20, quantity: 5, min_quantity: 0,
         }).unwrap();
         let invoice = create_invoice(&mut connection, &InvoiceInput {
