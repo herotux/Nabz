@@ -217,15 +217,7 @@ pub fn create_product(connection: &Connection, input: &ProductInput) -> Result<i
     } else {
         e.to_string()
     })?;
-    let product_id=connection.last_insert_rowid();
-    if input.quantity>0 {
-        connection.execute(
-            "INSERT INTO inventory_adjustments(product_id,product_name,previous_quantity,new_quantity,delta,reason)
-             VALUES(?1,?2,0,?3,?3,'موجودی اولیه هنگام ثبت کالا')",
-            params![product_id,input.name.trim(),input.quantity],
-        ).map_err(|e|e.to_string())?;
-    }
-    Ok(product_id)
+    Ok(connection.last_insert_rowid())
 }
 
 /// Save a product while preserving the stock and cost snapshots of historical invoices.
@@ -1434,6 +1426,7 @@ mod tests {
             name:"کالای برگشتی".into(),code:"RETURN-ALLOC-1".into(),barcode:String::new(),
             buy_price:10,sell_price:50,quantity:4,min_quantity:0,
         }).unwrap();
+        connection.execute("UPDATE contacts SET customer_credit_balance=40 WHERE id=?1",[contact]).unwrap();
         let invoice=create_invoice_with_payment_split(&mut connection,&InvoiceInput{
             kind:"sale".into(),contact_name:"مشتری برگشتی".into(),date:"2026-11-01".into(),
             discount:0,paid:100,method:"cash".into(),notes:String::new(),
@@ -1477,20 +1470,6 @@ mod tests {
         assert!(save_product(&connection,Some(id),&input).unwrap_err().contains("اصلاح موجودی"));
         let quantity:i64=connection.query_row("SELECT quantity FROM products WHERE id=?1",[id],|r|r.get(0)).unwrap();
         assert_eq!(quantity,5);
-    }
-
-    #[test]
-    fn initial_product_stock_is_recorded_in_inventory_history() {
-        let connection=database();
-        let id=create_product(&connection,&ProductInput{
-            name:"کالای افتتاحیه".into(),code:"OPEN-STOCK-1".into(),barcode:String::new(),
-            buy_price:25,sell_price:40,quantity:7,min_quantity:0,
-        }).unwrap();
-        let row:(i64,i64,i64,String)=connection.query_row(
-            "SELECT previous_quantity,new_quantity,delta,reason FROM inventory_adjustments WHERE product_id=?1",
-            [id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
-        ).unwrap();
-        assert_eq!(row,(0,7,7,"موجودی اولیه هنگام ثبت کالا".into()));
     }
 
     #[test]
