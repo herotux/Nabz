@@ -217,7 +217,15 @@ pub fn create_product(connection: &Connection, input: &ProductInput) -> Result<i
     } else {
         e.to_string()
     })?;
-    Ok(connection.last_insert_rowid())
+    let product_id=connection.last_insert_rowid();
+    if input.quantity>0 {
+        connection.execute(
+            "INSERT INTO inventory_adjustments(product_id,product_name,previous_quantity,new_quantity,delta,reason)
+             VALUES(?1,?2,0,?3,?3,'موجودی اولیه هنگام ثبت کالا')",
+            params![product_id,input.name.trim(),input.quantity],
+        ).map_err(|e|e.to_string())?;
+    }
+    Ok(product_id)
 }
 
 /// Save a product while preserving the stock and cost snapshots of historical invoices.
@@ -238,6 +246,12 @@ pub fn save_product(
         ).map_err(|e| e.to_string())?;
         if exists == 0 {
             return Err("کالا پیدا نشد".into());
+        }
+        let current_quantity:i64=connection.query_row(
+            "SELECT quantity FROM products WHERE id=?1",[id],|row|row.get(0)
+        ).map_err(|e|e.to_string())?;
+        if input.quantity!=current_quantity {
+            return Err("تغییر موجودی از فرم ویرایش کالا مجاز نیست؛ برای ثبت سابقه و علت، از عملیات «اصلاح موجودی انبار» استفاده کنید.".into());
         }
         let has_history: i64 = connection.query_row(
             "SELECT COUNT(*) FROM invoice_items WHERE product_id=?1",
@@ -1340,7 +1354,8 @@ pub fn profit_loss_report(connection: &Connection, from: &str, to: &str) -> Resu
          AND (?1='' OR i.invoice_date>=?1) AND (?2='' OR i.invoice_date<=?2)"
     )?;
     let uncosted_sales = sum(
-        "SELECT COALESCE(SUM(ii.line_total),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
+        "SELECT COALESCE(SUM(ii.line_total-COALESCE((SELECT SUM(sri.amount) FROM sales_return_items sri WHERE sri.invoice_item_id=ii.id),0)),0)
+         FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
          WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NULL
          AND ii.item_name NOT LIKE 'خدمت:%'
          AND (?1='' OR i.invoice_date>=?1) AND (?2='' OR i.invoice_date<=?2)"
@@ -1362,6 +1377,48 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
         connection
+    }
+
+    #[test]
+    fn editing_product_cannot_change_stock_without_an_inventory_adjustment() {
+        let connection=database();
+        let id=create_product(&connection,&ProductInput{
+            name:"کالای آزمایشی".into(),code:"STOCK-EDIT-1".into(),barcode:String::new(),
+            buy_price:10,sell_price:20,quantity:5,min_quantity:0,
+        }).unwrap();
+        let input=ProductInput{
+            name:"کالای آزمایشی".into(),code:"STOCK-EDIT-1".into(),barcode:String::new(),
+            buy_price:10,sell_price:20,quantity:4,min_quantity:0,
+        };
+        assert!(save_product(&connection,Some(id),&input).unwrap_err().contains("اصلاح موجودی"));
+        let quantity:i64=connection.query_row("SELECT quantity FROM products WHERE id=?1",[id],|r|r.get(0)).unwrap();
+        assert_eq!(quantity,5);
+    }
+
+    #[test]
+    fn initial_product_stock_is_recorded_in_inventory_history() {
+        let connection=database();
+        let id=create_product(&connection,&ProductInput{
+            name:"کالای افتتاحیه".into(),code:"OPEN-STOCK-1".into(),barcode:String::new(),
+            buy_price:25,sell_price:40,quantity:7,min_quantity:0,
+        }).unwrap();
+        let row:(i64,i64,i64,String)=connection.query_row(
+            "SELECT previous_quantity,new_quantity,delta,reason FROM inventory_adjustments WHERE product_id=?1",
+            [id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+        ).unwrap();
+        assert_eq!(row,(0,7,7,"موجودی اولیه هنگام ثبت کالا".into()));
+    }
+
+    #[test]
+    fn profit_loss_uncosted_sales_are_reduced_by_sales_returns() {
+        let connection=database();
+        connection.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,average_cost) VALUES('کالای بدون بها','UNCOSTED-1',10,20,0,0)",[]).unwrap();
+        connection.execute("INSERT INTO invoices(number,kind,contact_name,invoice_date,subtotal,total) VALUES(99001,'sale','مشتری','2026-11-01',100,100)",[]).unwrap();
+        connection.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost) VALUES(1,1,'کالای بدون بها',5,20,100,NULL)",[]).unwrap();
+        connection.execute("INSERT INTO sales_returns(invoice_id,amount) VALUES(1,40)",[]).unwrap();
+        connection.execute("INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(1,1,1,'کالای بدون بها',2,20,40)",[]).unwrap();
+        let report=profit_loss_report(&connection,"2026-11-01","2026-11-30").unwrap();
+        assert_eq!(report.uncosted_sales,60);
     }
 
     #[test]
