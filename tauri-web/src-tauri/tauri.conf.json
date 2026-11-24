@@ -13,7 +13,7 @@
     "windows": [
       {
         "title": "نبض | حسابداری",
-        "visible": false,
+        "visible": true,
         "width": 1360,
         "height": 900,
         "minWidth": 720,
