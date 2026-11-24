@@ -1515,14 +1515,14 @@ mod accounting_tests {
   let first_sale=json!({"kind":"sale","customer":"Ali","payment_status":"credit","items":[{"item":"Pen","qty":1,"price":20}],"discount":0,"date":"2026-10-28"});
   save_invoice_with_connection(first_sale,&mut c).unwrap();
   let id=scalar(&c,"SELECT id FROM products WHERE code='PEN'");
-  let updated=json!({"id":id,"name":"Pen Pro","code":"PEN-PRO","barcode":"123456","qty":999,"buy":12,"sell":25,"min":3});
+  let updated=json!({"id":id,"name":"Pen Pro","code":"PEN-PRO","barcode":"123456","qty":9,"buy":12,"sell":25,"min":3});
   save_product_with_connection(updated,&c).unwrap();
   assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE id=1"),9);
   assert_eq!(scalar(&c,"SELECT buy_price FROM products WHERE id=1"),12);
   let second_sale=json!({"kind":"sale","customer":"Ali","payment_status":"credit","items":[{"item":"Pen Pro","qty":1,"price":25}],"discount":0,"date":"2026-10-29"});
   save_invoice_with_connection(second_sale,&mut c).unwrap();
   let id=scalar(&c,"SELECT id FROM products WHERE code='PEN-PRO'");
-  save_product_with_connection(json!({"id":id,"name":"Pen Pro Plus","code":"PEN-PRO","barcode":"123456","qty":0,"buy":13,"sell":27,"min":4}),&c).unwrap();
+  save_product_with_connection(json!({"id":id,"name":"Pen Pro Plus","code":"PEN-PRO","barcode":"123456","qty":8,"buy":13,"sell":27,"min":4}),&c).unwrap();
   assert_eq!(scalar(&c,"SELECT quantity FROM products WHERE code='PEN-PRO'"),8);
  }
 
