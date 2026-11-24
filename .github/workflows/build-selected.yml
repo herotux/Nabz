@@ -1,0 +1,233 @@
+name: Nabz — Build selected branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit to build
+        required: true
+        default: main
+        type: string
+      target:
+        description: Build target
+        required: true
+        default: all
+        type: choice
+        options:
+          - desktop-arch
+          - raspberry-pi-arm64
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-arch:
+    if: inputs.target == 'desktop-arch' || inputs.target == 'all'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Validate ref input
+        env:
+          BUILD_REF: ${{ inputs.ref }}
+        run: |
+          set -e
+          if [[ -z "$BUILD_REF" || "$BUILD_REF" == -* || "$BUILD_REF" =~ [[:space:]] ]]; then
+            echo "Invalid ref input" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev libxdo-dev curl wget file patchelf libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev libglib2.0-dev docker.io
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri-web/src-tauri -> target
+      - name: Generate app icon
+        run: |
+          python3 - <<'PY'
+          import struct,zlib
+          from pathlib import Path
+          size=256; rows=[]
+          for y in range(size):
+            row=bytearray([0])
+            for x in range(size):
+              edge=min(x,y,size-1-x,size-1-y)
+              bg=(20,128,88,255) if edge>=10 else (13,105,71,255)
+              mark=(62<=x<=91 and 62<=y<=190) or (165<=x<=194 and 62<=y<=190)
+              mark=mark or (62<=x<=194 and abs(y-(190-(x-62)*128/132))<=14)
+              row.extend((245,249,255,255) if mark else bg)
+            rows.append(bytes(row))
+          def chunk(t,d): return struct.pack(">I",len(d))+t+d+struct.pack(">I",zlib.crc32(t+d)&0xffffffff)
+          png=b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack(">IIBBBBB",size,size,8,6,0,0,0))+chunk(b"IDAT",zlib.compress(b"".join(rows),9))+chunk(b"IEND",b"")
+          p=Path("tauri-web/src-tauri/icons/icon.png");p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(png)
+          PY
+      - name: Install frontend dependencies and bundled font
+        working-directory: tauri-web
+        run: |
+          npm install --no-audit --no-fund
+          cd ..
+          bash scripts/fetch-font.sh
+      - name: Test and build frontend
+        working-directory: tauri-web
+        env:
+          TAURI_ENV_PLATFORM: linux
+        run: npm run test && npm run build
+      - name: Test Rust core
+        run: cargo test --manifest-path tauri-web/src-tauri/Cargo.toml --lib
+      - name: Build executable
+        run: cargo build --release --manifest-path tauri-web/src-tauri/Cargo.toml --bin nabz-tauri --features custom-protocol
+      - name: Package Arch/Manjaro
+        run: |
+          set -eux
+          mkdir -p tauri-web/packaging/arch
+          install -Dm755 tauri-web/src-tauri/target/release/nabz-tauri tauri-web/packaging/arch/nabz-tauri
+          install -Dm644 tauri-web/src-tauri/icons/icon.png tauri-web/packaging/arch/nabz.png
+          install -Dm644 LICENSE tauri-web/packaging/arch/LICENSE
+          cat > tauri-web/packaging/arch/nabz.desktop <<'DESKTOP'
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=نبض
+          GenericName=حسابداری فروشگاهی
+          Comment=حسابداری فروشگاهی فارسی
+          Exec=nabz
+          Icon=nabz
+          Terminal=false
+          Categories=Office;Finance;
+          StartupNotify=true
+          DESKTOP
+          docker run --rm -v "$PWD/tauri-web/packaging/arch:/pkg" archlinux:latest bash -lc '
+            pacman -Syu --noconfirm --needed base-devel webkit2gtk-4.1 gtk3 openssl
+            useradd --create-home builder
+            chown -R builder:builder /pkg
+            cd /pkg
+            runuser -u builder -- makepkg --cleanbuild --noconfirm
+          '
+          sudo chown -R "$USER:$USER" tauri-web/packaging/arch
+          pkg=$(find tauri-web/packaging/arch -name '*.pkg.tar.zst' -type f -print -quit)
+          test -s "$pkg"
+          sha256sum "$pkg" > "$pkg.sha256"
+      - name: Upload Arch/Manjaro package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Arch-Manjaro-x86_64
+          path: |
+            tauri-web/packaging/arch/*.pkg.tar.zst
+            tauri-web/packaging/arch/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  raspberry-pi-arm64:
+    if: inputs.target == 'raspberry-pi-arm64' || inputs.target == 'all'
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Validate ref input
+        env:
+          BUILD_REF: ${{ inputs.ref }}
+        run: |
+          set -e
+          if [[ -z "$BUILD_REF" || "$BUILD_REF" == -* || "$BUILD_REF" =~ [[:space:]] ]]; then
+            echo "Invalid ref input" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Verify ARM runner
+        run: test "$(uname -m)" = "aarch64"
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev libxdo-dev curl wget file patchelf zip libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libgtk-3-dev libglib2.0-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri-web/src-tauri -> target
+      - name: Generate app icon
+        run: |
+          python3 - <<'PY'
+          import struct,zlib
+          from pathlib import Path
+          size=256; rows=[]
+          for y in range(size):
+            row=bytearray([0])
+            for x in range(size):
+              edge=min(x,y,size-1-x,size-1-y)
+              bg=(20,128,88,255) if edge>=10 else (13,105,71,255)
+              mark=(62<=x<=91 and 62<=y<=190) or (165<=x<=194 and 62<=y<=190)
+              mark=mark or (62<=x<=194 and abs(y-(190-(x-62)*128/132))<=14)
+              row.extend((245,249,255,255) if mark else bg)
+            rows.append(bytes(row))
+          def chunk(t,d): return struct.pack(">I",len(d))+t+d+struct.pack(">I",zlib.crc32(t+d)&0xffffffff)
+          png=b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack(">IIBBBBB",size,size,8,6,0,0,0))+chunk(b"IDAT",zlib.compress(b"".join(rows),9))+chunk(b"IEND",b"")
+          p=Path("tauri-web/src-tauri/icons/icon.png");p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(png)
+          PY
+      - name: Install frontend dependencies and font
+        working-directory: tauri-web
+        run: |
+          npm install --no-audit --no-fund
+          cd ..
+          bash scripts/fetch-font.sh
+      - name: Test and build frontend
+        working-directory: tauri-web
+        env:
+          TAURI_ENV_PLATFORM: linux
+        run: npm run test && npm run build
+      - name: Test Rust core
+        run: cargo test --manifest-path tauri-web/src-tauri/Cargo.toml --lib
+      - name: Build ARM64 executable
+        run: |
+          cargo build --release --manifest-path tauri-web/src-tauri/Cargo.toml --bin nabz-tauri --features custom-protocol
+          file tauri-web/src-tauri/target/release/nabz-tauri
+          readelf -h tauri-web/src-tauri/target/release/nabz-tauri | grep -q AArch64
+      - name: Assemble Raspberry Pi ZIP
+        run: |
+          set -eux
+          VERSION=$(node -p "require('./tauri-web/package.json').version")
+          STAGE="$RUNNER_TEMP/Nabz-Raspberry-Pi-ARM64"
+          mkdir -p "$STAGE/bin" "$STAGE/share/applications" "$STAGE/share/icons"
+          install -Dm755 tauri-web/src-tauri/target/release/nabz-tauri "$STAGE/bin/nabz"
+          install -Dm644 tauri-web/src-tauri/icons/icon.png "$STAGE/share/icons/nabz.png"
+          install -Dm644 LICENSE "$STAGE/LICENSE"
+          cat > "$STAGE/share/applications/nabz.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=نبض
+          GenericName=حسابداری فروشگاهی
+          Comment=حسابداری فروشگاهی فارسی
+          Exec=nabz
+          Icon=nabz
+          Terminal=false
+          Categories=Office;Finance;
+          StartupNotify=true
+          DESKTOP
+          cp tauri-web/packaging/raspberry-pi/install.sh "$STAGE/install.sh"
+          chmod +x "$STAGE/install.sh"
+          cat > "$STAGE/README-FA.txt" <<EOF
+          نصب نبض روی Raspberry Pi OS 64-bit
+          نسخه: $VERSION
+          معماری: ARM64/aarch64
+          فایل ZIP را استخراج و اجرا کن: ./install.sh
+          نصب‌کننده وابستگی‌ها را نصب کرده و داده‌های کاربر را حفظ می‌کند.
+          EOF
+          (cd "$RUNNER_TEMP" && zip -qr "Nabz-Raspberry-Pi-ARM64.zip" "Nabz-Raspberry-Pi-ARM64")
+          mv "$RUNNER_TEMP/Nabz-Raspberry-Pi-ARM64.zip" .
+          sha256sum Nabz-Raspberry-Pi-ARM64.zip > Nabz-Raspberry-Pi-ARM64.zip.sha256
+      - name: Upload Raspberry Pi artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Raspberry-Pi-ARM64
+          path: |
+            Nabz-Raspberry-Pi-ARM64.zip
+            Nabz-Raspberry-Pi-ARM64.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
