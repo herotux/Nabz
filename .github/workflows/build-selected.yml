@@ -274,6 +274,52 @@ jobs:
           (cd "$RUNNER_TEMP" && zip -qr "Nabz-Raspberry-Pi-ARM64.zip" "Nabz-Raspberry-Pi-ARM64")
           mv "$RUNNER_TEMP/Nabz-Raspberry-Pi-ARM64.zip" .
           sha256sum Nabz-Raspberry-Pi-ARM64.zip > Nabz-Raspberry-Pi-ARM64.zip.sha256
+      - name: Package Raspberry Pi Debian (.deb)
+        run: |
+          set -eux
+          VERSION="$(node -p "require('./tauri-web/package.json').version")"
+          STAGE="$RUNNER_TEMP/nabz-pi-deb"
+          mkdir -p "$STAGE/DEBIAN" "$STAGE/usr/bin" "$STAGE/usr/share/applications" "$STAGE/usr/share/icons/hicolor/256x256/apps" "$STAGE/usr/share/doc/nabz"
+          install -Dm755 tauri-web/src-tauri/target/release/nabz-tauri "$STAGE/usr/bin/nabz"
+          install -Dm644 tauri-web/src-tauri/icons/icon.png "$STAGE/usr/share/icons/hicolor/256x256/apps/nabz.png"
+          install -Dm644 LICENSE "$STAGE/usr/share/doc/nabz/copyright"
+          cat > "$STAGE/usr/share/applications/nabz.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=نبض
+          GenericName=حسابداری فروشگاهی
+          Comment=حسابداری فروشگاهی فارسی
+          Exec=nabz
+          Icon=nabz
+          Terminal=false
+          Categories=Office;Finance;
+          StartupNotify=true
+          DESKTOP
+          cat > "$STAGE/DEBIAN/control" <<EOF
+          Package: nabz
+          Version: $VERSION
+          Section: office
+          Priority: optional
+          Architecture: arm64
+          Maintainer: Herotux <herotux@users.noreply.github.com>
+          Depends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1, libssl3, libxdo3
+          Description: Persian RTL shop accounting application
+           Nabz is a Persian-language accounting application for shops.
+          EOF
+          dpkg-deb --build --root-owner-group "$STAGE" "Nabz_${VERSION}_arm64.deb"
+          dpkg-deb --info "Nabz_${VERSION}_arm64.deb"
+          dpkg-deb --contents "Nabz_${VERSION}_arm64.deb"
+          sha256sum "Nabz_${VERSION}_arm64.deb" > "Nabz_${VERSION}_arm64.deb.sha256"
+      - name: Upload Raspberry Pi Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Raspberry-Pi-Debian-arm64
+          path: |
+            Nabz_*_arm64.deb
+            Nabz_*_arm64.deb.sha256
+          if-no-files-found: error
+          retention-days: 30
       - name: Upload Raspberry Pi artifact
         uses: actions/upload-artifact@v4
         with:
