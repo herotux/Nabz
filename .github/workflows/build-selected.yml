@@ -15,6 +15,7 @@ on:
         type: choice
         options:
           - desktop-arch
+          - desktop-deb
           - raspberry-pi-arm64
           - all
 
@@ -23,7 +24,7 @@ permissions:
 
 jobs:
   desktop-arch:
-    if: inputs.target == 'desktop-arch' || inputs.target == 'all'
+    if: inputs.target == 'desktop-arch' || inputs.target == 'desktop-deb' || inputs.target == 'all'
     runs-on: ubuntu-22.04
     steps:
       - name: Validate ref input
@@ -83,6 +84,7 @@ jobs:
       - name: Build executable
         run: cargo build --release --manifest-path tauri-web/src-tauri/Cargo.toml --bin nabz-tauri --features custom-protocol
       - name: Package Arch/Manjaro
+        if: inputs.target == 'desktop-arch' || inputs.target == 'all'
         run: |
           set -eux
           mkdir -p tauri-web/packaging/arch
@@ -114,12 +116,62 @@ jobs:
           test -s "$pkg"
           sha256sum "$pkg" > "$pkg.sha256"
       - name: Upload Arch/Manjaro package
+        if: inputs.target == 'desktop-arch' || inputs.target == 'all'
         uses: actions/upload-artifact@v4
         with:
           name: Nabz-Arch-Manjaro-x86_64
           path: |
             tauri-web/packaging/arch/*.pkg.tar.zst
             tauri-web/packaging/arch/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Package Debian / Ubuntu (.deb)
+        if: inputs.target == 'desktop-deb' || inputs.target == 'all'
+        run: |
+          set -eux
+          VERSION="$(node -p "require('./tauri-web/package.json').version")"
+          STAGE="$RUNNER_TEMP/nabz-deb"
+          mkdir -p "$STAGE/DEBIAN" "$STAGE/usr/bin" "$STAGE/usr/share/applications" "$STAGE/usr/share/icons/hicolor/256x256/apps" "$STAGE/usr/share/doc/nabz"
+          install -Dm755 tauri-web/src-tauri/target/release/nabz-tauri "$STAGE/usr/bin/nabz"
+          install -Dm644 tauri-web/src-tauri/icons/icon.png "$STAGE/usr/share/icons/hicolor/256x256/apps/nabz.png"
+          install -Dm644 LICENSE "$STAGE/usr/share/doc/nabz/copyright"
+          cat > "$STAGE/usr/share/applications/nabz.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=نبض
+          GenericName=حسابداری فروشگاهی
+          Comment=حسابداری فروشگاهی فارسی
+          Exec=nabz
+          Icon=nabz
+          Terminal=false
+          Categories=Office;Finance;
+          StartupNotify=true
+          DESKTOP
+          cat > "$STAGE/DEBIAN/control" <<EOF
+          Package: nabz
+          Version: $VERSION
+          Section: office
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Herotux <herotux@users.noreply.github.com>
+          Depends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1, libssl3, libxdo3
+          Description: Persian RTL shop accounting application
+           Nabz is a Persian-language accounting application for shops.
+          EOF
+          dpkg-deb --build --root-owner-group "$STAGE" "Nabz_${VERSION}_amd64.deb"
+          dpkg-deb --info "Nabz_${VERSION}_amd64.deb"
+          dpkg-deb --contents "Nabz_${VERSION}_amd64.deb"
+          sha256sum "Nabz_${VERSION}_amd64.deb" > "Nabz_${VERSION}_amd64.deb.sha256"
+      - name: Upload Debian package
+        if: inputs.target == 'desktop-deb' || inputs.target == 'all'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nabz-Debian-Ubuntu-amd64
+          path: |
+            Nabz_*.deb
+            Nabz_*.deb.sha256
           if-no-files-found: error
           retention-days: 30
 
