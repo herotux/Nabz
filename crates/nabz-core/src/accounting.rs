@@ -239,6 +239,12 @@ pub fn save_product(
         if exists == 0 {
             return Err("کالا پیدا نشد".into());
         }
+        let current_quantity:i64=connection.query_row(
+            "SELECT quantity FROM products WHERE id=?1",[id],|row|row.get(0)
+        ).map_err(|e|e.to_string())?;
+        if input.quantity!=current_quantity {
+            return Err("تغییر موجودی از فرم ویرایش کالا مجاز نیست؛ برای ثبت سابقه و علت، از عملیات «اصلاح موجودی انبار» استفاده کنید.".into());
+        }
         let has_history: i64 = connection.query_row(
             "SELECT COUNT(*) FROM invoice_items WHERE product_id=?1",
             [id],
@@ -569,6 +575,46 @@ pub struct ReturnLineInput {
 
 /// Process a partial sale return, restore stock, and create any cash refund
 /// atomically. The calculation and validation are shared by the Tauri application.
+/// Reduce the live allocation attached to an invoice when a return refunds
+/// cash or restores previously applied advance credit. The refund/return tables
+/// remain the audit record; allocations describe only the amount still applied.
+fn reduce_invoice_allocations(
+    tx: &rusqlite::Transaction<'_>,
+    invoice_id: i64,
+    allocation_type: &str,
+    mut amount: i64,
+) -> Result<(), String> {
+    if amount < 0 || !["invoice", "advance_application"].contains(&allocation_type) {
+        return Err("نوع یا مبلغ معکوس‌سازی تخصیص معتبر نیست".into());
+    }
+    if amount == 0 { return Ok(()); }
+    let rows = {
+        let mut statement = tx.prepare(
+            "SELECT id,amount FROM payment_allocations
+             WHERE invoice_id=?1 AND allocation_type=?2 ORDER BY id DESC"
+        ).map_err(|e|e.to_string())?;
+        let mapped = statement.query_map(params![invoice_id,allocation_type], |row| {
+            Ok((row.get::<_,i64>(0)?,row.get::<_,i64>(1)?))
+        }).map_err(|e|e.to_string())?;
+        mapped.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?
+    };
+    for (id, allocated) in rows {
+        if amount == 0 { break; }
+        let reversed = amount.min(allocated);
+        if reversed == allocated {
+            tx.execute("DELETE FROM payment_allocations WHERE id=?1",[id]).map_err(|e|e.to_string())?;
+        } else {
+            tx.execute("UPDATE payment_allocations SET amount=amount-?1 WHERE id=?2",
+                params![reversed,id]).map_err(|e|e.to_string())?;
+        }
+        amount -= reversed;
+    }
+    if amount != 0 {
+        return Err(format!("تخصیص‌های فاکتور #{invoice_id} برای معکوس‌سازی مبلغ کافی نیستند؛ عملیات برگشت ذخیره نشد"));
+    }
+    Ok(())
+}
+
 pub fn return_sale_items(
     connection: &mut Connection,
     invoice_id: i64,
@@ -657,6 +703,8 @@ pub fn return_sale_items(
         .and_then(|value| value.checked_sub(credit_refund))
         .ok_or("محاسبهٔ بازپرداخت برگشت فروش نامعتبر است")?;
     let new_discount = new_subtotal - new_total;
+    reduce_invoice_allocations(&tx,invoice_id,"invoice",refund)?;
+    reduce_invoice_allocations(&tx,invoice_id,"advance_application",credit_refund)?;
     tx.execute(
         "INSERT INTO sales_returns(invoice_id,amount,notes,credit_refund) VALUES(?1,?2,?3,?4)",
         params![invoice_id, credit, format!("برگشت جزئی فاکتور #{invoice_id}"), credit_refund],
@@ -764,6 +812,8 @@ pub fn return_purchase_items(
         .and_then(|value| value.checked_sub(credit_refund))
         .ok_or("محاسبهٔ بازپرداخت مرجوعی خرید نامعتبر است")?;
     let new_discount=new_subtotal-new_total;
+    reduce_invoice_allocations(&tx,invoice_id,"invoice",supplier_refund)?;
+    reduce_invoice_allocations(&tx,invoice_id,"advance_application",credit_refund)?;
     tx.execute("INSERT INTO purchase_returns(invoice_id,amount,notes,credit_refund) VALUES(?1,?2,?3,?4)",params![invoice_id,credit,format!("مرجوعی فاکتور خرید #{invoice_id}"),credit_refund]).map_err(|e|e.to_string())?;
     let return_id=tx.last_insert_rowid();
     if credit_refund > 0 {
@@ -1340,7 +1390,8 @@ pub fn profit_loss_report(connection: &Connection, from: &str, to: &str) -> Resu
          AND (?1='' OR i.invoice_date>=?1) AND (?2='' OR i.invoice_date<=?2)"
     )?;
     let uncosted_sales = sum(
-        "SELECT COALESCE(SUM(ii.line_total),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
+        "SELECT COALESCE(SUM(ii.line_total-COALESCE((SELECT SUM(sri.amount) FROM sales_return_items sri WHERE sri.invoice_item_id=ii.id),0)),0)
+         FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
          WHERE i.kind='sale' AND i.voided=0 AND ii.unit_cost IS NULL
          AND ii.item_name NOT LIKE 'خدمت:%'
          AND (?1='' OR i.invoice_date>=?1) AND (?2='' OR i.invoice_date<=?2)"
@@ -1362,6 +1413,75 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         initialize(&connection).unwrap();
         connection
+    }
+
+    #[test]
+    fn sales_return_reduces_cash_and_advance_allocations_to_match_invoice_paid() {
+        let mut connection=database();
+        let contact=create_contact(&connection,&ContactInput{
+            name:"مشتری برگشتی".into(),kind:"customer".into(),phone:String::new(),
+            opening_balance:0,notes:String::new(),
+        }).unwrap();
+        let product=create_product(&connection,&ProductInput{
+            name:"کالای برگشتی".into(),code:"RETURN-ALLOC-1".into(),barcode:String::new(),
+            buy_price:10,sell_price:50,quantity:4,min_quantity:0,
+        }).unwrap();
+        connection.execute("UPDATE contacts SET customer_credit_balance=40 WHERE id=?1",[contact]).unwrap();
+        let invoice=create_invoice_with_payment_split(&mut connection,&InvoiceInput{
+            kind:"sale".into(),contact_name:"مشتری برگشتی".into(),date:"2026-11-01".into(),
+            discount:0,paid:100,method:"cash".into(),notes:String::new(),
+            lines:vec![InvoiceLineInput{product_lookup:"RETURN-ALLOC-1".into(),quantity:2,unit_price:50}],
+        },60,40).unwrap();
+        let allocations_before:(i64,i64)=connection.query_row(
+            "SELECT COALESCE(SUM(CASE WHEN allocation_type='invoice' THEN amount ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN allocation_type='advance_application' THEN amount ELSE 0 END),0)
+             FROM payment_allocations WHERE invoice_id=?1",[invoice],|r|Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        assert_eq!(allocations_before,(60,40));
+        let invoice_item_id:i64=connection.query_row("SELECT id FROM invoice_items WHERE invoice_id=?1",[invoice],|r|r.get(0)).unwrap();
+        let (returned,refund)=return_sale_items(&mut connection,invoice,&[ReturnLineInput{
+            invoice_item_id:Some(invoice_item_id),product_lookup:String::new(),quantity:1,
+        }],"cash").unwrap();
+        assert_eq!((returned,refund),(50,50));
+        let (paid,credit):(i64,i64)=connection.query_row("SELECT paid,credit_applied FROM invoices WHERE id=?1",[invoice],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        let allocations_after:(i64,i64)=connection.query_row(
+            "SELECT COALESCE(SUM(CASE WHEN allocation_type='invoice' THEN amount ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN allocation_type='advance_application' THEN amount ELSE 0 END),0)
+             FROM payment_allocations WHERE invoice_id=?1",[invoice],|r|Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        assert_eq!((paid,credit),(50,40));
+        assert_eq!(allocations_after,(10,40));
+        assert_eq!(paid,allocations_after.0+allocations_after.1);
+        assert_eq!(contact,1);
+        assert_eq!(product,1);
+    }
+
+    #[test]
+    fn editing_product_cannot_change_stock_without_an_inventory_adjustment() {
+        let connection=database();
+        let id=create_product(&connection,&ProductInput{
+            name:"کالای آزمایشی".into(),code:"STOCK-EDIT-1".into(),barcode:String::new(),
+            buy_price:10,sell_price:20,quantity:5,min_quantity:0,
+        }).unwrap();
+        let input=ProductInput{
+            name:"کالای آزمایشی".into(),code:"STOCK-EDIT-1".into(),barcode:String::new(),
+            buy_price:10,sell_price:20,quantity:4,min_quantity:0,
+        };
+        assert!(save_product(&connection,Some(id),&input).unwrap_err().contains("اصلاح موجودی"));
+        let quantity:i64=connection.query_row("SELECT quantity FROM products WHERE id=?1",[id],|r|r.get(0)).unwrap();
+        assert_eq!(quantity,5);
+    }
+
+    #[test]
+    fn profit_loss_uncosted_sales_are_reduced_by_sales_returns() {
+        let connection=database();
+        connection.execute("INSERT INTO products(name,code,buy_price,sell_price,quantity,average_cost) VALUES('کالای بدون بها','UNCOSTED-1',10,20,0,0)",[]).unwrap();
+        connection.execute("INSERT INTO invoices(number,kind,contact_name,invoice_date,subtotal,total) VALUES(99001,'sale','مشتری','2026-11-01',100,100)",[]).unwrap();
+        connection.execute("INSERT INTO invoice_items(invoice_id,product_id,item_name,quantity,unit_price,line_total,unit_cost) VALUES(1,1,'کالای بدون بها',5,20,100,NULL)",[]).unwrap();
+        connection.execute("INSERT INTO sales_returns(invoice_id,amount) VALUES(1,40)",[]).unwrap();
+        connection.execute("INSERT INTO sales_return_items(return_id,invoice_item_id,product_id,item_name,quantity,unit_price,amount) VALUES(1,1,1,'کالای بدون بها',2,20,40)",[]).unwrap();
+        let report=profit_loss_report(&connection,"2026-11-01","2026-11-30").unwrap();
+        assert_eq!(report.uncosted_sales,60);
     }
 
     #[test]
